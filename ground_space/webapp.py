@@ -400,7 +400,11 @@ class GroundSpaceApp:
         ]
 
     def bootstrap(self) -> dict[str, Any]:
-        return {"agents": self.agents(), "tasks": self.tasks(), "conversations": self.conversations,
+        # Snapshot chat history under lock while multiple model replies are arriving.
+        with self.lock:
+            history = {key: [dict(item) for item in records]
+                       for key, records in self.conversations.items()}
+        return {"agents": self.agents(), "tasks": self.tasks(), "conversations": history,
                 "models": self.catalog(), "workspaces": self.workspaces.snapshot(),
                 "paid_api_usage_aud": 0}
 
