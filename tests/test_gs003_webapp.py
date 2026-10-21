@@ -291,6 +291,30 @@ class GS003WebAppTests(unittest.TestCase):
                 self.assertNotIn("path", task["payload"])
                 self.assertEqual(group["id"], task["payload"]["group_id"])
 
+    def test_group_execution_is_sequential_and_in_member_order(self):
+        group = self.post_json("/api/groups/create", {
+            "name": "Sequential", "models": ["qwen2.5-coder:3b"],
+        })
+        calls = []
+        with patch.object(self.app, "_process_and_record",
+                          side_effect=lambda task_id: calls.append(task_id)):
+            self.app._process_group(["first", "second", "third"])
+        self.assertEqual(["first", "second", "third"], calls)
+        self.assertEqual("sequential", group["execution"])
+
+    def test_group_rejects_unknown_project_and_unauthorized_folder(self):
+        with self.assertRaises(urllib.error.HTTPError) as invalid:
+            self.post_json("/api/groups/create", {
+                "name": "Bad project", "models": ["qwen2.5-coder:3b"],
+                "project_id": "project-does-not-exist",
+            })
+        self.assertEqual(400, invalid.exception.code)
+        with self.assertRaises(urllib.error.HTTPError) as folder:
+            self.post_json("/api/projects/add", {
+                "path": str(self.state_dir),
+            })
+        self.assertEqual(400, folder.exception.code)
+
     def test_group_notes_and_invalid_members_never_dispatch(self):
         group = self.post_json("/api/groups/create", {
             "name": "Milestones", "models": ["qwen2.5-coder:3b"],
