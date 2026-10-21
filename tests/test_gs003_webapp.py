@@ -17,7 +17,7 @@ class GS003WebAppTests(unittest.TestCase):
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.state_dir = Path(self.temporary.name)
-        self.app = GroundSpaceApp(self.state_dir, "test-owner-token", ollama_endpoint="http://127.0.0.1:1")
+        self.app = GroundSpaceApp(self.state_dir, ollama_endpoint="http://127.0.0.1:1")
         self.server = create_server(self.app, 0)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -51,16 +51,13 @@ class GS003WebAppTests(unittest.TestCase):
             self.post_json("/api/chat", {"agent": "administrator", "prompt": "help"}, csrf=False)
         self.assertEqual(403, caught.exception.code)
 
-    def test_approval_requires_authentication_and_dispatches_async(self):
+    def test_chat_auto_approves_and_dispatches_async(self):
         created = self.post_json("/api/chat", {"agent": "administrator", "prompt": "help",
                                                 "conversation_id": "web-test"})
         task_id = created["task"]["task_id"]
-        self.assertEqual("pending", created["task"]["approval"]["status"])
-        with self.assertRaises(urllib.error.HTTPError) as caught:
-            self.post_json(f"/api/tasks/{task_id}/approve", {}, token="wrong-token")
-        self.assertEqual(401, caught.exception.code)
-        accepted = self.post_json(f"/api/tasks/{task_id}/approve", {}, token="test-owner-token")
-        self.assertEqual("approved", accepted["task"]["approval"]["status"])
+        self.assertEqual("approved", created["task"]["approval"]["status"])
+        self.assertEqual("automatic", created["task"]["approval"]["method"])
+        self.assertEqual("ground-space-local-chat", created["task"]["approval"]["owner"])
         deadline = time.monotonic() + 4
         task = {}
         while time.monotonic() < deadline:
@@ -71,10 +68,28 @@ class GS003WebAppTests(unittest.TestCase):
         self.assertEqual("completed", task.get("status"))
         self.assertTrue(task["result"]["read_only"])
 
+    def test_manual_approval_endpoint_is_removed(self):
+        created = self.post_json("/api/chat", {"agent": "administrator", "prompt": "help",
+                                                "conversation_id": "legacy-approval"})
+        task_id = created["task"]["task_id"]
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post_json(f"/api/tasks/{task_id}/approve", {})
+        self.assertEqual(404, caught.exception.code)
+
+    def test_qwen_stays_proposal_only_when_auto_approved(self):
+        created = self.post_json("/api/chat", {"agent": "qwen", "prompt": "Explain a queue",
+                                                "request_type": "explanation",
+                                                "required_permissions": ["write"],
+                                                "conversation_id": "qwen-security"})
+        task = created["task"]
+        self.assertEqual("approved", task["approval"]["status"])
+        self.assertEqual(["read", "propose"], task["required_permissions"])
+        self.assertEqual("qwen-proposal", task["requested_worker"])
+
     def test_private_history_survives_app_restart_and_is_bounded(self):
         for index in range(30):
             self.app.add_history("bounded", "user", f"message {index}")
-        restored = GroundSpaceApp(self.state_dir, "new-token", ollama_endpoint="http://127.0.0.1:1")
+        restored = GroundSpaceApp(self.state_dir, ollama_endpoint="http://127.0.0.1:1")
         self.assertEqual(24, len(restored.conversations["bounded"]))
         self.assertEqual("message 29", restored.conversations["bounded"][-1]["content"])
 
