@@ -493,6 +493,15 @@ class GroundSpaceApp:
 class GroundSpaceHandler(BaseHTTPRequestHandler):
     server_version = "GroundSpace/0.3"
 
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # Browsers can cancel an in-flight /api/bootstrap poll on refresh or
+            # navigation. This is a client disconnect, not a server failure.
+            # Suppress only these disconnection errors; other faults must remain visible.
+            pass
+
     @property
     def app(self) -> GroundSpaceApp:
         return self.server.app  # type: ignore[attr-defined]
