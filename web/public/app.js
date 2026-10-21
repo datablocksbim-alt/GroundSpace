@@ -24,7 +24,7 @@ function setAgent(agent){
   $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':'TASK STATUS · READ';
   $('#requestType').hidden=agent!=='qwen';
   $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';
-  renderWorkspaces();renderMessages();updateComposerAvailability();
+  renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
 }
 function selectGroup(groupId){
   const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
@@ -39,7 +39,7 @@ function selectGroup(groupId){
   $('#requestType').hidden=false;
   $('#permissionPill').textContent='COORDINATOR · READ / PROPOSE';
   $('#prompt').placeholder='Ask Coordinator, type /goal, or mention @Qwen…';
-  renderWorkspaces();renderMessages();updateComposerAvailability();
+  renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
 }
 function chooseProject(projectId){
   state.projectId=projectId;
@@ -137,6 +137,39 @@ function renderWorkspaces(){
     selector.dataset.optionsKey=signature;
   }
   selector.value=current;
+}
+function activeAgentEntry(name,detail,available=true,kind='model'){
+  const initials=kind==='coordinator'?'CO':name.split(/[^A-Za-z0-9]+/).filter(Boolean).map(part=>part[0]).join('').slice(0,2).toUpperCase()||'AI';
+  return '<div class="active-agent '+esc(kind)+'"><span class="active-agent-avatar">'+esc(initials)+
+    '</span><span><b>'+esc(name)+'</b><small>'+esc(detail)+'</small></span><i class="agent-presence '+
+    (available?'':'offline')+'" title="'+esc(available?'Available':'Offline')+'"></i></div>';
+}
+function renderActiveAgents(){
+  const root=$('#activeAgentList');
+  if(!root)return;
+  const registered=new Map((state.data?.models?.registered||[]).map(item=>[item.model,item]));
+  let entries=[];
+  let note='Participants available in this conversation.';
+  if(state.agent==='group'){
+    const group=(state.data?.workspaces?.groups||[]).find(item=>item.id===state.groupId);
+    if(group){
+      entries.push(activeAgentEntry('Coordinator','Default group router',true,'coordinator'));
+      entries.push(...group.models.map(model=>{
+        const item=registered.get(model);
+        return activeAgentEntry(item?.label||model,item?.role||'Proposal-only',Boolean(item?.available));
+      }));
+      note=group.models.length+' group participant'+(group.models.length===1?'':'s')+' · Replies run sequentially.';
+    }
+  }else if(state.agent==='qwen'){
+    const item=registered.get(state.selectedModel);
+    if(item)entries.push(activeAgentEntry(item.label||item.model,item.role||'Proposal-only',Boolean(item.available)));
+    note='Selected local model for this direct conversation.';
+  }else{
+    entries.push(activeAgentEntry('Administrator','Read-only task operations',true,'coordinator'));
+    note='Administrator reads Ground Space task state only.';
+  }
+  root.innerHTML=entries.join('')||'<p class="rail-empty">No active agents</p>';
+  $('#activeAgentNote').textContent=note;
 }
 function projectOptions(selected){
   return '<option value="">No project</option>'+
@@ -271,7 +304,7 @@ async function refresh(){
       }
     }
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
-    renderModels();renderWorkspaces();renderMessages();renderAgents();renderTasks();
+    renderModels();renderWorkspaces();renderMessages();renderActiveAgents();renderAgents();renderTasks();
   }finally{state.refreshing=false;}
 }
 async function submit(event){
@@ -306,6 +339,50 @@ function chooseSlash(kind){
   updateComposerAvailability();
   $('#prompt').focus();
 }
+function groupMentionOptions(){
+  if(state.agent!=='group'||!state.groupId)return [];
+  const group=(state.data?.workspaces?.groups||[]).find(item=>item.id===state.groupId);
+  if(!group)return [];
+  const models=group.models||[];
+  const options=[{token:'@Coordinator',label:'Coordinator',detail:'Default group planner'}];
+  for(const model of models){
+    const lower=model.toLowerCase();
+    let token='@'+model;
+    let label=model;
+    if(lower.startsWith('qwen2.5-coder')){token='@Qwen';label='Qwen';}
+    else if(lower.startsWith('granite')){token='@Granite';label='Granite';}
+    else if(lower.startsWith('ministral')){token='@Ministral';label='Ministral';}
+    options.push({token,label,detail:model});
+  }
+  return options.filter((item,index,all)=>all.findIndex(other=>other.token.toLowerCase()===item.token.toLowerCase())===index);
+}
+function mentionQuery(){
+  if(state.agent!=='group')return null;
+  const value=$('#prompt').value;
+  const caret=$('#prompt').selectionStart??value.length;
+  const before=value.slice(0,caret);
+  const match=before.match(/(^|\s)@([A-Za-z0-9._:/-]*)$/);
+  return match?{query:match[2].toLowerCase(),start:caret-match[2].length-1,end:caret}:null;
+}
+function updateMentionMenu(){
+  const match=mentionQuery();
+  const menu=$('#mentionMenu');
+  if(!match){menu.hidden=true;menu.innerHTML='';return;}
+  const options=groupMentionOptions().filter(item=>item.token.slice(1).toLowerCase().startsWith(match.query));
+  menu.innerHTML=options.map(item=>'<button type="button" data-mention="'+esc(item.token)+
+    '"><span>'+esc(item.token)+'</span><small>'+esc(item.detail)+'</small></button>').join('');
+  menu.hidden=options.length===0;
+}
+function chooseMention(token){
+  const match=mentionQuery();
+  if(!match)return;
+  const field=$('#prompt');
+  field.value=field.value.slice(0,match.start)+token+' '+field.value.slice(match.end);
+  const caret=match.start+token.length+1;
+  field.setSelectionRange(caret,caret);
+  $('#mentionMenu').hidden=true;
+  field.focus();
+}
 function updateSlashMenu(){
   const value=$('#prompt').value.trim();
   const active=/^\/[a-z]*$/i.test(value);
@@ -317,22 +394,31 @@ function updateSlashMenu(){
     if(visible)count++;
   });
   $('#slashMenu').hidden=count===0;
+  updateMentionMenu();
   updateComposerAvailability();
 }
 $('#prompt').addEventListener('input',updateSlashMenu);
 $('#prompt').addEventListener('keydown',event=>{
-  if(event.key==='Escape'){$('#slashMenu').hidden=true;return;}
+  if(event.key==='Escape'){$('#slashMenu').hidden=true;$('#mentionMenu').hidden=true;return;}
+  if(event.key==='Enter'&&!event.shiftKey&&!$('#mentionMenu').hidden){
+    const first=$$('#mentionMenu button[data-mention]').find(button=>!button.hidden);
+    if(first){event.preventDefault();chooseMention(first.dataset.mention);return;}
+  }
   if(event.key==='Enter'&&!event.shiftKey&&!$('#slashMenu').hidden){
     const first=$$('#slashMenu button[data-slash]').find(button=>!button.hidden);
     if(first){event.preventDefault();chooseSlash(first.dataset.slash);}
   }
+});
+$('#mentionMenu').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-mention]');
+  if(button)chooseMention(button.dataset.mention);
 });
 $('#slashMenu').addEventListener('click',event=>{
   const button=event.target.closest('button[data-slash]');
   if(button)chooseSlash(button.dataset.slash);
 });
 
-$('#modelSelect').addEventListener('change',()=>{state.selectedModel=$('#modelSelect').value;localStorage.setItem('gs_model',state.selectedModel);});
+$('#modelSelect').addEventListener('change',()=>{state.selectedModel=$('#modelSelect').value;localStorage.setItem('gs_model',state.selectedModel);renderActiveAgents();});
 $('#performanceSelect').addEventListener('change',()=>{state.performance=$('#performanceSelect').value;localStorage.setItem('gs_performance',state.performance);});
 $('#addModelButton').addEventListener('click',async()=>{
   const model=$('#availableModel').value;

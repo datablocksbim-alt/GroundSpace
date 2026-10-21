@@ -67,6 +67,7 @@
                 <button type="button" data-slash="goal"><span>/goal</span><small>Save a goal in this conversation</small></button>
                 <button type="button" data-slash="milestone"><span>/milestone</span><small>Record a project milestone</small></button>
               </div>
+              <div id="mentionMenu" class="slash-menu mention-menu" aria-label="Mention an AI participant" hidden></div>
               <div class="composer-foot">
                 <div class="chat-options" aria-label="AI options and capabilities">
                   <label class="sr-only" for="requestType">AI capability</label>
@@ -87,6 +88,11 @@
               </div>
             </form>
           </div>
+          <aside class="active-agent-panel" aria-label="Active agents">
+            <div class="active-agent-heading"><p class="eyebrow">Current channel</p><h2>Active agents</h2></div>
+            <div id="activeAgentList" class="active-agent-list"></div>
+            <p class="active-agent-note" id="activeAgentNote">Participants available in this conversation.</p>
+          </aside>
         </div>
       </section>
 

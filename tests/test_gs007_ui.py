@@ -38,6 +38,24 @@ class GS007UITests(unittest.TestCase):
         self.assertIn("/api/groups/update", self.js)
         self.assertIn("/api/groups/send", self.js)
 
+    def test_group_participants_are_visible_and_mentions_are_discoverable(self):
+        self.assertIn('id="mentionMenu"', self.html)
+        self.assertIn('data-mention', self.js)
+        self.assertIn('groupMentionOptions', self.js)
+        self.assertIn('@Coordinator', self.js)
+        self.assertIn('@Qwen', self.js)
+        self.assertIn('@Granite', self.js)
+        self.assertIn('.member-option input[type="checkbox"]', self.css)
+        self.assertIn('width:16px', self.css)
+
+    def test_active_agent_panel_tracks_current_group(self):
+        self.assertIn('activeAgentList', self.parser.ids)
+        self.assertIn('activeAgentNote', self.parser.ids)
+        self.assertIn('renderActiveAgents', self.js)
+        self.assertIn("group.models.map", self.js)
+        self.assertIn('Coordinator', self.js)
+        self.assertIn('.active-agent-panel', self.css)
+
     def test_project_folder_picker_and_channel_switcher(self):
         for key in ("projectSelect", "projectDialog", "projectPath", "projectList",
                     "browseRoots", "folderPicker", "folderEntries", "folderUp"):

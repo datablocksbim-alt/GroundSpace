@@ -34,6 +34,11 @@ class CoordinatorRoutingTests(unittest.TestCase):
         self.assertEqual(route.models, (MODELS[0], MODELS[2]))
         self.assertFalse(route.coordinator)
 
+    def test_visible_ui_aliases_route_to_group_participants(self):
+        self.assertEqual(route_group_message("@Qwen please review", MODELS).models, (MODELS[0],))
+        self.assertEqual(route_group_message("@Granite please review", MODELS).models, (MODELS[2],))
+        self.assertTrue(route_group_message("@Coordinator summarize", MODELS).coordinator)
+
     def test_unconnected_cloud_cannot_fallback(self):
         with self.assertRaisesRegex(ValueError, "not connected"):
             route_group_message("@Claude hi", MODELS)
