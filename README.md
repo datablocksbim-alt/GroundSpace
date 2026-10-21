@@ -7,3 +7,5 @@ See [docs/GS-001.md](docs/GS-001.md) for architecture, safety boundaries, and va
 GS-002 adds explicitly approved, proposal-only live inference through local Ollama and `qwen2.5-coder:3b`. See [docs/GS-002.md](docs/GS-002.md).
 
 GS-003 provides the first local browser chat, agent registry, and task dashboard. Start it with `tools\start_ground_space.ps1`; see [docs/GS-003.md](docs/GS-003.md).
+
+GS-003 local chat now auto-dispatches permitted read-only/proposal tasks with no owner-token approval popup. Other callers of the Administrator bridge still default to pending approval.

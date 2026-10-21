@@ -34,7 +34,7 @@
             </button>
             <div class="rail-note">
               <span>BOUNDARY 01</span>
-              <p>Every request enters the Administrator queue. Nothing runs before owner approval.</p>
+              <p>Every request enters the Administrator queue and starts automatically within the agent’s allowed permissions.</p>
             </div>
           </aside>
 
@@ -44,11 +44,7 @@
               <span class="permission-pill" id="permissionPill">READ · PROPOSE</span>
             </div>
             <div class="messages" id="messages" aria-live="polite">
-              <div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>Ask Qwen for an explanation, assessment, or code proposal. Your request will wait for explicit approval.</p></div>
-            </div>
-            <div class="approval-bar hidden" id="approvalBar">
-              <div><span class="status-dot pending"></span><b>Awaiting owner approval</b><small id="pendingTaskId"></small></div>
-              <button id="approveButton">Authorize task</button>
+              <div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>Ask Qwen for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.</p></div>
             </div>
             <form class="composer" id="chatForm">
               <label for="prompt">Message</label>
@@ -60,7 +56,7 @@
                   <option value="code_proposal">Code proposal</option>
                 </select>
                 <span>Local only · No tools</span>
-                <button type="submit" id="sendButton">Queue request <b>↗</b></button>
+                <button type="submit" id="sendButton">Send message <b>↗</b></button>
               </div>
             </form>
           </div>
@@ -82,15 +78,6 @@
     <footer><span>DATA BLOCKS GROUND SPACE</span><span>LOCALHOST · AUD $0</span></footer>
   </div>
 
-  <dialog id="approvalDialog">
-    <form method="dialog" id="approvalForm">
-      <p class="eyebrow">Owner authorization</p><h2>Approve this task?</h2>
-      <p>The token is checked locally and is never stored in conversation history.</p>
-      <label for="ownerToken">Owner token</label>
-      <input id="ownerToken" type="password" autocomplete="current-password" required>
-      <div class="dialog-actions"><button type="button" id="cancelApproval">Cancel</button><button type="submit" id="confirmApproval">Approve &amp; run</button></div>
-    </form>
-  </dialog>
   <div class="toast" id="toast" role="status"></div>
   <script src="/app.js" defer></script>
 </body>

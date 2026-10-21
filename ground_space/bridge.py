@@ -38,6 +38,7 @@ class AdministratorAdapter:
     def submit(self, payload: dict[str, Any], *, worker_id: str = "python-readonly-1",
                required_permissions: list[str] | None = None, task_id: str | None = None,
                correlation_id: str | None = None, approved: bool = False,
+               approval_source: str | None = None,
                execution_timeout_seconds: float = 5.0) -> dict[str, Any]:
         task_id = task_id or f"GS-{uuid4().hex}"
         correlation_id = correlation_id or uuid4().hex
@@ -50,7 +51,9 @@ class AdministratorAdapter:
             "source": "ground_space",
             "requested_worker": worker_id,
             "required_permissions": required_permissions or ["read"],
-            "approval": {"status": "approved" if approved else "pending", "owner": "Karl"},
+            "approval": {"status": "approved" if approved else "pending",
+                         "owner": approval_source or "Karl",
+                         "method": "automatic" if approved and approval_source else "manual"},
             "execution_timeout_seconds": execution_timeout_seconds,
             "payload": payload,
         }
