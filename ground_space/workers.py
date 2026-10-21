@@ -104,7 +104,10 @@ class AdministratorConsoleWorker:
 def probe_ollama(endpoint: str = "http://127.0.0.1:11434", timeout: float = 2.0) -> dict[str, Any]:
     url = endpoint.rstrip("/") + "/api/tags"
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        # Local Ollama requests must bypass Windows or environment HTTP proxies.
+        # In particular, proxy auto-discovery can delay 127.0.0.1 requests.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(url, timeout=timeout) as response:
             body = json.load(response)
         models = sorted(str(item.get("name", "")) for item in body.get("models", []) if item.get("name"))
         return {"available": True, "endpoint": endpoint, "models": models, "reason": None}
