@@ -1,0 +1,40 @@
+name: Ground Space Coordinator checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/gs010-coordinator.yml"
+      - "ground_space/**"
+      - "tests/test_gs008_planning.py"
+      - "tests/test_gs010_coordinator.py"
+      - "web/public/app.js"
+  push:
+    branches:
+      - "feature/gs-010-coordinator-chat-routing"
+
+permissions:
+  contents: read
+
+jobs:
+  coordinator:
+    name: Coordinator unit checks (${{ matrix.os }}, Python 3.11)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile local Python code
+        run: python -m compileall -q ground_space
+      - name: Coordinator and GS-008 planning regression tests
+        run: python -m unittest tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Validate frontend JavaScript syntax
+        run: node --check web/public/app.js
+
+# These checks do not require Ollama or the Windows Administrator queue.
+# The full Windows test suite and real Ollama/browser QA remain separate,
+# mandatory manual release gates before merging GS-008 and GS-010.

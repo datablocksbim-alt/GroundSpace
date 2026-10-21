@@ -37,8 +37,8 @@ function selectGroup(groupId){
   $('#projectSelect').disabled=true;
   $('#modelControls').hidden=true;
   $('#requestType').hidden=false;
-  $('#permissionPill').textContent='GROUP · READ / PROPOSE';
-  $('#prompt').placeholder='Ask the whole group, or type /goal…';
+  $('#permissionPill').textContent='COORDINATOR · READ / PROPOSE';
+  $('#prompt').placeholder='Ask Coordinator, type /goal, or mention @Qwen…';
   renderWorkspaces();renderMessages();updateComposerAvailability();
 }
 function chooseProject(projectId){
@@ -78,7 +78,7 @@ function renderMessages(){
   const tasks=new Map((state.data?.tasks||[]).map(task=>[task.task_id,task]));
   const replies=new Set(messages.filter(x=>x.role==='assistant').map(x=>x.task_id));
   if(!messages.length){
-    root.innerHTML=`<div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>${state.agent==='qwen'?'Ask the selected local model for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.':'Use read-only Administrator commands: help, list tasks, or status &lt;task-id&gt;.'}</p></div>`;
+    root.innerHTML=`<div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>${state.agent==='qwen'?'Ask the selected local model for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.' :state.agent==='group'?'Coordinator answers by default. Use /goal to plan or @Qwen to ask a specialist.':'Use read-only Administrator commands: help, list tasks, or status &lt;task-id&gt;.'}</p></div>`;
     return;
   }
   const html=[];
@@ -90,7 +90,7 @@ function renderMessages(){
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
     const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
-      ?'<span class="member-label">'+esc(entry.model||'Local AI')+'</span>':'';
+      ?'<span class="member-label">'+esc(entry.speaker||entry.model||'Local AI')+'</span>':'';
     const identity=entry.task_id||entry.note_id||entry.group_turn_id||'local';
     html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
     // Group replies may appear in task records before persistence in chat history.
@@ -98,7 +98,7 @@ function renderMessages(){
       for(const groupTask of groupTasks){
         if(groupTask.status==='completed'&&!replies.has(groupTask.task_id)
            &&typeof groupTask.result?.answer==='string'&&groupTask.result.answer){
-          const model=groupTask.result.model||groupTask.payload?.model||'Local AI';
+          const model=groupTask.payload?.speaker||groupTask.result.model||groupTask.payload?.model||'Local AI';
           html.push(`<div class="message assistant"><span class="member-label">${esc(model)}</span><span class="message-content">${esc(groupTask.result.answer)}</span><small>${esc(groupTask.task_id)} · recovered from task result</small>${responseMeta({},groupTask)}${copyButton(groupTask.task_id)}</div>`);
         }
       }
@@ -292,7 +292,7 @@ async function submit(event){
     $('#prompt').value='';
     updateSlashMenu();
     await refresh();
-    toast(response.entry?(response.task||response.task_ids?'Planning note saved · AI review queued':'Planning note saved'):isGroup?'Group request sent to each AI':'Task submitted');
+    toast(response.entry?(response.task||response.task_ids?'Planning note saved · Coordinator reply queued':'Planning note saved'):isGroup?'Message sent to Coordinator or mentioned specialist':'Task submitted');
   }catch(error){toast(error.message)}
   finally{updateComposerAvailability();}
 }

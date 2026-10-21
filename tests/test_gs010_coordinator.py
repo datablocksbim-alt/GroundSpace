@@ -1,0 +1,59 @@
+"""GS-010: route only the explicitly selected local group participant."""
+
+import unittest
+from ground_space.coordinator import route_group_message, coordinator_instructions
+
+MODELS = ["qwen2.5-coder:3b", "qwen3.5:4b", "granite3.3:2b"]
+
+
+class CoordinatorRoutingTests(unittest.TestCase):
+    def test_unaddressed_goes_only_to_coordinator(self):
+        route = route_group_message("How are we progressing?", MODELS)
+        self.assertEqual(route.models, (MODELS[0],))
+        self.assertTrue(route.coordinator)
+
+    def test_goal_is_forced_coordinator(self):
+        route = route_group_message("@Qwen Build Codex", MODELS, force_coordinator=True)
+        self.assertTrue(route.coordinator)
+        self.assertEqual(len(route.models), 1)
+
+    def test_qwen_speaks_for_itself(self):
+        route = route_group_message("@Qwen examine Codex", MODELS)
+        self.assertEqual(route.models, (MODELS[0],))
+        self.assertFalse(route.coordinator)
+
+    def test_exact_model_mention(self):
+        self.assertEqual(route_group_message("@qwen3.5:4b hi", MODELS).models, (MODELS[1],))
+
+    def test_explicit_multimodel_reply(self):
+        route = route_group_message("@Qwen @Granite compare", MODELS)
+        self.assertEqual(route.models, (MODELS[0], MODELS[2]))
+        self.assertFalse(route.coordinator)
+
+    def test_unconnected_cloud_cannot_fallback(self):
+        with self.assertRaisesRegex(ValueError, "not connected"):
+            route_group_message("@Claude hi", MODELS)
+
+    def test_unknown_and_ambiguous_fail(self):
+        with self.assertRaises(ValueError):
+            route_group_message("@missing hi", MODELS)
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            route_group_message("@qwen3.5 hi", ["qwen3.5:4b", "qwen3.5:4b-64k"])
+
+    def test_mixed_coordinator_specialist_fails(self):
+        with self.assertRaises(ValueError):
+            route_group_message("@Coordinator @Qwen hi", MODELS)
+
+    def test_ministral_coordinator_preference(self):
+        models = MODELS + ["ministral-3:8b"]
+        self.assertEqual(route_group_message("hi", models).models, ("ministral-3:8b",))
+
+    def test_proposed_tasks_are_not_execution_approval(self):
+        prompt = coordinator_instructions("Build the Codex", group_models=MODELS, kind="goal", goal_id="NOTE-X")
+        self.assertIn("status PROPOSED", prompt)
+        self.assertIn("owner approval", prompt)
+        self.assertIn("no tools", prompt)
+
+
+if __name__ == "__main__":
+    unittest.main()
