@@ -89,10 +89,20 @@ function renderMessages(){
     const progress=entry.role==='user'?(groupTasks.length?groupProgress:taskStatus(task)):'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
-    const memberLabel=state.agent==='group'&&entry.role==='assistant'
+    const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
       ?'<span class="member-label">'+esc(entry.model||'Local AI')+'</span>':'';
     const identity=entry.task_id||entry.note_id||entry.group_turn_id||'local';
     html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
+    // Group replies may appear in task records before persistence in chat history.
+    if(entry.role==='user'&&groupTasks.length){
+      for(const groupTask of groupTasks){
+        if(groupTask.status==='completed'&&!replies.has(groupTask.task_id)
+           &&typeof groupTask.result?.answer==='string'&&groupTask.result.answer){
+          const model=groupTask.result.model||groupTask.payload?.model||'Local AI';
+          html.push(`<div class="message assistant"><span class="member-label">${esc(model)}</span><span class="message-content">${esc(groupTask.result.answer)}</span><small>${esc(groupTask.task_id)} · recovered from task result</small>${responseMeta({},groupTask)}${copyButton(groupTask.task_id)}</div>`);
+        }
+      }
+    }
     // Queue completion can be visible before the history writer finishes.
     // Show the authoritative result in that case instead of losing the reply.
     if(entry.role==='user'&&task?.status==='completed'&&!replies.has(entry.task_id)&&typeof task.result?.answer==='string'&&task.result.answer){
