@@ -10,6 +10,25 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+# Model choices are server-owned; untrusted browser requests cannot supply a model name.
+CHAT_MODELS = {
+    "qwen25": {"model": "qwen2.5-coder:3b", "worker_id": "qwen-proposal",
+               "label": "Qwen 2.5 Coder 3B", "qualified": True},
+    "qwen35": {"model": "qwen3.5:4b", "worker_id": "qwen35-chat-proposal",
+               "label": "Qwen 3.5 4B (experimental chat)", "qualified": False},
+}
+
+# Output caps affect response length/latency; they are not fixed tokens-per-second guarantees.
+PERFORMANCE_PRESETS = {
+    "fast": {"label": "Fast · concise", "num_predict": 256, "num_ctx": 4096,
+             "timeout_seconds": 90, "temperature": 0.2},
+    "balanced": {"label": "Balanced", "num_predict": 640, "num_ctx": 6144,
+                 "timeout_seconds": 155, "temperature": 0.2},
+    "detailed": {"label": "Detailed · slower", "num_predict": 1200, "num_ctx": 8192,
+                 "timeout_seconds": 235, "temperature": 0.2},
+}
+
+
 @dataclass(frozen=True)
 class WorkerDescriptor:
     agent_id: str
@@ -38,16 +57,19 @@ class OllamaProposalWorker:
     """Configuration-only adapter for a tool-free local Ollama proposal worker."""
 
     def __init__(self, *, endpoint: str = "http://127.0.0.1:11434", model: str = "qwen2.5-coder:3b",
-                 active: bool = True, request_timeout_seconds: float = 120.0):
+                 agent_id: str = "qwen-proposal", active: bool = True,
+                 qualified: bool = True, request_timeout_seconds: float = 235.0):
+        if model not in {item["model"] for item in CHAT_MODELS.values()}:
+            raise ValueError("Ollama model is not in the approved chat registry")
         self.descriptor = WorkerDescriptor(
-            agent_id="qwen-proposal",
+            agent_id=agent_id,
             role="proposal_only",
             permissions=frozenset({"read", "propose"}),
             active=active,
             provider="ollama",
             model=model,
             endpoint=endpoint,
-            qualified=True,
+            qualified=qualified,
             metadata={"production_write_authority": False, "tool_access": False},
         )
         self.request_timeout_seconds = request_timeout_seconds
