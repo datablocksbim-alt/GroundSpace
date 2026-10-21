@@ -32,6 +32,14 @@
             <button class="agent-choice" data-agent="administrator">
               <span class="agent-glyph amber">A</span><span><b>Administrator</b><small>Task operations</small></span><em></em>
             </button>
+            <section class="group-rail" aria-label="Group chats">
+              <div class="group-rail-heading"><span>GROUP CHATS</span><button type="button" id="newGroupButton" title="Create group chat">+ New</button></div>
+              <div id="groupList" class="group-list"></div>
+            </section>
+            <section class="project-rail" aria-label="Local projects">
+              <div class="group-rail-heading"><span>PROJECTS</span><button type="button" id="addProjectButton" title="Choose a local project folder">+ Folder</button></div>
+              <div id="projectList" class="project-list"></div>
+            </section>
             <div class="rail-note">
               <span>BOUNDARY 01</span>
               <p>Every request enters the Administrator queue and starts automatically within the agent’s allowed permissions.</p>
@@ -40,7 +48,13 @@
 
           <div class="conversation">
             <div class="conversation-head">
-              <div><p class="eyebrow">Secure local exchange</p><h1 id="conversationTitle">Local AI channel</h1></div>
+              <div><p class="eyebrow">Secure local exchange</p><h1 id="conversationTitle">Local AI channel</h1>
+                <div class="project-context">
+                  <label for="projectSelect">Project</label>
+                  <select id="projectSelect" aria-label="Select local project"><option value="">No project</option></select>
+                  <button type="button" id="editGroupButton" hidden>Members</button>
+                </div>
+              </div>
               <span class="permission-pill" id="permissionPill">READ · PROPOSE</span>
             </div>
             <div class="messages" id="messages" aria-live="polite">
@@ -101,6 +115,47 @@
     <footer><span>DATA BLOCKS GROUND SPACE</span><span>LOCALHOST · AUD $0</span></footer>
   </div>
 
+  <dialog id="groupDialog" class="workspace-dialog">
+    <form id="groupForm">
+      <h2 id="groupDialogTitle">New group chat</h2>
+      <p>Choose a project and the local AI models that should reply to the group.</p>
+      <label for="groupName">Group name</label>
+      <input id="groupName" maxlength="70" placeholder="e.g. Pyrene Development" required>
+      <label for="groupProject">Local project</label>
+      <select id="groupProject" aria-label="Group project"><option value="">No project</option></select>
+      <div class="workspace-dialog-row">
+        <span>AI participants</span>
+        <small>Up to 6 · Replies run sequentially</small>
+      </div>
+      <div id="groupMemberOptions" class="group-members"></div>
+      <div class="dialog-actions">
+        <button type="button" id="cancelGroup">Cancel</button>
+        <button type="submit" id="saveGroup">Create group</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="projectDialog" class="workspace-dialog">
+    <form id="projectForm">
+      <h2>Select local project folder</h2>
+      <p>Project folders only identify your workspace. AI models cannot read or change those files from chat.</p>
+      <label for="projectName">Project label (optional)</label>
+      <input id="projectName" maxlength="80" placeholder="Project name">
+      <label for="projectPath">Local folder path</label>
+      <input id="projectPath" placeholder="D:\\000_AI Project\\Pyrene Mini" required>
+      <div class="workspace-dialog-row">
+        <span>Browse allowed local folders</span>
+        <button type="button" id="browseRoots">Browse…</button>
+      </div>
+      <div id="folderPicker" class="folder-picker" hidden>
+        <div class="folder-picker-head"><button type="button" id="folderUp">↑ Up</button><small id="folderCurrent">Allowed folders</small></div>
+        <div id="folderEntries" class="folder-entries"></div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" id="cancelProject">Cancel</button>
+        <button type="submit" id="saveProject">Add project</button>
+      </div>
+    </form>
+  </dialog>
   <div class="toast" id="toast" role="status"></div>
   <script src="/app.js" defer></script>
 </body>
