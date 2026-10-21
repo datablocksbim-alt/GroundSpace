@@ -48,7 +48,11 @@
             </div>
             <form class="composer" id="chatForm">
               <label for="prompt">Message</label>
-              <textarea id="prompt" maxlength="12000" rows="3" placeholder="Ask for an explanation…" required></textarea>
+              <textarea id="prompt" maxlength="12000" rows="3" placeholder="Ask anything, or type / for goals and milestones…" required></textarea>
+              <div id="slashMenu" class="slash-menu" aria-label="Create a planning note" hidden>
+                <button type="button" data-slash="goal"><span>/goal</span><small>Save a goal in this conversation</small></button>
+                <button type="button" data-slash="milestone"><span>/milestone</span><small>Record a project milestone</small></button>
+              </div>
               <div class="composer-foot">
                 <div class="chat-options" aria-label="AI options and capabilities">
                   <label class="sr-only" for="requestType">AI capability</label>

@@ -11,3 +11,5 @@ GS-003 provides the first local browser chat, agent registry, and task dashboard
 GS-003 local chat now auto-dispatches permitted read-only/proposal tasks with no owner-token approval popup. Other callers of the Administrator bridge still default to pending approval.
 
 GS-004 adds full-response copying, a persisted multi-model Ollama registry (add/remove installed models through Agents), per-message Fast/Balanced/Detailed generation settings, and measured response speed when available. ChatGPT and Claude remain clearly labeled as unconnected future providers. See [docs/GS-004.md](docs/GS-004.md).
+
+GS-006 softens chat bubbles and adds periwinkle `/goal` and `/milestone` planning annotations with a slash suggestion menu. These are conversation notes, not executable Administrator tasks. See [docs/GS-006.md](docs/GS-006.md).

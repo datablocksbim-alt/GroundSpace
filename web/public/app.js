@@ -42,7 +42,10 @@ function renderMessages(){
   for(const entry of messages){
     const task=tasks.get(entry.task_id);
     const progress=entry.role==='user'?taskStatus(task):'';
-    html.push(`<div class="message ${esc(entry.role)}">${esc(entry.content)}<small>${esc(entry.task_id||'local')} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
+    const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
+    const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
+    const identity=entry.task_id||entry.note_id||'local';
+    html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
     // Queue completion can be visible before the history writer finishes.
     // Show the authoritative result in that case instead of losing the reply.
     if(entry.role==='user'&&task?.status==='completed'&&!replies.has(entry.task_id)&&typeof task.result?.answer==='string'&&task.result.answer){
@@ -92,7 +95,7 @@ function renderModels(){
     '</small></span><button type="button" class="remove-model" data-model="'+esc(item.model)+
     '" aria-label="Remove '+esc(item.model)+'">Remove</button></div>'
   ).join('')||'<p>No models registered. Add an installed model above.</p>';
-  $('#sendButton').disabled=state.agent==='qwen'&&!state.selectedModel;
+  updateComposerAvailability();
 }
 async function copyText(value){
   try{
@@ -128,7 +131,60 @@ async function refresh(){
     renderModels();renderMessages();renderAgents();renderTasks();
   }finally{state.refreshing=false;}
 }
-async function submit(event){event.preventDefault();const prompt=$('#prompt').value.trim();if(!prompt)return;$('#sendButton').disabled=true;try{const response=await api('/api/chat',{method:'POST',body:JSON.stringify({agent:state.agent,prompt,request_type:$('#requestType').value,model:state.selectedModel,performance:state.performance,conversation_id:state.conversationId})});localStorage.setItem('gs_conversation_id',state.conversationId);$('#prompt').value='';await refresh();toast('Task submitted — status appears below your message')}catch(error){toast(error.message)}finally{$('#sendButton').disabled=false}}
+async function submit(event){
+  event.preventDefault();
+  const prompt=$('#prompt').value.trim();
+  if(!prompt)return;
+  $('#sendButton').disabled=true;
+  try{
+    const response=await api('/api/chat',{method:'POST',body:JSON.stringify({
+      agent:state.agent,prompt,request_type:$('#requestType').value,
+      model:state.selectedModel,performance:state.performance,
+      conversation_id:state.conversationId
+    })});
+    localStorage.setItem('gs_conversation_id',state.conversationId);
+    $('#prompt').value='';
+    updateSlashMenu();
+    await refresh();
+    toast(response.entry?'Planning note saved':'Task submitted — status appears below your message');
+  }catch(error){toast(error.message)}
+  finally{updateComposerAvailability();}
+}
+function isSlashAnnotation(){return /^\/(goal|milestone)(\s|$)/i.test($('#prompt').value.trim());}
+function updateComposerAvailability(){
+  $('#sendButton').disabled=state.agent==='qwen'&&!state.selectedModel&&!isSlashAnnotation();
+}
+function chooseSlash(kind){
+  $('#prompt').value='/'+kind+' ';
+  $('#slashMenu').hidden=true;
+  updateComposerAvailability();
+  $('#prompt').focus();
+}
+function updateSlashMenu(){
+  const value=$('#prompt').value.trim();
+  const active=/^\/[a-z]*$/i.test(value);
+  const prefix=active?value.slice(1).toLowerCase():'';
+  let count=0;
+  $$('#slashMenu button[data-slash]').forEach(button=>{
+    const visible=active&&button.dataset.slash.startsWith(prefix);
+    button.hidden=!visible;
+    if(visible)count++;
+  });
+  $('#slashMenu').hidden=count===0;
+  updateComposerAvailability();
+}
+$('#prompt').addEventListener('input',updateSlashMenu);
+$('#prompt').addEventListener('keydown',event=>{
+  if(event.key==='Escape'){$('#slashMenu').hidden=true;return;}
+  if(event.key==='Enter'&&!event.shiftKey&&!$('#slashMenu').hidden){
+    const first=$$('#slashMenu button[data-slash]').find(button=>!button.hidden);
+    if(first){event.preventDefault();chooseSlash(first.dataset.slash);}
+  }
+});
+$('#slashMenu').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-slash]');
+  if(button)chooseSlash(button.dataset.slash);
+});
 
 $('#modelSelect').addEventListener('change',()=>{state.selectedModel=$('#modelSelect').value;localStorage.setItem('gs_model',state.selectedModel);});
 $('#performanceSelect').addEventListener('change',()=>{state.performance=$('#performanceSelect').value;localStorage.setItem('gs_performance',state.performance);});
