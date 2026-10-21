@@ -11,6 +11,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .workers import CHAT_MODELS, PERFORMANCE_PRESETS
+
 
 ALLOWED_REQUEST_TYPES = {"explanation", "assessment", "code_proposal"}
 
@@ -48,23 +50,35 @@ def ollama_proposal(spec: dict[str, Any], task: dict[str, Any]) -> dict[str, Any
         "Pyrene P2.5 gameplay modifications are outside your authority."
     )
     model = str(spec.get("model", "qwen2.5-coder:3b"))
+    if model not in {item["model"] for item in CHAT_MODELS.values()}:
+        raise ValueError("Model is not an approved local chat model")
+    preset_id = str(payload.get("performance", "balanced"))
+    if preset_id not in PERFORMANCE_PRESETS:
+        raise ValueError("Unknown response performance preset")
+    preset = PERFORMANCE_PRESETS[preset_id]
     request_body = json.dumps({
         "model": model,
         "system": system,
         "prompt": f"Request type: {request_type}\n\n{prompt_text}",
         "stream": False,
-        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 800},
+        "options": {"temperature": preset["temperature"], "num_ctx": preset["num_ctx"],
+                    "num_predict": preset["num_predict"]},
     }).encode("utf-8")
     request = urllib.request.Request(
         endpoint.rstrip("/") + "/api/generate", data=request_body,
         headers={"Content-Type": "application/json"}, method="POST",
     )
-    timeout = float(spec.get("request_timeout_seconds", 120.0))
+    timeout = min(float(spec.get("request_timeout_seconds", 235.0)), preset["timeout_seconds"])
     with urllib.request.urlopen(request, timeout=timeout) as response:
         response_body = json.load(response)
     answer = str(response_body.get("response", "")).strip()
     if not answer:
         raise ValueError("Ollama returned an empty response")
+    eval_count = response_body.get("eval_count", 0)
+    eval_duration = response_body.get("eval_duration", 0)
+    tokens_per_second = (round(eval_count * 1_000_000_000 / eval_duration, 1)
+                         if isinstance(eval_count, int) and isinstance(eval_duration, int)
+                         and eval_count >= 0 and eval_duration > 0 else None)
     return {
         "result": {
             "operation": "ollama_proposal",
@@ -72,6 +86,9 @@ def ollama_proposal(spec: dict[str, Any], task: dict[str, Any]) -> dict[str, Any
             "correlation_id": task["correlation_id"],
             "request_type": request_type,
             "model": model,
+            "performance": preset_id,
+            "tokens_per_second": tokens_per_second,
+            "generation_seconds": round(eval_duration / 1_000_000_000, 2) if isinstance(eval_duration, int) and eval_duration > 0 else None,
             "answer": answer,
             "response_sha256": hashlib.sha256(answer.encode("utf-8")).hexdigest(),
             "proposal_only": True,
