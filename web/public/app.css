@@ -96,3 +96,57 @@
   .message.user,.message.note{border-radius:16px 16px 6px 16px}
   .message.assistant{border-radius:16px 16px 16px 6px}
 }
+
+
+/* GS-007 — group chat rooms and local project picker */
+.group-rail,.project-rail{margin-top:18px;padding:18px 0;border-top:1px solid var(--line)}
+.group-rail-heading{display:flex;justify-content:space-between;align-items:center;gap:9px;margin-bottom:10px;font:700 10px Consolas,monospace;letter-spacing:.1em;color:var(--muted)}
+.group-rail-heading button{border:1px solid #ded9f5;border-radius:9px;background:#f8f6ff;color:#5d50ab;padding:6px 10px;font-size:10px;cursor:pointer}
+.group-list,.project-list{display:grid;gap:5px;max-height:230px;overflow-y:auto}
+.group-room,.project-room{display:flex;align-items:center;gap:9px;min-width:0;width:100%;padding:9px;border:1px solid transparent;background:transparent;border-radius:13px;text-align:left;color:var(--ink);cursor:pointer}
+.group-room:hover,.project-room:hover{background:rgba(235,232,250,.7)}
+.group-room.active,.project-room.active{background:#f4f1ff;border-color:#dad3f3}
+.room-avatar{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;border-radius:10px;background:#e5e0fc;color:#5b51a0;font-size:16px}
+.group-room b,.group-room small{display:block;overflow:hidden;text-overflow:ellipsis}
+.group-room b{font-size:12px}
+.group-room small{font-size:10px;color:var(--muted);margin-top:3px}
+.project-room{font-size:11px;padding-left:14px;word-break:break-word}
+.rail-empty{font-size:11px;color:var(--muted);margin:0;padding:8px}
+.project-context{margin-top:13px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.project-context label{font:700 10px Consolas,monospace;letter-spacing:.06em;color:var(--muted)}
+.project-context select,.project-context button{border:1px solid #dfdcec;border-radius:9px;background:#fbfaff;font-size:11px;color:#514a7a;padding:7px 9px;max-width:230px}
+.project-context button{cursor:pointer}
+.project-context #editGroupButton[hidden]{display:none}
+.workspace-dialog{width:min(480px,calc(100vw - 28px));border:1px solid #e0dbea;border-radius:17px;background:#fcfbff;color:var(--ink);max-height:85vh;overflow:auto}
+.workspace-dialog form{padding:24px}
+.workspace-dialog h2{font-size:23px;line-height:1.2}
+.workspace-dialog p{font-size:12px}
+.workspace-dialog label{display:block;font-size:11px}
+.workspace-dialog input:not([type="checkbox"]),.workspace-dialog select{width:100%;border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px;margin:4px 0 8px;color:var(--ink)}
+.workspace-dialog-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:15px 0 8px;font-size:11px;font-weight:650}
+.workspace-dialog-row small{font-weight:400;color:var(--muted)}
+.workspace-dialog-row button,.folder-picker button{cursor:pointer;border:1px solid #e1dff1;border-radius:8px;background:#fff;color:#575078;padding:7px 10px;font-size:11px}
+.group-members{display:grid;gap:7px;max-height:245px;overflow:auto;padding:5px}
+.workspace-dialog .member-option{display:flex;align-items:center;gap:12px;border:1px solid #eeebf7;background:#faf9ff;border-radius:11px;padding:9px}
+.member-option input{accent-color:#7561cc;flex:none}
+.member-option b,.member-option small{display:block;overflow-wrap:anywhere}
+.member-option b{font-size:11px}
+.member-option small{margin-top:3px;color:var(--muted);font-size:10px}
+.folder-picker{border:1px solid #e5e0f2;border-radius:12px;padding:10px;background:#f9f8ff;max-height:260px;overflow-y:auto}
+.folder-picker[hidden]{display:none}
+.folder-picker-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+.folder-picker-head small{font:10px Consolas,monospace;color:var(--muted);overflow-wrap:anywhere}
+.folder-entries{display:grid;gap:4px}
+.folder-entries button{text-align:left;overflow-wrap:anywhere}
+.folder-entries .folder-use{background:#e9e5ff;color:#54469c;border-color:#cec6f3}
+.message .member-label{display:inline-block;padding:4px 9px;margin-bottom:10px;border-radius:999px;background:#eeeafb;color:#5b509d;font:700 10px Consolas,monospace}
+.group-task-status{display:block;margin-top:6px;color:#555977;font:700 10px Consolas,monospace}
+.group-task-status .task-state{display:inline}
+@media(max-width:760px){
+  .group-rail,.project-rail{width:100%;margin-top:10px;padding-top:10px}
+  .group-list,.project-list{display:flex;flex-wrap:wrap;gap:6px;max-height:150px}
+  .group-room,.project-room{width:auto;max-width:100%;flex:0 0 auto}
+  .project-room{border:1px solid var(--line)}
+  .project-context select{max-width:180px}
+  .workspace-dialog form{padding:18px}
+}
