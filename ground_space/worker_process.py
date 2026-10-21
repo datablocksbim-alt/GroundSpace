@@ -52,7 +52,8 @@ def ollama_proposal(spec: dict[str, Any], task: dict[str, Any]) -> dict[str, Any
     model = str(spec.get("model", "qwen2.5-coder:3b"))
     if not valid_model_name(model):
         raise ValueError("Invalid local model identifier")
-    if model != str(payload.get("model", "")):
+    requested_model = payload.get("model")
+    if requested_model is not None and model != str(requested_model):
         raise ValueError("Selected model does not match the registered worker")
     preset_id = str(payload.get("performance", "balanced"))
     if preset_id not in PERFORMANCE_PRESETS:
