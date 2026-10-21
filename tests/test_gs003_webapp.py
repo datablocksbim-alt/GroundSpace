@@ -7,6 +7,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -101,6 +102,53 @@ class GS003WebAppTests(unittest.TestCase):
         system_messages = [item for item in history if item['role'] == 'system']
         self.assertTrue(system_messages, 'Offline inference must not fail silently')
         self.assertEqual('qwen', system_messages[-1]['agent'])
+
+    def test_add_and_remove_multiple_installed_models(self):
+        fake = {"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b", "granite4:3b"]}
+        with patch("ground_space.webapp.probe_ollama", return_value=fake):
+            catalog = self.post_json("/api/models/add", {"model": "qwen3.5:4b"})
+            catalog = self.post_json("/api/models/add", {"model": "granite4:3b"})
+            self.assertEqual(3, len(catalog["registered"]))
+            self.assertEqual(3, len({entry["worker_id"] for entry in catalog["registered"]}))
+            self.assertEqual(3, len(self.app.registered_models))
+            restored = GroundSpaceApp(self.state_dir, ollama_endpoint="http://127.0.0.1:1")
+            self.assertEqual(3, len(restored.registered_models))
+            catalog = self.post_json("/api/models/remove", {"model": "granite4:3b"})
+            self.assertEqual(2, len(catalog["registered"]))
+            self.assertNotIn("granite4:3b", self.app.registered_models)
+
+    def test_cannot_register_uninstalled_or_duplicate_models(self):
+        fake = {"available": True, "models": ["qwen2.5-coder:3b"]}
+        with patch("ground_space.webapp.probe_ollama", return_value=fake):
+            for name in ("unknown:1b", "qwen2.5-coder:3b"):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    self.post_json("/api/models/add", {"model": name})
+                self.assertEqual(400, caught.exception.code)
+
+    def test_model_selection_and_performance_remain_scoped(self):
+        fake = {"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]}
+        with patch("ground_space.webapp.probe_ollama", return_value=fake):
+            self.post_json("/api/models/add", {"model": "qwen3.5:4b"})
+            result = self.post_json("/api/chat", {
+                "agent": "qwen", "prompt": "Provide a short explanation",
+                "model": "qwen3.5:4b", "performance": "fast",
+                "request_type": "explanation", "conversation_id": "multi-model"})
+            task = result["task"]
+            self.assertEqual(self.app.worker_id("qwen3.5:4b"), task["requested_worker"])
+            self.assertEqual(["read", "propose"], task["required_permissions"])
+            self.assertEqual("qwen3.5:4b", task["payload"]["model"])
+            self.assertEqual("fast", task["payload"]["performance"])
+            self.assertLess(task["execution_timeout_seconds"], 100)
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.post_json("/api/chat", {"agent": "qwen", "prompt": "test",
+                                            "model": "qwen3.5:4b", "performance": "unlimited"})
+            self.assertEqual(400, caught.exception.code)
+
+    def test_external_model_providers_are_not_connected(self):
+        catalog = self.get_json("/api/bootstrap")["models"]
+        self.assertEqual({"openai", "anthropic"}, {p["id"] for p in catalog["future_providers"]})
+        self.assertTrue(all(p["status"] == "not_connected" for p in catalog["future_providers"]))
+
     def test_private_history_survives_app_restart_and_is_bounded(self):
         for index in range(30):
             self.app.add_history("bounded", "user", f"message {index}")
