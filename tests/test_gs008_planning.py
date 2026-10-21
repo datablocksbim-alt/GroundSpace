@@ -68,17 +68,44 @@ class PlanningTests(unittest.TestCase):
 
     @patch("ground_space.webapp.probe_ollama", return_value={"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]})
     @patch("ground_space.webapp.threading.Thread")
-    def test_group_milestone_queues_each_model_with_single_note(self, thread, probe):
+    def test_group_milestone_queues_coordinator_only_with_single_note(self, thread, probe):
         answer = self.app.submit_chat({"agent": "group", "group_id": "group-1",
                                       "prompt": "/milestone Complete Codex assembly",
                                       "performance": "fast"})
         self.assertEqual(answer["entry"]["role"], "note")
-        self.assertEqual(answer["entry"]["task_ids"], ["T-001", "T-002"])
+        self.assertEqual(answer["entry"]["task_ids"], ["T-001"])
         self.assertEqual(len(self.app.conversations["group-room"]), 1)
-        self.assertEqual(self.app.administrator.submit.call_count, 2)
-        for call in self.app.administrator.submit.call_args_list:
-            self.assertEqual(call.kwargs["required_permissions"], ["read", "propose"])
+        self.assertEqual(self.app.administrator.submit.call_count, 1)
+        args, kwargs = self.app.administrator.submit.call_args
+        self.assertEqual(kwargs["required_permissions"], ["read", "propose"])
+        self.assertEqual(args[0]["speaker"], "Coordinator")
         thread.return_value.start.assert_called_once()
+
+    @patch("ground_space.webapp.probe_ollama", return_value={"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]})
+    @patch("ground_space.webapp.threading.Thread")
+    def test_ordinary_group_chat_uses_coordinator(self, thread, probe):
+        answer = self.app.submit_group({"group_id": "group-1", "prompt": "What next?"})
+        self.assertEqual(answer["task_ids"], ["T-001"])
+        args, _ = self.app.administrator.submit.call_args
+        self.assertEqual(args[0]["speaker"], "Coordinator")
+        self.assertIn("You are Coordinator", args[0]["prompt"])
+        thread.return_value.start.assert_called_once()
+
+    @patch("ground_space.webapp.probe_ollama", return_value={"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]})
+    @patch("ground_space.webapp.threading.Thread")
+    def test_mention_routes_to_solo_specialist(self, thread, probe):
+        answer = self.app.submit_group({"group_id": "group-1", "prompt": "@Qwen propose tests"})
+        self.assertEqual(answer["task_ids"], ["T-001"])
+        args, _ = self.app.administrator.submit.call_args
+        self.assertEqual(args[0]["speaker"], "qwen2.5-coder:3b")
+        self.assertNotIn("You are Coordinator", args[0]["prompt"])
+        thread.return_value.start.assert_called_once()
+
+    @patch("ground_space.webapp.probe_ollama", return_value={"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]})
+    def test_cloud_mention_is_rejected_before_queue(self, probe):
+        with self.assertRaisesRegex(ValueError, "not connected"):
+            self.app.submit_group({"group_id": "group-1", "prompt": "@Claude help"})
+        self.app.administrator.submit.assert_not_called()
 
     def test_admin_note_never_queues_work(self):
         answer = self.app.submit_chat({"agent": "administrator", "prompt": "/goal Improve the UI",
