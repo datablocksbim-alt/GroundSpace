@@ -129,8 +129,9 @@ class GroundSpaceApp:
             qualified=model == "qwen2.5-coder:3b",
         ))
 
-    def catalog(self) -> dict[str, Any]:
-        availability = probe_ollama(self.ollama_endpoint)
+    def catalog(self, *, availability: dict[str, Any] | None = None) -> dict[str, Any]:
+        if availability is None:
+            availability = probe_ollama(self.ollama_endpoint)
         installed = sorted(model for model in availability["models"] if valid_model_name(model))
         with self.lock:
             registered = list(self.registered_models)
@@ -458,8 +459,9 @@ class GroundSpaceApp:
                 continue
         return records
 
-    def agents(self) -> list[dict[str, Any]]:
-        availability = probe_ollama(self.ollama_endpoint)
+    def agents(self, *, availability: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        if availability is None:
+            availability = probe_ollama(self.ollama_endpoint)
         model_agents = {item.agent_id: item for item in ollama_descriptors(self.ollama_endpoint, availability)}
         installed = set(availability.get("models", []))
         with self.lock:
@@ -481,13 +483,18 @@ class GroundSpaceApp:
         ]
 
     def bootstrap(self) -> dict[str, Any]:
+        # The browser polls every 2.5 seconds. Share one short Ollama availability
+        # probe between Agents and Models, instead of two serial two-second probes
+        # that can exceed the HTTP client's timeout on Windows.
+        availability = probe_ollama(self.ollama_endpoint, timeout=0.6)
         # Snapshot chat history under lock while multiple model replies are arriving.
         with self.lock:
             history = {key: [dict(item) for item in records]
                        for key, records in self.conversations.items()}
-        return {"agents": self.agents(), "tasks": self.tasks(), "conversations": history,
-                "models": self.catalog(), "workspaces": self.workspaces.snapshot(),
-                "paid_api_usage_aud": 0}
+        return {"agents": self.agents(availability=availability), "tasks": self.tasks(),
+                "conversations": history,
+                "models": self.catalog(availability=availability),
+                "workspaces": self.workspaces.snapshot(), "paid_api_usage_aud": 0}
 
 
 class GroundSpaceHandler(BaseHTTPRequestHandler):
