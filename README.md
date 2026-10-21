@@ -15,3 +15,5 @@ GS-004 adds full-response copying, a persisted multi-model Ollama registry (add/
 GS-006 softens chat bubbles and adds periwinkle `/goal` and `/milestone` planning annotations with a slash suggestion menu. These are conversation notes, not executable Administrator tasks. See [docs/GS-006.md](docs/GS-006.md).
 
 GS-007 adds private group chats with up to six registered local AI models, per-model sequential responses, and local project-folder selection through restricted roots. Folder association is metadata-only; AI file access is not enabled. See [docs/GS-007.md](docs/GS-007.md).
+
+GS-008 introduces a premium compact chat rail, low-contrast scrollbars, and AI-aware `/goal` and `/milestone` notes. Saved notes now trigger proposal-only model planning replies in direct and group chats, with no project execution rights. See [docs/GS-008.md](docs/GS-008.md).
