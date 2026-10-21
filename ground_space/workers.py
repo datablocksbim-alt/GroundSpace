@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
 
-# Model choices are server-owned; untrusted browser requests cannot supply a model name.
-CHAT_MODELS = {
-    "qwen25": {"model": "qwen2.5-coder:3b", "worker_id": "qwen-proposal",
-               "label": "Qwen 2.5 Coder 3B", "qualified": True},
-    "qwen35": {"model": "qwen3.5:4b", "worker_id": "qwen35-chat-proposal",
-               "label": "Qwen 3.5 4B (experimental chat)", "qualified": False},
-}
+# Syntax guard for locally discovered Ollama model identifiers. The webapp also
+# checks each requested name against Ollama /api/tags and the private registry.
+MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+
+
+def valid_model_name(name: str) -> bool:
+    return isinstance(name, str) and bool(MODEL_NAME_PATTERN.fullmatch(name))
+
 
 # Output caps affect response length/latency; they are not fixed tokens-per-second guarantees.
 PERFORMANCE_PRESETS = {
@@ -59,8 +61,8 @@ class OllamaProposalWorker:
     def __init__(self, *, endpoint: str = "http://127.0.0.1:11434", model: str = "qwen2.5-coder:3b",
                  agent_id: str = "qwen-proposal", active: bool = True,
                  qualified: bool = True, request_timeout_seconds: float = 235.0):
-        if model not in {item["model"] for item in CHAT_MODELS.values()}:
-            raise ValueError("Ollama model is not in the approved chat registry")
+        if not valid_model_name(model):
+            raise ValueError("Invalid Ollama model identifier")
         self.descriptor = WorkerDescriptor(
             agent_id=agent_id,
             role="proposal_only",
