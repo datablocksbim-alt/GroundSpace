@@ -1,9 +1,11 @@
 """GS-010: route only the explicitly selected local group participant."""
 
+import threading
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 from ground_space.coordinator import route_group_message, coordinator_instructions
-from ground_space.webapp import GroundSpaceHandler
+from ground_space.webapp import GroundSpaceApp, GroundSpaceHandler
 
 MODELS = ["qwen2.5-coder:3b", "qwen3.5:4b", "granite3.3:2b"]
 
@@ -55,6 +57,28 @@ class CoordinatorRoutingTests(unittest.TestCase):
         self.assertIn("status PROPOSED", prompt)
         self.assertIn("owner approval", prompt)
         self.assertIn("no tools", prompt)
+
+class BootstrapAvailabilityTests(unittest.TestCase):
+    def test_browser_poll_reuses_one_short_local_model_probe(self):
+        app = GroundSpaceApp.__new__(GroundSpaceApp)
+        app.lock = threading.RLock()
+        app.ollama_endpoint = "http://127.0.0.1:1"
+        app.conversations = {"test-room": [{"role": "user", "content": "hello"}]}
+        app.tasks = Mock(return_value=[])
+        app.workspaces = SimpleNamespace(snapshot=Mock(return_value={"groups": [], "projects": []}))
+        app.agents = Mock(return_value=[])
+        app.catalog = Mock(return_value={"registered": []})
+        availability = {"available": False, "models": [], "reason": "offline"}
+
+        with patch("ground_space.webapp.probe_ollama", return_value=availability) as probe:
+            result = app.bootstrap()
+
+        probe.assert_called_once_with("http://127.0.0.1:1", timeout=0.6)
+        app.agents.assert_called_once_with(availability=availability)
+        app.catalog.assert_called_once_with(availability=availability)
+        self.assertEqual("hello", result["conversations"]["test-room"][0]["content"])
+        self.assertEqual(0, result["paid_api_usage_aud"])
+
 
 class HTTPDisconnectTests(unittest.TestCase):
     def test_disconnected_browser_is_handled_without_server_traceback(self):
