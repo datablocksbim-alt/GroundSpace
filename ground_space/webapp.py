@@ -28,6 +28,22 @@ PUBLIC = ROOT / "web" / "public"
 ADMIN_ROOT = Path(os.environ.get("DATABLOCKS_ADMIN_ROOT", r"D:\000_AI Project\AI Agents Datablocks"))
 MAX_HISTORY_MESSAGES = 24
 MAX_MESSAGE_LENGTH = 12_000
+SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
+
+
+def parse_slash_note(prompt: str) -> tuple[str, str] | None:
+    """Parse an owner-authored conversation annotation, never an agent command."""
+    if not prompt.startswith("/"):
+        return None
+    parts = prompt.split(maxsplit=1)
+    kind = parts[0][1:].casefold()
+    if kind not in SLASH_NOTE_TYPES:
+        raise ValueError("Unknown slash command. Available: /goal and /milestone")
+    details = parts[1].strip() if len(parts) == 2 else ""
+    if not details:
+        raise ValueError(f"Add a description after /{kind}")
+    return kind, details
+
 
 
 def default_state_dir() -> Path:
@@ -147,12 +163,14 @@ class GroundSpaceApp:
         except (OSError, ValueError):
             return {}
 
-    def add_history(self, conversation_id: str, role: str, content: str, **metadata: Any) -> None:
+    def add_history(self, conversation_id: str, role: str, content: str, **metadata: Any) -> dict[str, Any]:
         with self.lock:
             messages = self.conversations.setdefault(conversation_id, [])
-            messages.append({"role": role, "content": content, "timestamp": utc_timestamp(), **metadata})
+            entry = {"role": role, "content": content, "timestamp": utc_timestamp(), **metadata}
+            messages.append(entry)
             self.conversations[conversation_id] = messages[-MAX_HISTORY_MESSAGES:]
             atomic_json(self.history_path, self.conversations)
+            return entry
 
     def conversation_context(self, conversation_id: str) -> str:
         messages = self.conversations.get(conversation_id, [])[-8:]
@@ -166,6 +184,16 @@ class GroundSpaceApp:
             raise ValueError("Agent must be administrator or qwen")
         if not prompt or len(prompt) > MAX_MESSAGE_LENGTH:
             raise ValueError("Message is empty or too long")
+        note = parse_slash_note(prompt)
+        if note:
+            kind, description = note
+            entry = self.add_history(
+                conversation_id, "note", description, agent=agent,
+                kind=kind, note_id=f"NOTE-{secrets.token_hex(8)}",
+                source="slash_command",
+            )
+            # Visual planning notes do not dispatch tasks or call any AI worker.
+            return {"entry": entry, "conversation_id": conversation_id}
         if agent == "qwen":
             request_type = str(body.get("request_type", "explanation"))
             model = str(body.get("model", "qwen2.5-coder:3b"))
