@@ -78,6 +78,9 @@
 .message.assistant{background:var(--chat-bot);border-color:var(--chat-bot-border);border-radius:18px 18px 18px 7px}
 .message.system{background:#f9f5f5;border-color:#eee1e1;color:#6c4949}
 .message.note{align-self:flex-end;background:var(--chat-note);border-color:var(--chat-note-border);color:#343457;border-radius:18px 18px 7px 18px;min-width:min(240px,100%);}
+.message.note.goal{background:#fff7d6;border-color:#eadfae;color:#4e462d}
+.message.note.goal .note-label{background:rgba(159,125,37,.12);color:#776026}
+.message.note.goal small{color:#817457}
 .message.note.milestone{background:#ece9ff;border-color:#d6cdf5}
 .note-label{display:inline-flex;padding:4px 9px;margin-bottom:9px;border-radius:999px;background:rgba(96,91,183,.12);color:#514b9d;font:700 10px Consolas,monospace;letter-spacing:.09em;text-transform:uppercase}
 .message.note small,.message.user small{color:#6e7390}
