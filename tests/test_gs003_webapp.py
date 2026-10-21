@@ -260,7 +260,7 @@ class GS003WebAppTests(unittest.TestCase):
             })
             self.assertEqual(["qwen3.5:4b"], updated["models"])
 
-    def test_group_chat_one_user_message_multiple_scoped_workers(self):
+    def test_group_chat_defaults_to_coordinator_and_mentions_route_to_models(self):
         fake = {"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]}
         with patch("ground_space.webapp.probe_ollama", return_value=fake):
             self.post_json("/api/models/add", {"model": "qwen3.5:4b"})
@@ -272,24 +272,33 @@ class GS003WebAppTests(unittest.TestCase):
                     "group_id": group["id"], "prompt": "Propose a simple function",
                     "request_type": "code_proposal", "performance": "fast",
                 })
-                # The background dispatch thread may begin before this check.
                 deadline = time.monotonic() + 2
                 while not runner.called and time.monotonic() < deadline:
                     time.sleep(0.01)
-            self.assertEqual(2, len(response["task_ids"]))
+            self.assertEqual(1, len(response["task_ids"]))
             records = self.app.conversations[group["conversation_id"]]
             self.assertEqual(1, len(records))
             self.assertEqual("user", records[0]["role"])
-            self.assertEqual("group", records[0]["agent"])
             self.assertEqual(response["task_ids"], records[0]["task_ids"])
-            self.assertTrue(runner.called)
-            for model, task_id in zip(group["models"], response["task_ids"]):
-                task = self.app.task(task_id)
-                self.assertEqual(model, task["payload"]["model"])
-                self.assertEqual("fast", task["payload"]["performance"])
-                self.assertEqual(["read", "propose"], task["required_permissions"])
-                self.assertNotIn("path", task["payload"])
-                self.assertEqual(group["id"], task["payload"]["group_id"])
+            first_task = self.app.task(response["task_ids"][0])
+            self.assertEqual("Coordinator", first_task["payload"]["speaker"])
+            self.assertEqual("qwen2.5-coder:3b", first_task["payload"]["model"])
+            self.assertEqual(["read", "propose"], first_task["required_permissions"])
+            self.assertNotIn("path", first_task["payload"])
+            with patch.object(self.app, "_process_group"):
+                mentioned = self.post_json("/api/groups/send", {
+                    "group_id": group["id"], "prompt": "@qwen3.5:4b Please review this",
+                    "performance": "fast",
+                })
+            self.assertEqual(1, len(mentioned["task_ids"]))
+            direct = self.app.task(mentioned["task_ids"][0])
+            self.assertEqual("qwen3.5:4b", direct["payload"]["speaker"])
+            self.assertEqual("qwen3.5:4b", direct["payload"]["model"])
+            with self.assertRaises(urllib.error.HTTPError) as blocked:
+                self.post_json("/api/groups/send", {
+                    "group_id": group["id"], "prompt": "@Claude Please respond",
+                })
+            self.assertEqual(400, blocked.exception.code)
 
     def test_group_execution_is_sequential_and_in_member_order(self):
         group = self.post_json("/api/groups/create", {
