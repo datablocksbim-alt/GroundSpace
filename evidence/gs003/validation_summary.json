@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "validated_at": "2026-10-21T15:56:00+11:00",
+  "automated_tests": {
+    "passed": 13,
+    "failed": 0,
+    "includes_gs001_gs002_regression": true
+  },
+  "browser_validation": {
+    "local_url": "http://127.0.0.1:8765",
+    "responsive_layout_rendered": true,
+    "agents_view_reported_live_status": true,
+    "task_dashboard_reported_authoritative_status": true,
+    "approval_dialog_required_owner_token": true,
+    "chat_remained_responsive_during_inference": true,
+    "history_survived_refresh": true
+  },
+  "live_qwen_exchange": {
+    "task_id": "GS-a6ccf66cd1de4f52a3678e18cc90f627",
+    "correlation_id": "696714d2e3ac4a2ea1006b79e65ffd6c",
+    "status": "completed",
+    "model": "qwen2.5-coder:3b",
+    "response_sha256": "56535119e27a87634427a90421a9a164ffab4f51fff747608b9e76ad88ad5a45",
+    "proposal_only": true,
+    "tools_executed": false
+  },
+  "security": {
+    "bind_address": "127.0.0.1",
+    "csrf_enforced": true,
+    "owner_authentication_enforced": true,
+    "private_state_committed": false,
+    "pyrene_modified": false
+  },
+  "cloud_services_used": false,
+  "paid_api_usage_aud": 0
+}

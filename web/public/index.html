@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Data Blocks — Ground Space</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="#chat" aria-label="Ground Space home">
+        <span class="brand-mark"><i></i><i></i><i></i><i></i></span>
+        <span><b>DATA BLOCKS</b><small>GROUND SPACE / LOCAL</small></span>
+      </a>
+      <div class="system-state"><span class="pulse"></span><span id="systemState">Connecting</span></div>
+      <nav aria-label="Primary navigation">
+        <button class="nav-button active" data-view="chat">Chat</button>
+        <button class="nav-button" data-view="agents">Agents</button>
+        <button class="nav-button" data-view="tasks">Tasks</button>
+      </nav>
+    </header>
+
+    <main>
+      <section class="view active" id="view-chat">
+        <div class="chat-layout">
+          <aside class="agent-rail">
+            <p class="eyebrow">Active channel</p>
+            <button class="agent-choice active" data-agent="qwen">
+              <span class="agent-glyph violet">Q</span><span><b>Qwen</b><small>Proposal worker</small></span><em></em>
+            </button>
+            <button class="agent-choice" data-agent="administrator">
+              <span class="agent-glyph amber">A</span><span><b>Administrator</b><small>Task operations</small></span><em></em>
+            </button>
+            <div class="rail-note">
+              <span>BOUNDARY 01</span>
+              <p>Every request enters the Administrator queue. Nothing runs before owner approval.</p>
+            </div>
+          </aside>
+
+          <div class="conversation">
+            <div class="conversation-head">
+              <div><p class="eyebrow">Secure local exchange</p><h1 id="conversationTitle">Qwen channel</h1></div>
+              <span class="permission-pill" id="permissionPill">READ · PROPOSE</span>
+            </div>
+            <div class="messages" id="messages" aria-live="polite">
+              <div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>Ask Qwen for an explanation, assessment, or code proposal. Your request will wait for explicit approval.</p></div>
+            </div>
+            <div class="approval-bar hidden" id="approvalBar">
+              <div><span class="status-dot pending"></span><b>Awaiting owner approval</b><small id="pendingTaskId"></small></div>
+              <button id="approveButton">Authorize task</button>
+            </div>
+            <form class="composer" id="chatForm">
+              <label for="prompt">Message</label>
+              <textarea id="prompt" maxlength="12000" rows="3" placeholder="Ask for an explanation…" required></textarea>
+              <div class="composer-foot">
+                <select id="requestType" aria-label="Request type">
+                  <option value="explanation">Explanation</option>
+                  <option value="assessment">Assessment</option>
+                  <option value="code_proposal">Code proposal</option>
+                </select>
+                <span>Local only · No tools</span>
+                <button type="submit" id="sendButton">Queue request <b>↗</b></button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-agents">
+        <div class="page-head"><p class="eyebrow">Workforce registry</p><h1>Agents</h1><p>Live availability and enforced authority boundaries.</p></div>
+        <div class="agent-grid" id="agentGrid"></div>
+      </section>
+
+      <section class="view" id="view-tasks">
+        <div class="page-head"><p class="eyebrow">Administrator queue</p><h1>Tasks</h1><p>Real task state, approvals, progress, results, and errors.</p></div>
+        <div class="task-table-wrap"><table><thead><tr><th>Task</th><th>Worker</th><th>Approval</th><th>Status</th><th>Updated</th></tr></thead><tbody id="taskRows"></tbody></table></div>
+        <pre class="task-detail" id="taskDetail">Select a task to inspect its record.</pre>
+      </section>
+    </main>
+
+    <footer><span>DATA BLOCKS GROUND SPACE</span><span>LOCALHOST · AUD $0</span></footer>
+  </div>
+
+  <dialog id="approvalDialog">
+    <form method="dialog" id="approvalForm">
+      <p class="eyebrow">Owner authorization</p><h2>Approve this task?</h2>
+      <p>The token is checked locally and is never stored in conversation history.</p>
+      <label for="ownerToken">Owner token</label>
+      <input id="ownerToken" type="password" autocomplete="current-password" required>
+      <div class="dialog-actions"><button type="button" id="cancelApproval">Cancel</button><button type="submit" id="confirmApproval">Approve &amp; run</button></div>
+    </form>
+  </dialog>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

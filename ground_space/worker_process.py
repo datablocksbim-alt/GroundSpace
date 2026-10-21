@@ -8,6 +8,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 
@@ -80,6 +81,49 @@ def ollama_proposal(spec: dict[str, Any], task: dict[str, Any]) -> dict[str, Any
     }
 
 
+def administrator_console(spec: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+    queue_dir = Path(str(spec.get("queue_dir", ""))).resolve()
+    if not queue_dir.is_dir():
+        raise ValueError("Administrator queue is unavailable")
+    payload = task.get("payload", {})
+    operation = str(payload.get("operation", "help"))
+    target_task_id = str(payload.get("target_task_id", ""))
+    if operation == "help":
+        answer = "Available Administrator commands: help, list tasks, or status <task-id>. All operations are read-only."
+    elif operation == "list":
+        records = []
+        for path in sorted(queue_dir.glob("*.json"), key=lambda item: item.stat().st_mtime_ns, reverse=True)[:20]:
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+                records.append(f"{record.get('task_id')}: {record.get('status')}")
+            except (OSError, ValueError):
+                continue
+        answer = "Recent tasks:\n" + ("\n".join(records) if records else "No tasks recorded.")
+    elif operation == "status":
+        if not target_task_id or any(character not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_" for character in target_task_id):
+            raise ValueError("Invalid task identifier")
+        path = queue_dir / f"{target_task_id}.json"
+        if not path.is_file():
+            answer = f"Task {target_task_id} was not found."
+        else:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            answer = json.dumps({
+                "task_id": record.get("task_id"), "status": record.get("status"),
+                "requested_worker": record.get("requested_worker"),
+                "approval": record.get("approval"), "updated_at": record.get("updated_at"),
+                "failure": record.get("failure"), "result": record.get("result"),
+            }, indent=2, sort_keys=True)
+    else:
+        raise ValueError("Unsupported Administrator operation")
+    return {
+        "result": {
+            "operation": "administrator_console", "task_id": task["task_id"],
+            "correlation_id": task["correlation_id"], "answer": answer, "read_only": True,
+        },
+        "progress": [{"stage": "administrator_status_read", "percent": 100}],
+    }
+
+
 def main() -> int:
     envelope = json.load(sys.stdin)
     spec = envelope["worker"]
@@ -89,6 +133,8 @@ def main() -> int:
         output = deterministic(task)
     elif kind == "ollama_proposal":
         output = ollama_proposal(spec, task)
+    elif kind == "administrator_console":
+        output = administrator_console(spec, task)
     elif kind == "test_sleep":
         time.sleep(float(spec.get("seconds", 1)))
         output = {"result": {"late": True}, "progress": []}

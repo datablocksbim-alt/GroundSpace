@@ -61,6 +61,22 @@ class OllamaProposalWorker:
         }
 
 
+class AdministratorConsoleWorker:
+    """Read-only task-management view over the Administrator queue."""
+
+    def __init__(self, queue_dir: str):
+        self.queue_dir = queue_dir
+        self.descriptor = WorkerDescriptor(
+            agent_id="administrator-console",
+            role="task_management",
+            permissions=frozenset({"read"}),
+            metadata={"write_authority": False},
+        )
+
+    def execution_request(self) -> dict[str, Any]:
+        return {"kind": "administrator_console", "queue_dir": self.queue_dir}
+
+
 def probe_ollama(endpoint: str = "http://127.0.0.1:11434", timeout: float = 2.0) -> dict[str, Any]:
     url = endpoint.rstrip("/") + "/api/tags"
     try:
