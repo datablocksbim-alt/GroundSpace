@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import hmac
 import json
 import os
@@ -42,9 +41,8 @@ def atomic_json(path: Path, value: Any) -> None:
 
 
 class GroundSpaceApp:
-    def __init__(self, state_dir: Path, owner_token: str, *, ollama_endpoint: str = "http://127.0.0.1:11434"):
+    def __init__(self, state_dir: Path, *, ollama_endpoint: str = "http://127.0.0.1:11434"):
         self.state_dir = state_dir.resolve()
-        self.owner_token_hash = hashlib.sha256(owner_token.encode("utf-8")).digest()
         self.ollama_endpoint = ollama_endpoint
         self.history_path = self.state_dir / "private" / "conversations.json"
         self.queue_dir = self.state_dir / "private" / "queue"
@@ -66,10 +64,6 @@ class GroundSpaceApp:
             return value if isinstance(value, dict) else {}
         except (OSError, ValueError):
             return {}
-
-    def authenticated(self, token: str) -> bool:
-        supplied = hashlib.sha256(token.encode("utf-8")).digest()
-        return hmac.compare_digest(self.owner_token_hash, supplied)
 
     def add_history(self, conversation_id: str, role: str, content: str, **metadata: Any) -> None:
         with self.lock:
@@ -110,15 +104,12 @@ class GroundSpaceApp:
             worker_id, permissions, timeout = "administrator-console", ["read"], 10
         task = self.administrator.submit(
             payload, worker_id=worker_id, required_permissions=permissions,
-            execution_timeout_seconds=timeout,
+            execution_timeout_seconds=timeout, approved=True,
+            approval_source="ground-space-local-chat",
         )
         self.add_history(conversation_id, "user", prompt, task_id=task["task_id"], agent=agent)
+        threading.Thread(target=self._process_and_record, args=(task["task_id"],), daemon=True).start()
         return {"task": task, "conversation_id": conversation_id}
-
-    def approve_and_dispatch(self, task_id: str) -> dict[str, Any]:
-        task = self.administrator.approve(task_id, owner="authenticated-local-owner")
-        threading.Thread(target=self._process_and_record, args=(task_id,), daemon=True).start()
-        return task
 
     def _process_and_record(self, task_id: str) -> None:
         result = self.orchestrator.process(task_id)
@@ -150,8 +141,8 @@ class GroundSpaceApp:
         availability = probe_ollama(self.ollama_endpoint)
         model_agents = {item.agent_id: item for item in ollama_descriptors(self.ollama_endpoint, availability)}
         return [
-            {"agent_id": "administrator", "role": "queue, approval, audit", "active": True,
-             "permissions": ["submit", "approve_authenticated", "status"]},
+            {"agent_id": "administrator", "role": "queue, automatic dispatch, audit", "active": True,
+             "permissions": ["submit", "status"]},
             {"agent_id": "orchestrator", "role": "authorized routing", "active": True,
              "permissions": ["claim", "dispatch", "retry"]},
             *[{"agent_id": item.agent_id, "role": item.role, "active": item.active,
@@ -248,14 +239,6 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
             if path == "/api/chat":
                 self._json(HTTPStatus.CREATED, self.app.submit_chat(body))
                 return
-            if path.startswith("/api/tasks/") and path.endswith("/approve"):
-                token = self.headers.get("Authorization", "").removeprefix("Bearer ")
-                if not token or not self.app.authenticated(token):
-                    self._error(HTTPStatus.UNAUTHORIZED, "Owner authentication failed")
-                    return
-                task_id = path.split("/")[-2]
-                self._json(HTTPStatus.ACCEPTED, {"task": self.app.approve_and_dispatch(task_id)})
-                return
             self._error(HTTPStatus.NOT_FOUND, "Endpoint not found")
         except (OSError, ValueError, json.JSONDecodeError) as error:
             self._error(HTTPStatus.BAD_REQUEST, str(error))
@@ -273,12 +256,10 @@ def main() -> int:
     parser.add_argument("--state-dir", type=Path, default=default_state_dir())
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
-    owner_token = os.environ.get("GROUND_SPACE_OWNER_TOKEN") or secrets.token_urlsafe(24)
-    app = GroundSpaceApp(args.state_dir, owner_token)
+    app = GroundSpaceApp(args.state_dir)
     server = create_server(app, args.port)
     url = f"http://127.0.0.1:{server.server_port}"
     print(f"Ground Space: {url}")
-    print(f"Owner approval token: {owner_token}")
     print(f"Private state: {app.state_dir}")
     if not args.no_browser:
         webbrowser.open(url)
