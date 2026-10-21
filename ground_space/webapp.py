@@ -117,13 +117,16 @@ class GroundSpaceApp:
         conversation_id = str(payload.get("conversation_id", ""))
         if not conversation_id:
             return
-        worker_result = result.get("result", {})
+        worker_result = result.get("result") or {}
         answer = worker_result.get("answer")
         if answer:
             self.add_history(conversation_id, "assistant", str(answer), task_id=task_id,
                              agent="qwen" if result.get("requested_worker") == "qwen-proposal" else "administrator")
         elif result.get("status") in {"failed", "blocked", "retry_pending"}:
-            self.add_history(conversation_id, "system", str(result.get("failure", "Task did not complete")), task_id=task_id)
+            self.add_history(conversation_id, "system",
+                             str(result.get("failure") or result.get("failed_stage") or "Task did not complete"),
+                             task_id=task_id,
+                             agent="qwen" if result.get("requested_worker") == "qwen-proposal" else "administrator")
 
     def task(self, task_id: str) -> dict[str, Any]:
         return self.administrator.status(task_id)

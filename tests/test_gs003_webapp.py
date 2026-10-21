@@ -86,6 +86,21 @@ class GS003WebAppTests(unittest.TestCase):
         self.assertEqual(["read", "propose"], task["required_permissions"])
         self.assertEqual("qwen-proposal", task["requested_worker"])
 
+    def test_offline_qwen_failure_appears_in_chat_history(self):
+        created = self.post_json('/api/chat', {'agent': 'qwen', 'prompt': 'Are you there?',
+                                                'request_type': 'explanation',
+                                                'conversation_id': 'offline-visibility'})
+        self.assertEqual('approved', created['task']['approval']['status'])
+        deadline = time.monotonic() + 5
+        history = []
+        while time.monotonic() < deadline:
+            history = self.get_json('/api/bootstrap')['conversations'].get('offline-visibility', [])
+            if any(item['role'] == 'system' for item in history):
+                break
+            time.sleep(0.05)
+        system_messages = [item for item in history if item['role'] == 'system']
+        self.assertTrue(system_messages, 'Offline inference must not fail silently')
+        self.assertEqual('qwen', system_messages[-1]['agent'])
     def test_private_history_survives_app_restart_and_is_bounded(self):
         for index in range(30):
             self.app.add_history("bounded", "user", f"message {index}")
