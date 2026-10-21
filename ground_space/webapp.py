@@ -327,7 +327,7 @@ class GroundSpaceApp:
                 conversation_id, "note", description, agent=agent,
                 kind=kind, note_id=f"NOTE-{secrets.token_hex(8)}",
                 source="slash_command", group_id=group["id"] if group else None,
-                project_id=project_id, planning_status="awaiting_ai_review" if agent != "administrator" else "recorded",
+                project_id=project_id, planning_status="ai_review_requested" if agent != "administrator" else "recorded",
             )
             if agent == "administrator":
                 # The read-only console cannot perform model planning or execute goals.
