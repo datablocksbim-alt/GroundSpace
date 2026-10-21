@@ -1,7 +1,9 @@
 """GS-010: route only the explicitly selected local group participant."""
 
 import unittest
+from unittest.mock import patch
 from ground_space.coordinator import route_group_message, coordinator_instructions
+from ground_space.webapp import GroundSpaceHandler
 
 MODELS = ["qwen2.5-coder:3b", "qwen3.5:4b", "granite3.3:2b"]
 
@@ -53,6 +55,25 @@ class CoordinatorRoutingTests(unittest.TestCase):
         self.assertIn("status PROPOSED", prompt)
         self.assertIn("owner approval", prompt)
         self.assertIn("no tools", prompt)
+
+class HTTPDisconnectTests(unittest.TestCase):
+    def test_disconnected_browser_is_handled_without_server_traceback(self):
+        # Mimic a browser cancelling /api/bootstrap while bytes are being sent.
+        handler = GroundSpaceHandler.__new__(GroundSpaceHandler)
+        for error in (
+            BrokenPipeError(32, "Broken pipe"),
+            ConnectionResetError(10054, "Connection reset"),
+            ConnectionAbortedError(10053, "Connection aborted"),
+        ):
+            with self.subTest(error=type(error).__name__):
+                with patch("http.server.BaseHTTPRequestHandler.handle", side_effect=error):
+                    self.assertIsNone(handler.handle())
+
+    def test_unrelated_server_failure_still_surfaces(self):
+        handler = GroundSpaceHandler.__new__(GroundSpaceHandler)
+        with patch("http.server.BaseHTTPRequestHandler.handle", side_effect=ValueError("bad app state")):
+            with self.assertRaisesRegex(ValueError, "bad app state"):
+                handler.handle()
 
 
 if __name__ == "__main__":
