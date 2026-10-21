@@ -72,10 +72,11 @@ class CoordinatorTests(unittest.TestCase):
             cards = app.proposals.create_goal("Build tablet", GROUP)
             app.workspaces = SimpleNamespace(get_group=lambda group_id: GROUP)
             app.registered_models = list(GROUP["models"])
+            app.ollama_endpoint = "http://127.0.0.1:11434"
             app._register_worker = Mock()
             app.administrator = SimpleNamespace(
                 submit=Mock(return_value={"task_id": cards[0]["task_id"]}),
-                status=Mock(return_value={"status": "completed"}),
+                status=Mock(return_value={"status": "queued"}),
             )
             with self.assertRaises(ValueError):
                 app.approve_proposal({"task_id": cards[0]["task_id"],
