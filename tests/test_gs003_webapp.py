@@ -125,6 +125,22 @@ class GS003WebAppTests(unittest.TestCase):
         self.assertEqual(["goal", "milestone"], [note["kind"] for note in records])
         self.assertTrue(all(note["source"] == "slash_command" for note in records))
 
+    def test_planning_notes_survive_normal_chat_history_pruning(self):
+        self.app.add_history("retain-notes", "note", "Deliver playable tutorial",
+                             agent="qwen", kind="goal", note_id="NOTE-stable")
+        for index in range(40):
+            self.app.add_history("retain-notes", "user", f"chat message {index}", agent="qwen")
+        records = self.app.conversations["retain-notes"]
+        notes = [entry for entry in records if entry["role"] == "note"]
+        ordinary = [entry for entry in records if entry["role"] == "user"]
+        self.assertEqual(1, len(notes))
+        self.assertEqual("Deliver playable tutorial", notes[0]["content"])
+        self.assertEqual(24, len(ordinary))
+        restored = GroundSpaceApp(self.state_dir, ollama_endpoint="http://127.0.0.1:1")
+        self.assertEqual("NOTE-stable",
+                         next(entry["note_id"] for entry in restored.conversations["retain-notes"]
+                              if entry["role"] == "note"))
+
     def test_slash_messages_validate_type_and_nonempty_body(self):
         for prompt in ("/goal", "/milestone   ", "/delete everything", "/go test"):
             with self.subTest(prompt=prompt):
