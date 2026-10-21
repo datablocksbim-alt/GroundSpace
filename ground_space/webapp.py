@@ -47,6 +47,23 @@ def parse_slash_note(prompt: str) -> tuple[str, str] | None:
     return kind, details
 
 
+def planning_followup_prompt(kind: str, description: str) -> str:
+    """Ask for a plan, without treating a planning note as execution approval."""
+    label = "GOAL" if kind == "goal" else "MILESTONE"
+    guidance = (
+        "Summarize the goal and suggest up to three practical milestones or next steps."
+        if kind == "goal" else
+        "Explain how this milestone contributes to the plan, suggest its acceptance criteria and immediate next step."
+    )
+    return (
+        f"The user added a persistent {label} planning note. "
+        "Recognize it as a project objective, not a normal chat question. "
+        f"{guidance} Keep the answer concise and useful. "
+        "Do not claim to have completed work, assigned agents, inspected files, "
+        "or run any commands. This is planning only.\n\n"
+        f"{label} description:\n{description}"
+    )
+
 
 def default_state_dir() -> Path:
     base = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
@@ -180,7 +197,7 @@ class GroundSpaceApp:
                 body.get("project_id"), list(self.registered_models),
             )
 
-    def submit_group(self, body: dict[str, Any]) -> dict[str, Any]:
+    def submit_group(self, body: dict[str, Any], *, annotation_entry: dict[str, Any] | None = None) -> dict[str, Any]:
         group = self.workspaces.get_group(str(body.get("group_id", "")))
         prompt = str(body.get("prompt", "")).strip()
         if not prompt or len(prompt) > MAX_MESSAGE_LENGTH:
@@ -222,15 +239,22 @@ class GroundSpaceApp:
                     approval_source="ground-space-group-chat",
                 )
                 task_ids.append(task["task_id"])
-            self.add_history(
-                conversation_id, "user", prompt, agent="group",
-                group_id=group["id"], group_turn_id=group_turn_id,
-                task_ids=task_ids, project_id=group["project_id"],
-            )
+            if annotation_entry is None:
+                self.add_history(
+                    conversation_id, "user", prompt, agent="group",
+                    group_id=group["id"], group_turn_id=group_turn_id,
+                    task_ids=task_ids, project_id=group["project_id"],
+                )
+            else:
+                annotation_entry.update(task_ids=task_ids, group_turn_id=group_turn_id)
+                atomic_json(self.history_path, self.conversations)
         threading.Thread(
             target=self._process_group, args=(task_ids,), daemon=True,
         ).start()
-        return {"group": group, "task_ids": task_ids, "conversation_id": conversation_id}
+        response = {"group": group, "task_ids": task_ids, "conversation_id": conversation_id}
+        if annotation_entry is not None:
+            response["entry"] = annotation_entry
+        return response
 
     def _process_group(self, task_ids: list[str]) -> None:
         # Single laptop GPU: avoid parallel simultaneous Ollama generations.
@@ -268,8 +292,19 @@ class GroundSpaceApp:
             return entry
 
     def conversation_context(self, conversation_id: str) -> str:
-        messages = self.conversations.get(conversation_id, [])[-8:]
-        return "\n".join(f"{item.get('role')}: {item.get('content')}" for item in messages)[-8000:]
+        """Keep recent planning objectives visible after normal chat turns roll off."""
+        with self.lock:
+            messages = list(self.conversations.get(conversation_id, []))
+        notes = [item for item in messages if item.get("role") == "note"][-12:]
+        recent = [item for item in messages if item.get("role") != "note"][-8:]
+        lines = [
+            f"planning_{item.get('kind', 'note')}: {item.get('content', '')}"
+            for item in notes
+        ] + [
+            f"{item.get('role')}: {item.get('content')}"
+            for item in recent
+        ]
+        return "\n".join(lines)[-8000:]
 
     def submit_chat(self, body: dict[str, Any]) -> dict[str, Any]:
         agent = str(body.get("agent", ""))
@@ -286,18 +321,39 @@ class GroundSpaceApp:
         if not prompt or len(prompt) > MAX_MESSAGE_LENGTH:
             raise ValueError("Message is empty or too long")
         note = parse_slash_note(prompt)
+        if note and agent == "qwen":
+            # Reject an unavailable selection before persisting a note as review-requested.
+            if str(body.get("performance", "balanced")) not in PERFORMANCE_PRESETS:
+                raise ValueError("Invalid response performance preset")
+            with self.lock:
+                if str(body.get("model", "qwen2.5-coder:3b")) not in self.registered_models:
+                    raise ValueError("Select a registered local model in the model manager")
+        if note and group:
+            if str(body.get("performance", "balanced")) not in PERFORMANCE_PRESETS:
+                raise ValueError("Unknown performance preset")
+            with self.lock:
+                if not set(group["models"]).issubset(set(self.registered_models)):
+                    raise ValueError("A group AI model is no longer registered; edit its members")
         if note:
             kind, description = note
             entry = self.add_history(
                 conversation_id, "note", description, agent=agent,
                 kind=kind, note_id=f"NOTE-{secrets.token_hex(8)}",
                 source="slash_command", group_id=group["id"] if group else None,
-                project_id=project_id,
+                project_id=project_id, planning_status="ai_review_requested" if agent != "administrator" else "recorded",
             )
-            # Visual planning notes do not dispatch tasks or call any AI worker.
-            return {"entry": entry, "conversation_id": conversation_id}
+            if agent == "administrator":
+                # The read-only console cannot perform model planning or execute goals.
+                return {"entry": entry, "conversation_id": conversation_id}
+            prompt = planning_followup_prompt(kind, description)
+            if group:
+                # The same note is the source of the group turn; do not add a duplicate user bubble.
+                return self.submit_group(
+                    {**body, "group_id": group["id"], "prompt": prompt,
+                     "request_type": "explanation"},
+                    annotation_entry=entry,
+                )
         if group:
-            # Only slash notes are handled at /api/chat for groups.
             # Non-note group turns must go through /api/groups/send.
             raise ValueError("Group conversations use group send")
         if agent == "qwen":
@@ -335,11 +391,20 @@ class GroundSpaceApp:
             execution_timeout_seconds=timeout, approved=True,
             approval_source="ground-space-local-chat",
         )
-        self.add_history(conversation_id, "user", prompt, task_id=task["task_id"], agent=agent,
-                         model=payload.get("model"), performance=payload.get("performance"),
-                         project_id=project_id)
+        if note:
+            # Connect the proposal task to its original planning card for status and recovery.
+            with self.lock:
+                entry.update(task_id=task["task_id"], model=payload.get("model"))
+                atomic_json(self.history_path, self.conversations)
+        else:
+            self.add_history(conversation_id, "user", prompt, task_id=task["task_id"], agent=agent,
+                             model=payload.get("model"), performance=payload.get("performance"),
+                             project_id=project_id)
         threading.Thread(target=self._process_and_record, args=(task["task_id"],), daemon=True).start()
-        return {"task": task, "conversation_id": conversation_id}
+        response = {"task": task, "conversation_id": conversation_id}
+        if note:
+            response["entry"] = entry
+        return response
 
     def _process_and_record(self, task_id: str) -> None:
         result = self.orchestrator.process(task_id)

@@ -104,26 +104,30 @@ class GS003WebAppTests(unittest.TestCase):
         self.assertEqual('qwen', system_messages[-1]['agent'])
 
 
-    def test_goal_and_milestone_notes_are_persisted_without_worker_tasks(self):
+    def test_goal_and_milestone_notes_create_only_proposal_chat_reviews(self):
         before = len(self.app.tasks())
-        for kind, description in (
-            ("goal", "Deliver a clear Pyrene learning journey"),
-            ("milestone", "Finish the Ground Space communication prototype"),
-        ):
-            response = self.post_json("/api/chat", {
-                "agent": "qwen", "prompt": f"/{kind} {description}",
-                "conversation_id": "planning-notes",
-            })
-            self.assertNotIn("task", response, "Notes must not create or dispatch tasks")
-            self.assertEqual("note", response["entry"]["role"])
-            self.assertEqual(kind, response["entry"]["kind"])
-            self.assertEqual(description, response["entry"]["content"])
-            self.assertTrue(response["entry"]["note_id"].startswith("NOTE-"))
-        self.assertEqual(before, len(self.app.tasks()))
+        with patch.object(self.app, "_process_and_record"):
+            for kind, description in (
+                ("goal", "Deliver a clear Pyrene learning journey"),
+                ("milestone", "Finish the Ground Space communication prototype"),
+            ):
+                response = self.post_json("/api/chat", {
+                    "agent": "qwen", "prompt": f"/{kind} {description}",
+                    "conversation_id": "planning-notes",
+                })
+                self.assertEqual("note", response["entry"]["role"])
+                self.assertEqual(kind, response["entry"]["kind"])
+                self.assertEqual(description, response["entry"]["content"])
+                self.assertTrue(response["entry"]["note_id"].startswith("NOTE-"))
+                task = response["task"]
+                self.assertEqual(["read", "propose"], task["required_permissions"])
+                self.assertNotIn("write", task["required_permissions"])
+                self.assertEqual("explanation", task["payload"]["request_type"])
+        self.assertEqual(before + 2, len(self.app.tasks()))
         restored = GroundSpaceApp(self.state_dir, ollama_endpoint="http://127.0.0.1:1")
-        records = restored.conversations["planning-notes"]
-        self.assertEqual(["goal", "milestone"], [note["kind"] for note in records])
-        self.assertTrue(all(note["source"] == "slash_command" for note in records))
+        notes = [r for r in restored.conversations["planning-notes"] if r["role"] == "note"]
+        self.assertEqual(["goal", "milestone"], [n["kind"] for n in notes])
+        self.assertTrue(all(n["source"] == "slash_command" for n in notes))
 
     def test_planning_notes_survive_normal_chat_history_pruning(self):
         self.app.add_history("retain-notes", "note", "Deliver playable tutorial",
@@ -318,17 +322,20 @@ class GS003WebAppTests(unittest.TestCase):
             })
         self.assertEqual(400, folder.exception.code)
 
-    def test_group_notes_and_invalid_members_never_dispatch(self):
+    def test_group_notes_queue_proposal_chat_only_and_validate_members(self):
         group = self.post_json("/api/groups/create", {
             "name": "Milestones", "models": ["qwen2.5-coder:3b"],
         })
-        note = self.post_json("/api/chat", {
-            "agent": "group", "group_id": group["id"],
-            "prompt": "/milestone Complete the communication layer",
-        })
-        self.assertNotIn("task", note)
+        with patch.object(self.app, "_process_group"):
+            note = self.post_json("/api/chat", {
+                "agent": "group", "group_id": group["id"],
+                "prompt": "/milestone Complete the communication layer",
+            })
         self.assertEqual("milestone", note["entry"]["kind"])
         self.assertEqual(group["conversation_id"], note["conversation_id"])
+        self.assertEqual(1, len(note["task_ids"]))
+        task = self.app.task(note["task_ids"][0])
+        self.assertEqual(["read", "propose"], task["required_permissions"])
         for models in ([], ["qwen2.5-coder:3b", "qwen2.5-coder:3b"], ["missing:4b"]):
             with self.subTest(models=models):
                 with self.assertRaises(urllib.error.HTTPError) as caught:
