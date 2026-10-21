@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "web" / "public"
 ADMIN_ROOT = Path(os.environ.get("DATABLOCKS_ADMIN_ROOT", r"D:\000_AI Project\AI Agents Datablocks"))
 MAX_HISTORY_MESSAGES = 24
+MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
 
@@ -168,7 +169,13 @@ class GroundSpaceApp:
             messages = self.conversations.setdefault(conversation_id, [])
             entry = {"role": role, "content": content, "timestamp": utc_timestamp(), **metadata}
             messages.append(entry)
-            self.conversations[conversation_id] = messages[-MAX_HISTORY_MESSAGES:]
+            # Keep planning notes separately within the same bounded local history
+            # so ordinary chat messages do not immediately evict goals/milestones.
+            normal = [item for item in messages if item.get("role") != "note"]
+            planning = [item for item in messages if item.get("role") == "note"]
+            keep = {id(item) for item in normal[-MAX_HISTORY_MESSAGES:]}
+            keep.update(id(item) for item in planning[-MAX_PLANNING_NOTES:])
+            self.conversations[conversation_id] = [item for item in messages if id(item) in keep]
             atomic_json(self.history_path, self.conversations)
             return entry
 
