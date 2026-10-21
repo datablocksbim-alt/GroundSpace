@@ -71,6 +71,47 @@ class WorkspaceRegistry:
                     "groups": [dict(g) for g in self.groups],
                     "allowed_project_roots": [str(root) for root in self.allowed_roots]}
 
+    def browse_folders(self, path_text: str | None = None) -> dict[str, Any]:
+        """Metadata-only folder picker; never follows a path outside allowed roots."""
+        if not path_text:
+            return {"current": None, "folders": [
+                {"name": str(root), "path": str(root)} for root in self.allowed_roots
+            ], "is_root_list": True}
+        if len(path_text) > 1200:
+            raise ValueError("Folder path too long")
+        try:
+            resolved = Path(path_text).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise ValueError("Folder not found") from error
+        if not resolved.is_dir() or not any(
+            resolved == root or resolved.is_relative_to(root) for root in self.allowed_roots
+        ):
+            raise ValueError("Folder browsing is restricted to allowed project roots")
+        children = []
+        try:
+            for item in sorted(resolved.iterdir(), key=lambda p: p.name.casefold()):
+                if item.name.startswith("."):
+                    continue
+                try:
+                    target = item.resolve(strict=True)
+                    if (target.is_dir() and any(
+                        target == root or target.is_relative_to(root)
+                        for root in self.allowed_roots
+                    )):
+                        children.append({"name": item.name, "path": str(target)})
+                except (OSError, RuntimeError):
+                    continue
+                if len(children) >= 100:
+                    break
+        except OSError as error:
+            raise ValueError("Cannot list this folder") from error
+        parent = resolved.parent
+        can_up = any(parent == root or parent.is_relative_to(root)
+                     for root in self.allowed_roots)
+        return {"current": str(resolved), "folders": children,
+                "parent": str(parent) if can_up else None,
+                "is_root_list": False}
+
     def get_project(self, project_id: str) -> dict[str, Any]:
         with self.lock:
             for project in self.projects:
