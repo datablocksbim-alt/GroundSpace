@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .bridge import AdministratorAdapter, OrchestratorAdapter
-from .coordinator import coordinator_instructions, route_group_message
+from .coordinator import coordinator_instructions, route_group_message, specialist_instructions
 from .messages import utc_timestamp
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
@@ -248,7 +248,7 @@ class GroundSpaceApp:
                         kind=annotation_entry.get("kind") if annotation_entry else None,
                         goal_id=annotation_entry.get("note_id") if annotation_entry else None,
                     )
-                    if route.coordinator else prompt
+                    if route.coordinator else specialist_instructions(prompt, model=model)
                 )
                 prompt_sections = [project_context.rstrip()] if project_context else []
                 if context:

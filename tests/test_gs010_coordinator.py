@@ -4,7 +4,8 @@ import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-from ground_space.coordinator import route_group_message, coordinator_instructions
+from ground_space.coordinator import (route_group_message, coordinator_instructions,
+                                      specialist_instructions)
 from ground_space.webapp import GroundSpaceApp, GroundSpaceHandler
 
 MODELS = ["qwen2.5-coder:3b", "qwen3.5:4b", "granite3.3:2b"]
@@ -49,9 +50,15 @@ class CoordinatorRoutingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             route_group_message("@qwen3.5 hi", ["qwen3.5:4b", "qwen3.5:4b-64k"])
 
-    def test_mixed_coordinator_specialist_fails(self):
-        with self.assertRaises(ValueError):
-            route_group_message("@Coordinator @Qwen hi", MODELS)
+    def test_coordinator_can_delegate_to_explicit_specialists(self):
+        route = route_group_message("@Coordinator @Qwen @Granite say hi", MODELS)
+        self.assertEqual((MODELS[0], MODELS[2]), route.models)
+        self.assertFalse(route.coordinator)
+
+    def test_natural_coordinator_delegation_routes_individual_replies(self):
+        route = route_group_message("@Coordinator ask Qwen and Granite to say hi", MODELS)
+        self.assertEqual((MODELS[0], MODELS[2]), route.models)
+        self.assertFalse(route.coordinator)
 
     def test_ministral_coordinator_preference(self):
         models = MODELS + ["ministral-3:8b"]
@@ -62,6 +69,13 @@ class CoordinatorRoutingTests(unittest.TestCase):
         self.assertIn("status PROPOSED", prompt)
         self.assertIn("owner approval", prompt)
         self.assertIn("no tools", prompt)
+        self.assertIn("Never simulate", prompt)
+
+    def test_specialists_are_instructed_to_speak_only_for_themselves(self):
+        prompt = specialist_instructions("Say hello", model=MODELS[0])
+        self.assertIn(MODELS[0], prompt)
+        self.assertIn("only as yourself", prompt)
+        self.assertIn("simulated transcript", prompt)
 
 class BootstrapAvailabilityTests(unittest.TestCase):
     def test_browser_poll_reuses_one_short_local_model_probe(self):

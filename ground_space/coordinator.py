@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 MENTION = re.compile(r"(?<![A-Za-z0-9_])@([A-Za-z0-9][A-Za-z0-9._:/-]{0,127})")
 CLOUD_ALIASES = frozenset({"chatgpt", "openai", "claude", "anthropic"})
+DELEGATION = re.compile(r"\b(ask|have|let|task|tell|invite|hear\s+from|respond|reply)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,26 @@ def resolve_specialist(name: str, group_models: list[str]) -> str:
     return family[0]
 
 
+def named_participants(prompt: str, group_models: list[str]) -> list[str]:
+    """Find room members named naturally in a Coordinator delegation request."""
+    if not DELEGATION.search(prompt):
+        return []
+    selected = []
+    for model in group_models:
+        family = model.split(":", 1)[0].split("-", 1)[0]
+        aliases = {model.casefold(), family.casefold()}
+        if model.casefold().startswith("qwen2.5-coder"):
+            aliases.add("qwen")
+        if model.casefold().startswith("granite"):
+            aliases.add("granite")
+        if model.casefold().startswith("ministral"):
+            aliases.add("ministral")
+        if any(re.search(r"(?<![A-Za-z0-9])" + re.escape(alias) + r"(?![A-Za-z0-9])",
+                         prompt, re.IGNORECASE) for alias in aliases):
+            selected.append(model)
+    return selected
+
+
 def route_group_message(prompt: str, group_models: list[str], *, force_coordinator: bool = False) -> GroupRoute:
     """Unaddressed chat and all planning notes go to Coordinator only.
 
@@ -54,10 +75,16 @@ def route_group_message(prompt: str, group_models: list[str], *, force_coordinat
     if force_coordinator:
         return GroupRoute((coordinator_model(group_models),), True)
     mentions = [match.group(1).rstrip(".") for match in MENTION.finditer(prompt)]
-    if not mentions or all(name.casefold() == "coordinator" for name in mentions):
+    if not mentions:
         return GroupRoute((coordinator_model(group_models),), True)
     if any(name.casefold() == "coordinator" for name in mentions):
-        raise ValueError("Mention Coordinator or specialist models, not both in the same message")
+        specialists = [resolve_specialist(name, group_models) for name in mentions
+                       if name.casefold() != "coordinator"]
+        if not specialists:
+            specialists = named_participants(prompt, group_models)
+        if specialists:
+            return GroupRoute(tuple(dict.fromkeys(specialists)), False)
+        return GroupRoute((coordinator_model(group_models),), True)
     selected: list[str] = []
     for name in mentions:
         model = resolve_specialist(name, group_models)
@@ -85,8 +112,21 @@ def coordinator_instructions(user_prompt: str, *, group_models: list[str], kind:
         "You are Coordinator, the default named participant in this Ground Space room. "
         "You are powered by a local Ollama model, have no tools, and cannot browse "
         "project files, approve tasks, modify files, run code, or call cloud APIs. "
-        "Never claim work was completed based only on a chat response. "
+        "Never claim work was completed based only on a chat response. Never simulate, quote, "
+        "or write dialogue on behalf of another room participant. Each model must answer for itself. "
         f"Allowed group models: {room_members}. "
         f"Goal reference: {goal_id or 'none'}. {planning}\n\n"
         f"User message:\n{user_prompt}"
+    )
+
+
+def specialist_instructions(user_prompt: str, *, model: str) -> str:
+    """Keep each routed model in its own voice instead of simulating the room."""
+    return (
+        f"You are {model}, one individual participant in a Ground Space group chat. "
+        "Reply naturally and only as yourself. Do not write responses for Coordinator or any "
+        "other model, do not present a simulated transcript, and do not prefix your answer with "
+        "another participant's name. You have no tools or filesystem access; this is a "
+        "proposal-only chat response.\n\n"
+        f"Group message:\n{user_prompt}"
     )

@@ -346,6 +346,24 @@ class GS003WebAppTests(unittest.TestCase):
             for task in tasks:
                 self.assertEqual(["read", "propose"], task["required_permissions"])
 
+    def test_coordinator_delegation_creates_individual_model_replies(self):
+        fake = {"available": True, "models": ["qwen2.5-coder:3b", "granite4:3b"]}
+        with patch("ground_space.webapp.probe_ollama", return_value=fake):
+            self.post_json("/api/models/add", {"model": "granite4:3b"})
+            group = self.post_json("/api/groups/create", {
+                "name": "Natural group",
+                "models": ["qwen2.5-coder:3b", "granite4:3b"],
+            })
+            with patch.object(self.app, "_process_group"):
+                response = self.post_json("/api/groups/send", {
+                    "group_id": group["id"],
+                    "prompt": "@Coordinator ask Qwen and Granite to say hello",
+                })
+        tasks = [self.app.task(task_id) for task_id in response["task_ids"]]
+        self.assertEqual(group["models"], [task["payload"]["speaker"] for task in tasks])
+        self.assertTrue(all("only as yourself" in task["payload"]["prompt"] for task in tasks))
+        self.assertTrue(all("simulated transcript" in task["payload"]["prompt"] for task in tasks))
+
     def test_group_execution_is_sequential_and_in_member_order(self):
         group = self.post_json("/api/groups/create", {
             "name": "Sequential", "models": ["qwen2.5-coder:3b"],
