@@ -86,7 +86,7 @@ function renderMessages(){
     const task=tasks.get(entry.task_id);
     const groupTasks=Array.isArray(entry.task_ids)?entry.task_ids.map(id=>tasks.get(id)).filter(Boolean):[];
     const groupProgress=groupTasks.map(t=>'<span class="group-task-status">'+esc(t.payload?.model||t.requested_worker)+' · '+taskStatus(t)+'</span>').join('');
-    const progress=entry.role==='user'?(groupTasks.length?groupProgress:taskStatus(task)):'';
+    const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task)):'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
     const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
@@ -94,7 +94,7 @@ function renderMessages(){
     const identity=entry.task_id||entry.note_id||entry.group_turn_id||'local';
     html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
     // Group replies may appear in task records before persistence in chat history.
-    if(entry.role==='user'&&groupTasks.length){
+    if(['user','note'].includes(entry.role)&&groupTasks.length){
       for(const groupTask of groupTasks){
         if(groupTask.status==='completed'&&!replies.has(groupTask.task_id)
            &&typeof groupTask.result?.answer==='string'&&groupTask.result.answer){
@@ -105,7 +105,7 @@ function renderMessages(){
     }
     // Queue completion can be visible before the history writer finishes.
     // Show the authoritative result in that case instead of losing the reply.
-    if(entry.role==='user'&&task?.status==='completed'&&!replies.has(entry.task_id)&&typeof task.result?.answer==='string'&&task.result.answer){
+    if(['user','note'].includes(entry.role)&&task?.status==='completed'&&!replies.has(entry.task_id)&&typeof task.result?.answer==='string'&&task.result.answer){
       html.push(`<div class="message assistant">${esc(task.result.answer)}<small>${esc(entry.task_id)} · recovered from task result</small>${responseMeta({},task)}${copyButton(entry.task_id)}</div>`);
     }
   }
@@ -292,7 +292,7 @@ async function submit(event){
     $('#prompt').value='';
     updateSlashMenu();
     await refresh();
-    toast(response.entry?'Planning note saved':isGroup?'Group request sent to each AI':'Task submitted');
+    toast(response.entry?(response.task||response.task_ids?'Planning note saved · AI review queued':'Planning note saved'):isGroup?'Group request sent to each AI':'Task submitted');
   }catch(error){toast(error.message)}
   finally{updateComposerAvailability();}
 }
