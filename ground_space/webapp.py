@@ -321,6 +321,19 @@ class GroundSpaceApp:
         if not prompt or len(prompt) > MAX_MESSAGE_LENGTH:
             raise ValueError("Message is empty or too long")
         note = parse_slash_note(prompt)
+        if note and agent == "qwen":
+            # Reject an unavailable selection before persisting a note as review-requested.
+            if str(body.get("performance", "balanced")) not in PERFORMANCE_PRESETS:
+                raise ValueError("Invalid response performance preset")
+            with self.lock:
+                if str(body.get("model", "qwen2.5-coder:3b")) not in self.registered_models:
+                    raise ValueError("Select a registered local model in the model manager")
+        if note and group:
+            if str(body.get("performance", "balanced")) not in PERFORMANCE_PRESETS:
+                raise ValueError("Unknown performance preset")
+            with self.lock:
+                if not set(group["models"]).issubset(set(self.registered_models)):
+                    raise ValueError("A group AI model is no longer registered; edit its members")
         if note:
             kind, description = note
             entry = self.add_history(
