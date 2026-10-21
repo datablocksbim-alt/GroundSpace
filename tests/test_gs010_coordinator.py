@@ -43,7 +43,7 @@ class CoordinatorTests(unittest.TestCase):
         text = coordinator_prompt("Build a Codex tablet")
         self.assertIn("You are Coordinator", text)
         self.assertIn("Do not claim", text)
-        self.assertIn("No tools", text.replace("no tools", "No tools") if "no tools" in text else text)
+        self.assertIn("Only read/propose chat is enabled", text)
 
     def test_proposal_store_is_persistent_and_stays_pending(self):
         with tempfile.TemporaryDirectory() as root:
