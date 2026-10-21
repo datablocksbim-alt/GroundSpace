@@ -8,9 +8,6 @@ on:
       - "tests/test_gs008_planning.py"
       - "tests/test_gs010_coordinator.py"
       - "web/public/app.js"
-  push:
-    branches:
-      - "feature/gs-010-coordinator-chat-routing"
 
 permissions:
   contents: read
