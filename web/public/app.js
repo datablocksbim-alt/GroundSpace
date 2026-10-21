@@ -103,6 +103,81 @@ function renderMessages(){
   if(nearBottom)root.scrollTop=root.scrollHeight;
 }
 
+
+function renderWorkspaces(){
+  const workspace=state.data?.workspaces||{};
+  const projects=workspace.projects||[];
+  const groups=workspace.groups||[];
+  const names=new Map(projects.map(p=>[p.id,p.name]));
+  $('#groupList').innerHTML=groups.map(g=>
+    '<button type="button" class="group-room '+(g.id===state.groupId?'active':'')+
+    '" data-group="'+esc(g.id)+'"><span class="room-avatar">◎</span><span><b>'+esc(g.name)+
+    '</b><small>'+esc(g.models.length+' AI · '+(names.get(g.project_id)||'General'))+'</small></span></button>'
+  ).join('')||'<p class="rail-empty">No groups yet</p>';
+  $('#projectList').innerHTML=projects.map(p=>
+    '<button type="button" class="project-room '+(p.id===state.projectId&&state.agent!=='group'?'active':'')+
+    '" data-project="'+esc(p.id)+'" title="'+esc(p.path)+'">'+esc(p.name)+'</button>'
+  ).join('')||'<p class="rail-empty">Choose a folder to begin</p>';
+  const selector=$('#projectSelect');
+  const current=state.agent==='group'?(groups.find(g=>g.id===state.groupId)?.project_id||''):state.projectId;
+  const signature=JSON.stringify(projects.map(p=>[p.id,p.name]));
+  if(selector.dataset.optionsKey!==signature){
+    selector.innerHTML='<option value="">No project</option>'+
+      projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
+    selector.dataset.optionsKey=signature;
+  }
+  selector.value=current;
+}
+function projectOptions(selected){
+  return '<option value="">No project</option>'+
+    (state.data?.workspaces?.projects||[]).map(p=>'<option value="'+esc(p.id)+'"'+
+      (p.id===selected?' selected':'')+'>'+esc(p.name)+'</option>').join('');
+}
+function openGroupEditor(groupId=''){
+  const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
+  $('#groupForm').dataset.editGroup=group?.id||'';
+  $('#groupDialogTitle').textContent=group?'Edit group':'New group chat';
+  $('#groupName').value=group?.name||'';
+  $('#groupName').disabled=!!group;
+  $('#saveGroup').textContent=group?'Save changes':'Create group';
+  $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
+  $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>
+    '<label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
+    '"'+(group?.models.includes(item.model)?' checked':'')+'><span><b>'+esc(item.model)+
+    '</b><small>'+esc(item.available?'Available · proposal only':'Offline · proposal only')+
+    '</small></span></label>'
+  ).join('')||'<p>No registered local models. Add them under Agents first.</p>';
+  $('#groupDialog').showModal();
+}
+async function saveGroup(event){
+  event.preventDefault();
+  const models=$$('input[name="group-member"]:checked').map(x=>x.value);
+  const groupId=$('#groupForm').dataset.editGroup;
+  try{
+    const payload={name:$('#groupName').value,models,project_id:$('#groupProject').value||null};
+    const response=await api(groupId?'/api/groups/update':'/api/groups/create',{
+      method:'POST',body:JSON.stringify(groupId?{...payload,group_id:groupId}:payload)
+    });
+    $('#groupDialog').close();
+    await refresh();
+    selectGroup(response.id);
+    toast(groupId?'Group updated':'Group created');
+  }catch(error){toast(error.message);}
+}
+async function browseFolders(path=null){
+  try{
+    const data=await api('/api/projects/browse'+(path?'?path='+encodeURIComponent(path):''));
+    $('#folderPicker').hidden=false;
+    $('#folderCurrent').textContent=data.current||'Allowed project roots';
+    $('#folderUp').disabled=data.is_root_list;
+    $('#folderUp').dataset.parent=data.parent||'';
+    const choose=data.current?'<button type="button" class="folder-use" data-folder="'+esc(data.current)+'">✓ Use this folder</button>':'';
+    $('#folderEntries').innerHTML=choose+(data.folders||[]).map(item=>
+      '<button type="button" class="folder-entry" data-folder="'+esc(item.path)+'">📁 '+esc(item.name)+'</button>'
+    ).join('')||'<p>No subfolders</p>';
+  }catch(error){toast(error.message);}
+}
+
 function renderModels(){
   const data=state.data?.models||{};
   const registered=data.registered||[];
@@ -174,6 +249,17 @@ async function refresh(){
     const data=await api('/api/bootstrap');
     state.csrf=data.csrf_token;
     state.data=data;
+    if(state.directConversationId===null){
+      state.directConversationId=conversationFor('qwen',state.projectId);
+      if(state.agent!=='group')state.conversationId=state.directConversationId;
+    }
+    if(state.agent==='group'&&state.groupId){
+      const current=(data.workspaces?.groups||[]).find(g=>g.id===state.groupId);
+      if(current){
+        $('#conversationTitle').textContent=current.name;
+        state.conversationId=current.conversation_id;
+      }
+    }
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
     renderModels();renderWorkspaces();renderMessages();renderAgents();renderTasks();
   }finally{state.refreshing=false;}
@@ -184,16 +270,19 @@ async function submit(event){
   if(!prompt)return;
   $('#sendButton').disabled=true;
   try{
-    const response=await api('/api/chat',{method:'POST',body:JSON.stringify({
-      agent:state.agent,prompt,request_type:$('#requestType').value,
-      model:state.selectedModel,performance:state.performance,
-      conversation_id:state.conversationId
+    const isGroup=state.agent==='group';
+    const notes=/^\/(goal|milestone)(\s|$)/i.test(prompt);
+    const endpoint=isGroup&&!notes?'/api/groups/send':'/api/chat';
+    const response=await api(endpoint,{method:'POST',body:JSON.stringify({
+      agent:state.agent,group_id:state.groupId,project_id:state.projectId,
+      prompt,request_type:$('#requestType').value,model:state.selectedModel,
+      performance:state.performance,conversation_id:state.conversationId
     })});
-    localStorage.setItem('gs_conversation_id',state.conversationId);
+    if(!isGroup)localStorage.setItem('gs_conversation_id',state.conversationId);
     $('#prompt').value='';
     updateSlashMenu();
     await refresh();
-    toast(response.entry?'Planning note saved':'Task submitted — status appears below your message');
+    toast(response.entry?'Planning note saved':isGroup?'Group request sent to each AI':'Task submitted');
   }catch(error){toast(error.message)}
   finally{updateComposerAvailability();}
 }
@@ -250,6 +339,48 @@ $('#registeredModels').addEventListener('click',async event=>{
 $('#messages').addEventListener('click',event=>{
   const button=event.target.closest('button.copy-response');
   if(button)copyReply(button.dataset.taskId);
+});
+
+
+$('#newGroupButton').addEventListener('click',()=>openGroupEditor());
+$('#editGroupButton').addEventListener('click',()=>openGroupEditor(state.groupId));
+$('#groupForm').addEventListener('submit',saveGroup);
+$('#cancelGroup').addEventListener('click',()=>$('#groupDialog').close());
+$('#groupList').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-group]');
+  if(button)selectGroup(button.dataset.group);
+});
+$('#projectSelect').addEventListener('change',()=>chooseProject($('#projectSelect').value));
+$('#projectList').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-project]');
+  if(button){if(state.agent==='group')setAgent('qwen');chooseProject(button.dataset.project);}
+});
+$('#addProjectButton').addEventListener('click',()=>{
+  $('#projectName').value='';$('#projectPath').value='';$('#folderPicker').hidden=true;$('#projectDialog').showModal();
+});
+$('#cancelProject').addEventListener('click',()=>$('#projectDialog').close());
+$('#projectForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  try{
+    const project=await api('/api/projects/add',{method:'POST',body:JSON.stringify({
+      path:$('#projectPath').value,name:$('#projectName').value
+    })});
+    $('#projectDialog').close();
+    await refresh();
+    if(state.agent==='group')setAgent('qwen');
+    chooseProject(project.id);
+    toast('Project folder registered — file access remains disabled');
+  }catch(error){toast(error.message);}
+});
+$('#browseRoots').addEventListener('click',()=>browseFolders());
+$('#folderUp').addEventListener('click',()=>browseFolders($('#folderUp').dataset.parent||null));
+$('#folderEntries').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-folder]');
+  if(!button)return;
+  if(button.classList.contains('folder-use')){
+    $('#projectPath').value=button.dataset.folder;
+    $('#folderPicker').hidden=true;
+  }else browseFolders(button.dataset.folder);
 });
 
 $$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
