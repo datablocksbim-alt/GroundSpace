@@ -7,7 +7,7 @@ import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -30,20 +30,35 @@ class DeterministicReadOnlyWorker:
         permissions=frozenset({"read"}),
     )
 
-    def execute(self, task: dict[str, Any], progress: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
-        if set(task.get("required_permissions", [])) - self.descriptor.permissions:
-            raise PermissionError("Task exceeds deterministic worker permissions")
-        payload = task.get("payload", {})
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        progress({"stage": "inspected", "percent": 50})
-        result = {
-            "operation": "deterministic_inspect",
-            "input_sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
-            "keys": sorted(payload),
-            "read_only": True,
+    def execution_request(self) -> dict[str, Any]:
+        return {"kind": "deterministic"}
+
+
+class OllamaProposalWorker:
+    """Configuration-only adapter for a tool-free local Ollama proposal worker."""
+
+    def __init__(self, *, endpoint: str = "http://127.0.0.1:11434", model: str = "qwen2.5-coder:3b",
+                 active: bool = True, request_timeout_seconds: float = 120.0):
+        self.descriptor = WorkerDescriptor(
+            agent_id="qwen-proposal",
+            role="proposal_only",
+            permissions=frozenset({"read", "propose"}),
+            active=active,
+            provider="ollama",
+            model=model,
+            endpoint=endpoint,
+            qualified=True,
+            metadata={"production_write_authority": False, "tool_access": False},
+        )
+        self.request_timeout_seconds = request_timeout_seconds
+
+    def execution_request(self) -> dict[str, Any]:
+        return {
+            "kind": "ollama_proposal",
+            "endpoint": self.descriptor.endpoint,
+            "model": self.descriptor.model,
+            "request_timeout_seconds": self.request_timeout_seconds,
         }
-        progress({"stage": "finished", "percent": 100})
-        return result
 
 
 def probe_ollama(endpoint: str = "http://127.0.0.1:11434", timeout: float = 2.0) -> dict[str, Any]:
@@ -66,7 +81,7 @@ def ollama_descriptors(endpoint: str, availability: dict[str, Any]) -> list[Work
     online = bool(availability.get("available"))
     return [
         WorkerDescriptor("qwen-proposal", "proposal_only", frozenset({"read", "propose"}),
-                         active=online and has("qwen3.5"), provider="ollama", model="qwen3.5:4b", endpoint=endpoint,
+                         active=online and has("qwen2.5-coder"), provider="ollama", model="qwen2.5-coder:3b", endpoint=endpoint,
                          qualified=True, metadata={"production_write_authority": False}),
         WorkerDescriptor("granite-review", "read_only_reviewer", frozenset({"read", "review"}),
                          active=online and has("granite4"), provider="ollama", model="granite4:3b", endpoint=endpoint,

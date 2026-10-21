@@ -38,6 +38,7 @@ def main() -> int:
                 {"sequence": sequence, "instruction": "deterministic read-only inspection"},
                 task_id=task_id,
                 correlation_id=f"gs001-round-trip-{sequence}",
+                approved=True,
             )
             result = orchestrator.process(task["task_id"])
         results.append({

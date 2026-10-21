@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as WorkerTimeout
+import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -36,7 +37,7 @@ class AdministratorAdapter:
 
     def submit(self, payload: dict[str, Any], *, worker_id: str = "python-readonly-1",
                required_permissions: list[str] | None = None, task_id: str | None = None,
-               correlation_id: str | None = None, approved: bool = True,
+               correlation_id: str | None = None, approved: bool = False,
                execution_timeout_seconds: float = 5.0) -> dict[str, Any]:
         task_id = task_id or f"GS-{uuid4().hex}"
         correlation_id = correlation_id or uuid4().hex
@@ -60,6 +61,16 @@ class AdministratorAdapter:
 
     def status(self, task_id: str) -> dict[str, Any]:
         return self.queue.read(task_id)
+
+    def approve(self, task_id: str, *, owner: str) -> dict[str, Any]:
+        if not owner.strip():
+            raise ValueError("Approval requires an owner identity")
+        task = self.queue.read(task_id)
+        if task.get("status") != "queued":
+            raise ValueError("Only queued tasks can be approved")
+        return self.queue.transition(
+            task, "queued", approval={"status": "approved", "owner": owner, "approved_at": utc_timestamp()}
+        )
 
 
 class OrchestratorAdapter:
@@ -118,17 +129,28 @@ class OrchestratorAdapter:
             self._emit("progress", queue.read(task_id), "administrator", {"worker_id": worker_id, **details})
 
         timeout = float(task.get("execution_timeout_seconds", 5.0))
-        executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(worker.execute, task, progress)
+        envelope = json.dumps({"worker": worker.execution_request(), "task": task})
+        command = [sys.executable, "-m", "ground_space.worker_process"]
+        process = subprocess.Popen(
+            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", cwd=Path(__file__).resolve().parents[1],
+        )
         try:
-            worker_result = future.result(timeout=timeout)
+            stdout, stderr = process.communicate(envelope, timeout=timeout)
+            response = json.loads(stdout or "{}")
+            if process.returncode != 0 or "error" in response:
+                raise RuntimeError(response.get("error") or stderr.strip() or f"Worker exited {process.returncode}")
+            worker_result = response["result"]
+            for details in response.get("progress", []):
+                progress(details)
             task = queue.read(task_id)
             result = queue.finish(task, "completed", result=worker_result,
                                   completed_by=worker.descriptor.agent_id)
             self._emit("completion", result, "administrator", {"worker_id": worker_id, "result": worker_result})
             return result
-        except WorkerTimeout as error:
-            future.cancel()
+        except subprocess.TimeoutExpired as error:
+            process.kill()
+            process.communicate()
             result = queue.record_failure(task_id, self.agent_id, error, retryable=True, stage="execution_timeout")
             self._emit("failure", result, "administrator", {"reason": "timeout", "worker_id": worker_id})
             return result
@@ -136,8 +158,6 @@ class OrchestratorAdapter:
             result = queue.record_failure(task_id, self.agent_id, error, retryable=True, stage="worker_execution")
             self._emit("failure", result, "administrator", {"reason": str(error), "worker_id": worker_id})
             return result
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
 
     def availability(self) -> list[dict[str, Any]]:
         return [

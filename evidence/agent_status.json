@@ -6,7 +6,7 @@
       "metadata": {
         "production_write_authority": false
       },
-      "model": "qwen3.5:4b",
+      "model": "qwen2.5-coder:3b",
       "permissions": [
         "propose",
         "read"

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -16,9 +15,8 @@ ADMIN_ROOT = Path(r"D:\000_AI Project\AI Agents Datablocks")
 class SlowWorker:
     descriptor = WorkerDescriptor("slow", "test", frozenset({"read"}))
 
-    def execute(self, task, progress):
-        time.sleep(0.2)
-        return {"late": True}
+    def execution_request(self):
+        return {"kind": "test_sleep", "seconds": 0.2}
 
 
 class GS001IntegrationTests(unittest.TestCase):
@@ -35,7 +33,7 @@ class GS001IntegrationTests(unittest.TestCase):
 
     def test_three_successful_round_trips_and_duplicate_idempotency(self):
         for number in range(3):
-            task = self.admin.submit({"sequence": number, "text": "inspect only"}, task_id=f"GS-001-{number}")
+            task = self.admin.submit({"sequence": number, "text": "inspect only"}, task_id=f"GS-001-{number}", approved=True)
             result = self.orchestrator.process(task["task_id"])
             self.assertEqual("completed", result["status"])
             self.assertTrue(result["result"]["read_only"])
@@ -46,20 +44,20 @@ class GS001IntegrationTests(unittest.TestCase):
         self.assertEqual(3, sum(item.get("event") == "duplicate_ignored" for item in records))
 
     def test_unavailable_worker_retries(self):
-        task = self.admin.submit({}, worker_id="offline", task_id="GS-OFFLINE")
+        task = self.admin.submit({}, worker_id="offline", task_id="GS-OFFLINE", approved=True)
         result = self.orchestrator.process(task["task_id"])
         self.assertEqual("retry_pending", result["status"])
         self.assertEqual(1, result["attempt_count"])
 
     def test_timeout_retries(self):
         self.orchestrator.register(SlowWorker())
-        task = self.admin.submit({}, worker_id="slow", task_id="GS-TIMEOUT", execution_timeout_seconds=0.01)
+        task = self.admin.submit({}, worker_id="slow", task_id="GS-TIMEOUT", execution_timeout_seconds=0.01, approved=True)
         result = self.orchestrator.process(task["task_id"])
         self.assertEqual("retry_pending", result["status"])
         self.assertEqual("execution_timeout", result["failed_stage"])
 
     def test_permission_boundary_is_terminal(self):
-        task = self.admin.submit({}, required_permissions=["write"], task_id="GS-DENIED")
+        task = self.admin.submit({}, required_permissions=["write"], task_id="GS-DENIED", approved=True)
         result = self.orchestrator.process(task["task_id"])
         self.assertEqual("failed", result["status"])
         self.assertEqual("authorization", result["failed_stage"])
@@ -71,7 +69,7 @@ class GS001IntegrationTests(unittest.TestCase):
         self.assertEqual(0, result["attempt_count"])
 
     def test_audit_messages_have_required_identity_fields(self):
-        task = self.admin.submit({"value": 1}, task_id="GS-AUDIT")
+        task = self.admin.submit({"value": 1}, task_id="GS-AUDIT", approved=True)
         self.orchestrator.process(task["task_id"])
         for record in self.admin.audit.records():
             if "message_type" in record:
