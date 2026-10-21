@@ -32,9 +32,10 @@
 /* Compact composer toolbar: capability, model, and speed stay together. */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .composer-foot{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.chat-options{display:flex;align-items:center;flex-wrap:1 1 auto;gap:7px;min-width:0}
+.chat-options{display:flex;align-items:center;flex:1 1 auto;flex-wrap:wrap;gap:7px;min-width:0}
 .model-controls{display:flex;align-items:center;gap:7px;min-width:0;margin:0;padding:0;border:0}
 .model-controls[hidden]{display:none}
+.composer-foot #requestType[hidden]{display:none}
 .composer-foot .chat-options select{display:block;height:34px;min-width:0;margin:0;padding:6px 8px;background:var(--panel);border:1px solid var(--line);border-radius:4px;color:var(--ink);font:500 11px Inter,"Segoe UI",sans-serif;cursor:pointer;text-overflow:ellipsis;transition:border-color .15s ease,background .15s ease}
 .composer-foot .chat-options select:hover{border-color:#b7afdb;background:#fff}
 .composer-foot .chat-options select:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
