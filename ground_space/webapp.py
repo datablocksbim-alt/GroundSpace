@@ -19,6 +19,7 @@ from typing import Any
 
 from .bridge import AdministratorAdapter, OrchestratorAdapter
 from .messages import utc_timestamp
+from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
                       ollama_descriptors, probe_ollama, valid_model_name)
 
@@ -66,6 +67,8 @@ class GroundSpaceApp:
         self.history_path = self.state_dir / "private" / "conversations.json"
         self.queue_dir = self.state_dir / "private" / "queue"
         self.models_path = self.state_dir / "private" / "chat_models.json"
+        self.workspaces = WorkspaceRegistry(self.state_dir / "private", allowed_project_roots(ADMIN_ROOT))
+        self.group_dispatch_lock = threading.Lock()
         self.lock = threading.RLock()
         self.administrator = AdministratorAdapter(
             ADMIN_ROOT, self.queue_dir, self.state_dir / "private" / "audit" / "messages.jsonl",
@@ -157,6 +160,91 @@ class GroundSpaceApp:
             self.orchestrator.workers.pop(self.worker_id(name), None)
         return self.catalog()
 
+
+    def add_project(self, body: dict[str, Any]) -> dict[str, Any]:
+        return self.workspaces.add_project(
+            str(body.get("path", "")), str(body.get("name", ""))
+        )
+
+    def create_group(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            return self.workspaces.create_group(
+                body.get("name"), body.get("models"), body.get("project_id"),
+                list(self.registered_models),
+            )
+
+    def update_group(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            return self.workspaces.update_group(
+                str(body.get("group_id", "")), body.get("models"),
+                body.get("project_id"), list(self.registered_models),
+            )
+
+    def submit_group(self, body: dict[str, Any]) -> dict[str, Any]:
+        group = self.workspaces.get_group(str(body.get("group_id", "")))
+        prompt = str(body.get("prompt", "")).strip()
+        if not prompt or len(prompt) > MAX_MESSAGE_LENGTH:
+            raise ValueError("Message is empty or too long")
+        if parse_slash_note(prompt):
+            raise ValueError("Use the chat endpoint for /goal or /milestone notes")
+        request_type = str(body.get("request_type", "explanation"))
+        if request_type not in {"explanation", "assessment", "code_proposal"}:
+            raise ValueError("Invalid group request capability")
+        performance = str(body.get("performance", "balanced"))
+        if performance not in PERFORMANCE_PRESETS:
+            raise ValueError("Unknown performance preset")
+        models = list(group["models"])
+        with self.lock:
+            if not set(models).issubset(set(self.registered_models)):
+                raise ValueError("A group AI model is no longer registered; edit its members")
+            availability = probe_ollama(self.ollama_endpoint)
+            for model in models:
+                self._register_worker(model, availability)
+            conversation_id = group["conversation_id"]
+            context = self.conversation_context(conversation_id)
+            # Each member receives the same original prompt and previous context.
+            # Model responses are not chained together into implicit instructions.
+            full_prompt = (f"Bounded conversation context:\n{context}\n\nCurrent user request:\n{prompt}"
+                           if context else prompt)
+            group_turn_id = "TURN-" + secrets.token_hex(8)
+            task_ids = []
+            timeout = PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
+            for model in models:
+                payload = {"request_type": request_type, "prompt": full_prompt,
+                           "conversation_id": conversation_id, "model": model,
+                           "performance": performance, "group_id": group["id"],
+                           "group_turn_id": group_turn_id,
+                           "project_id": group["project_id"]}
+                task = self.administrator.submit(
+                    payload, worker_id=self.worker_id(model),
+                    required_permissions=["read", "propose"],
+                    execution_timeout_seconds=timeout, approved=True,
+                    approval_source="ground-space-group-chat",
+                )
+                task_ids.append(task["task_id"])
+            self.add_history(
+                conversation_id, "user", prompt, agent="group",
+                group_id=group["id"], group_turn_id=group_turn_id,
+                task_ids=task_ids, project_id=group["project_id"],
+            )
+        threading.Thread(
+            target=self._process_group, args=(task_ids,), daemon=True,
+        ).start()
+        return {"group": group, "task_ids": task_ids, "conversation_id": conversation_id}
+
+    def _process_group(self, task_ids: list[str]) -> None:
+        # Single laptop GPU: avoid parallel simultaneous Ollama generations.
+        with self.group_dispatch_lock:
+            for task_id in task_ids:
+                try:
+                    self._process_and_record(task_id)
+                except Exception as error:
+                    self.administrator.audit.append({
+                        "schema_version": 1, "event": "group_dispatch_error",
+                        "task_id": task_id, "timestamp": utc_timestamp(),
+                        "message": type(error).__name__,
+                    })
+
     def _load_history(self) -> dict[str, list[dict[str, Any]]]:
         try:
             value = json.loads(self.history_path.read_text(encoding="utf-8"))
@@ -187,8 +275,14 @@ class GroundSpaceApp:
         agent = str(body.get("agent", ""))
         prompt = str(body.get("prompt", "")).strip()
         conversation_id = str(body.get("conversation_id") or secrets.token_hex(12))
-        if agent not in {"administrator", "qwen"}:
-            raise ValueError("Agent must be administrator or qwen")
+        if agent not in {"administrator", "qwen", "group"}:
+            raise ValueError("Agent must be administrator, qwen, or group")
+        group = (self.workspaces.get_group(str(body.get("group_id", "")))
+                 if agent == "group" else None)
+        project_id = (group["project_id"] if group else
+                      self.workspaces.validate_project(body.get("project_id")))
+        if group:
+            conversation_id = group["conversation_id"]
         if not prompt or len(prompt) > MAX_MESSAGE_LENGTH:
             raise ValueError("Message is empty or too long")
         note = parse_slash_note(prompt)
@@ -197,10 +291,15 @@ class GroundSpaceApp:
             entry = self.add_history(
                 conversation_id, "note", description, agent=agent,
                 kind=kind, note_id=f"NOTE-{secrets.token_hex(8)}",
-                source="slash_command",
+                source="slash_command", group_id=group["id"] if group else None,
+                project_id=project_id,
             )
             # Visual planning notes do not dispatch tasks or call any AI worker.
             return {"entry": entry, "conversation_id": conversation_id}
+        if group:
+            # Only slash notes are handled at /api/chat for groups.
+            # Non-note group turns must go through /api/groups/send.
+            raise ValueError("Group conversations use group send")
         if agent == "qwen":
             request_type = str(body.get("request_type", "explanation"))
             model = str(body.get("model", "qwen2.5-coder:3b"))
@@ -215,19 +314,19 @@ class GroundSpaceApp:
             full_prompt = f"Bounded conversation context:\n{context}\n\nCurrent user request:\n{prompt}" if context else prompt
             payload = {"request_type": request_type, "prompt": full_prompt,
                        "conversation_id": conversation_id, "model": model,
-                       "performance": performance}
+                       "performance": performance, "project_id": project_id}
             worker_id, permissions, timeout = self.worker_id(model), ["read", "propose"], (
                 PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
             )
         else:
             lowered = prompt.casefold().strip()
             if lowered in {"help", "commands"}:
-                payload = {"operation": "help", "conversation_id": conversation_id}
+                payload = {"operation": "help", "conversation_id": conversation_id, "project_id": project_id}
             elif lowered in {"list", "list tasks", "tasks"}:
-                payload = {"operation": "list", "conversation_id": conversation_id}
+                payload = {"operation": "list", "conversation_id": conversation_id, "project_id": project_id}
             elif lowered.startswith("status "):
                 payload = {"operation": "status", "target_task_id": prompt.split(maxsplit=1)[1].strip(),
-                           "conversation_id": conversation_id}
+                           "conversation_id": conversation_id, "project_id": project_id}
             else:
                 raise ValueError("Administrator supports: help, list tasks, status <task-id>")
             worker_id, permissions, timeout = "administrator-console", ["read"], 10
@@ -237,7 +336,8 @@ class GroundSpaceApp:
             approval_source="ground-space-local-chat",
         )
         self.add_history(conversation_id, "user", prompt, task_id=task["task_id"], agent=agent,
-                         model=payload.get("model"), performance=payload.get("performance"))
+                         model=payload.get("model"), performance=payload.get("performance"),
+                         project_id=project_id)
         threading.Thread(target=self._process_and_record, args=(task["task_id"],), daemon=True).start()
         return {"task": task, "conversation_id": conversation_id}
 
@@ -254,12 +354,18 @@ class GroundSpaceApp:
                              agent="administrator" if result.get("requested_worker") == "administrator-console" else "qwen",
                              model=worker_result.get("model"), performance=worker_result.get("performance"),
                              tokens_per_second=worker_result.get("tokens_per_second"),
-                             generation_seconds=worker_result.get("generation_seconds"))
+                             generation_seconds=worker_result.get("generation_seconds"),
+                             group_id=payload.get("group_id"),
+                             group_turn_id=payload.get("group_turn_id"),
+                             project_id=payload.get("project_id"))
         elif result.get("status") in {"failed", "blocked", "retry_pending"}:
             self.add_history(conversation_id, "system",
                              str(result.get("failure") or result.get("failed_stage") or "Task did not complete"),
                              task_id=task_id,
-                             agent="administrator" if result.get("requested_worker") == "administrator-console" else "qwen")
+                             agent="administrator" if result.get("requested_worker") == "administrator-console" else "qwen",
+                             model=payload.get("model"), group_id=payload.get("group_id"),
+                             group_turn_id=payload.get("group_turn_id"),
+                             project_id=payload.get("project_id"))
 
     def task(self, task_id: str) -> dict[str, Any]:
         return self.administrator.status(task_id)
@@ -295,7 +401,8 @@ class GroundSpaceApp:
 
     def bootstrap(self) -> dict[str, Any]:
         return {"agents": self.agents(), "tasks": self.tasks(), "conversations": self.conversations,
-                "models": self.catalog(), "paid_api_usage_aud": 0}
+                "models": self.catalog(), "workspaces": self.workspaces.snapshot(),
+                "paid_api_usage_aud": 0}
 
 
 class GroundSpaceHandler(BaseHTTPRequestHandler):
@@ -381,6 +488,18 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/chat":
                 self._json(HTTPStatus.CREATED, self.app.submit_chat(body))
+                return
+            if path == "/api/projects/add":
+                self._json(HTTPStatus.CREATED, self.app.add_project(body))
+                return
+            if path == "/api/groups/create":
+                self._json(HTTPStatus.CREATED, self.app.create_group(body))
+                return
+            if path == "/api/groups/update":
+                self._json(HTTPStatus.OK, self.app.update_group(body))
+                return
+            if path == "/api/groups/send":
+                self._json(HTTPStatus.CREATED, self.app.submit_group(body))
                 return
             if path == "/api/models/add":
                 self._json(HTTPStatus.CREATED, self.app.add_model(str(body.get("model", ""))))
