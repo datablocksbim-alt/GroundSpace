@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import hmac
 import json
 import os
@@ -18,7 +19,8 @@ from typing import Any
 
 from .bridge import AdministratorAdapter, OrchestratorAdapter
 from .messages import utc_timestamp
-from .workers import AdministratorConsoleWorker, OllamaProposalWorker, ollama_descriptors, probe_ollama
+from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
+                      ollama_descriptors, probe_ollama, valid_model_name)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +48,7 @@ class GroundSpaceApp:
         self.ollama_endpoint = ollama_endpoint
         self.history_path = self.state_dir / "private" / "conversations.json"
         self.queue_dir = self.state_dir / "private" / "queue"
+        self.models_path = self.state_dir / "private" / "chat_models.json"
         self.lock = threading.RLock()
         self.administrator = AdministratorAdapter(
             ADMIN_ROOT, self.queue_dir, self.state_dir / "private" / "audit" / "messages.jsonl",
@@ -53,10 +56,89 @@ class GroundSpaceApp:
         )
         self.orchestrator = OrchestratorAdapter(self.administrator)
         self.orchestrator.register(AdministratorConsoleWorker(str(self.queue_dir)))
+        self.registered_models = self._load_registered_models()
         availability = probe_ollama(ollama_endpoint)
-        qwen_active = availability["available"] and "qwen2.5-coder:3b" in availability["models"]
-        self.orchestrator.register(OllamaProposalWorker(endpoint=ollama_endpoint, active=qwen_active))
+        for model in self.registered_models:
+            self._register_worker(model, availability)
         self.conversations = self._load_history()
+
+
+    @staticmethod
+    def worker_id(model: str) -> str:
+        if model == "qwen2.5-coder:3b":
+            return "qwen-proposal"
+        return "ollama-chat-" + hashlib.sha256(model.encode("utf-8")).hexdigest()[:16]
+
+    def _load_registered_models(self) -> list[str]:
+        try:
+            records = json.loads(self.models_path.read_text(encoding="utf-8"))
+            models = records["models"]
+            if not isinstance(models, list):
+                raise ValueError("Invalid registered models")
+            return list(dict.fromkeys(
+                name for name in models[:24] if isinstance(name, str) and valid_model_name(name)
+            ))[:12]
+        except FileNotFoundError:
+            return ["qwen2.5-coder:3b"]
+        except (OSError, ValueError, KeyError, TypeError):
+            raise ValueError("Private model registry is damaged; fix chat_models.json before starting")
+
+    def _register_worker(self, model: str, availability: dict[str, Any]) -> None:
+        self.orchestrator.register(OllamaProposalWorker(
+            endpoint=self.ollama_endpoint, model=model,
+            agent_id=self.worker_id(model),
+            active=bool(availability.get("available") and model in availability.get("models", [])),
+            qualified=model == "qwen2.5-coder:3b",
+        ))
+
+    def catalog(self) -> dict[str, Any]:
+        availability = probe_ollama(self.ollama_endpoint)
+        installed = sorted(model for model in availability["models"] if valid_model_name(model))
+        with self.lock:
+            registered = list(self.registered_models)
+        return {
+            "registered": [
+                {"provider": "ollama", "model": model, "worker_id": self.worker_id(model),
+                 "available": model in installed, "label": model,
+                 "role": "proposal-only" if model == "qwen2.5-coder:3b" else "experimental proposal-only"}
+                for model in registered
+            ],
+            "discovered": [model for model in installed if model not in registered],
+            "presets": [{"id": key, "label": value["label"],
+                         "max_output_tokens": value["num_predict"]}
+                        for key, value in PERFORMANCE_PRESETS.items()],
+            "future_providers": [
+                {"id": "openai", "label": "ChatGPT / OpenAI", "status": "not_connected"},
+                {"id": "anthropic", "label": "Claude", "status": "not_connected"},
+            ],
+        }
+
+    def add_model(self, name: str) -> dict[str, Any]:
+        if not valid_model_name(name):
+            raise ValueError("Invalid local model name")
+        availability = probe_ollama(self.ollama_endpoint)
+        if name not in availability.get("models", []):
+            raise ValueError("Model must already be installed in local Ollama")
+        with self.lock:
+            if name in self.registered_models:
+                raise ValueError("Model is already registered")
+            if len(self.registered_models) >= 12:
+                raise ValueError("Ground Space supports up to 12 model registrations")
+            updated = self.registered_models + [name]
+            atomic_json(self.models_path, {"schema_version": 1, "models": updated})
+            self.registered_models = updated
+            self._register_worker(name, availability)
+        return self.catalog()
+
+    def remove_model(self, name: str) -> dict[str, Any]:
+        with self.lock:
+            if name not in self.registered_models:
+                raise ValueError("Model is not registered")
+            updated = [model for model in self.registered_models if model != name]
+            atomic_json(self.models_path, {"schema_version": 1, "models": updated})
+            self.registered_models = updated
+            self.orchestrator.workers.pop(self.worker_id(name), None)
+        return self.catalog()
 
     def _load_history(self) -> dict[str, list[dict[str, Any]]]:
         try:
@@ -86,10 +168,22 @@ class GroundSpaceApp:
             raise ValueError("Message is empty or too long")
         if agent == "qwen":
             request_type = str(body.get("request_type", "explanation"))
+            model = str(body.get("model", "qwen2.5-coder:3b"))
+            performance = str(body.get("performance", "balanced"))
+            if performance not in PERFORMANCE_PRESETS:
+                raise ValueError("Invalid response performance preset")
+            with self.lock:
+                if model not in self.registered_models:
+                    raise ValueError("Select a registered local model in the model manager")
+                self._register_worker(model, probe_ollama(self.ollama_endpoint))
             context = self.conversation_context(conversation_id)
             full_prompt = f"Bounded conversation context:\n{context}\n\nCurrent user request:\n{prompt}" if context else prompt
-            payload = {"request_type": request_type, "prompt": full_prompt, "conversation_id": conversation_id}
-            worker_id, permissions, timeout = "qwen-proposal", ["read", "propose"], 150
+            payload = {"request_type": request_type, "prompt": full_prompt,
+                       "conversation_id": conversation_id, "model": model,
+                       "performance": performance}
+            worker_id, permissions, timeout = self.worker_id(model), ["read", "propose"], (
+                PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
+            )
         else:
             lowered = prompt.casefold().strip()
             if lowered in {"help", "commands"}:
@@ -107,7 +201,8 @@ class GroundSpaceApp:
             execution_timeout_seconds=timeout, approved=True,
             approval_source="ground-space-local-chat",
         )
-        self.add_history(conversation_id, "user", prompt, task_id=task["task_id"], agent=agent)
+        self.add_history(conversation_id, "user", prompt, task_id=task["task_id"], agent=agent,
+                         model=payload.get("model"), performance=payload.get("performance"))
         threading.Thread(target=self._process_and_record, args=(task["task_id"],), daemon=True).start()
         return {"task": task, "conversation_id": conversation_id}
 
@@ -121,12 +216,15 @@ class GroundSpaceApp:
         answer = worker_result.get("answer")
         if answer:
             self.add_history(conversation_id, "assistant", str(answer), task_id=task_id,
-                             agent="qwen" if result.get("requested_worker") == "qwen-proposal" else "administrator")
+                             agent="administrator" if result.get("requested_worker") == "administrator-console" else "qwen",
+                             model=worker_result.get("model"), performance=worker_result.get("performance"),
+                             tokens_per_second=worker_result.get("tokens_per_second"),
+                             generation_seconds=worker_result.get("generation_seconds"))
         elif result.get("status") in {"failed", "blocked", "retry_pending"}:
             self.add_history(conversation_id, "system",
                              str(result.get("failure") or result.get("failed_stage") or "Task did not complete"),
                              task_id=task_id,
-                             agent="qwen" if result.get("requested_worker") == "qwen-proposal" else "administrator")
+                             agent="administrator" if result.get("requested_worker") == "administrator-console" else "qwen")
 
     def task(self, task_id: str) -> dict[str, Any]:
         return self.administrator.status(task_id)
@@ -143,6 +241,9 @@ class GroundSpaceApp:
     def agents(self) -> list[dict[str, Any]]:
         availability = probe_ollama(self.ollama_endpoint)
         model_agents = {item.agent_id: item for item in ollama_descriptors(self.ollama_endpoint, availability)}
+        installed = set(availability.get("models", []))
+        with self.lock:
+            registered = list(self.registered_models)
         return [
             {"agent_id": "administrator", "role": "queue, automatic dispatch, audit", "active": True,
              "permissions": ["submit", "status"]},
@@ -150,12 +251,16 @@ class GroundSpaceApp:
              "permissions": ["claim", "dispatch", "retry"]},
             *[{"agent_id": item.agent_id, "role": item.role, "active": item.active,
                "permissions": sorted(item.permissions), "model": item.model}
-              for item in model_agents.values()],
+              for item in model_agents.values() if item.agent_id != "qwen-proposal"],
+            *[{"agent_id": self.worker_id(model), "role": "proposal_only_chat",
+               "active": bool(availability.get("available") and model in installed),
+               "permissions": ["read", "propose"], "model": model}
+              for model in registered],
         ]
 
     def bootstrap(self) -> dict[str, Any]:
         return {"agents": self.agents(), "tasks": self.tasks(), "conversations": self.conversations,
-                "paid_api_usage_aud": 0}
+                "models": self.catalog(), "paid_api_usage_aud": 0}
 
 
 class GroundSpaceHandler(BaseHTTPRequestHandler):
@@ -241,6 +346,12 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/chat":
                 self._json(HTTPStatus.CREATED, self.app.submit_chat(body))
+                return
+            if path == "/api/models/add":
+                self._json(HTTPStatus.CREATED, self.app.add_model(str(body.get("model", ""))))
+                return
+            if path == "/api/models/remove":
+                self._json(HTTPStatus.OK, self.app.remove_model(str(body.get("model", ""))))
                 return
             self._error(HTTPStatus.NOT_FOUND, "Endpoint not found")
         except (OSError, ValueError, json.JSONDecodeError) as error:

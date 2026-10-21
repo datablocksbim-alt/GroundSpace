@@ -4,10 +4,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
+
+
+# Syntax guard for locally discovered Ollama model identifiers. The webapp also
+# checks each requested name against Ollama /api/tags and the private registry.
+MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+
+
+def valid_model_name(name: str) -> bool:
+    return isinstance(name, str) and bool(MODEL_NAME_PATTERN.fullmatch(name))
+
+
+# Output caps affect response length/latency; they are not fixed tokens-per-second guarantees.
+PERFORMANCE_PRESETS = {
+    "fast": {"label": "Fast · concise", "num_predict": 256, "num_ctx": 4096,
+             "timeout_seconds": 90, "temperature": 0.2},
+    "balanced": {"label": "Balanced", "num_predict": 640, "num_ctx": 6144,
+                 "timeout_seconds": 155, "temperature": 0.2},
+    "detailed": {"label": "Detailed · slower", "num_predict": 1200, "num_ctx": 8192,
+                 "timeout_seconds": 235, "temperature": 0.2},
+}
 
 
 @dataclass(frozen=True)
@@ -38,16 +59,19 @@ class OllamaProposalWorker:
     """Configuration-only adapter for a tool-free local Ollama proposal worker."""
 
     def __init__(self, *, endpoint: str = "http://127.0.0.1:11434", model: str = "qwen2.5-coder:3b",
-                 active: bool = True, request_timeout_seconds: float = 120.0):
+                 agent_id: str = "qwen-proposal", active: bool = True,
+                 qualified: bool = True, request_timeout_seconds: float = 235.0):
+        if not valid_model_name(model):
+            raise ValueError("Invalid Ollama model identifier")
         self.descriptor = WorkerDescriptor(
-            agent_id="qwen-proposal",
+            agent_id=agent_id,
             role="proposal_only",
             permissions=frozenset({"read", "propose"}),
             active=active,
             provider="ollama",
             model=model,
             endpoint=endpoint,
-            qualified=True,
+            qualified=qualified,
             metadata={"production_write_authority": False, "tool_access": False},
         )
         self.request_timeout_seconds = request_timeout_seconds

@@ -9,3 +9,5 @@ GS-002 adds explicitly approved, proposal-only live inference through local Olla
 GS-003 provides the first local browser chat, agent registry, and task dashboard. Start it with `tools\start_ground_space.ps1`; see [docs/GS-003.md](docs/GS-003.md).
 
 GS-003 local chat now auto-dispatches permitted read-only/proposal tasks with no owner-token approval popup. Other callers of the Administrator bridge still default to pending approval.
+
+GS-004 adds full-response copying, a persisted multi-model Ollama registry (add/remove installed models through Agents), per-message Fast/Balanced/Detailed generation settings, and measured response speed when available. ChatGPT and Claude remain clearly labeled as unconnected future providers. See [docs/GS-004.md](docs/GS-004.md).
