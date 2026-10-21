@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from ground_space.webapp import GroundSpaceApp, parse_slash_note, planning_followup_prompt
+from ground_space.coordinator import ProposalStore
 
 
 class PlanningTests(unittest.TestCase):
@@ -18,6 +19,7 @@ class PlanningTests(unittest.TestCase):
         self.app.lock = threading.RLock()
         self.app.conversations = {}
         self.app.history_path = Path(self.temp.name) / "conversations.json"
+        self.app.proposals = ProposalStore(Path(self.temp.name) / "proposals.json")
         self.app.ollama_endpoint = "http://127.0.0.1:11434"
         self.app.registered_models = ["qwen2.5-coder:3b", "qwen3.5:4b"]
         self.app._register_worker = Mock()
@@ -68,17 +70,30 @@ class PlanningTests(unittest.TestCase):
 
     @patch("ground_space.webapp.probe_ollama", return_value={"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]})
     @patch("ground_space.webapp.threading.Thread")
-    def test_group_milestone_queues_each_model_with_single_note(self, thread, probe):
+    def test_group_milestone_only_queues_coordinator_with_single_note(self, thread, probe):
         answer = self.app.submit_chat({"agent": "group", "group_id": "group-1",
                                       "prompt": "/milestone Complete Codex assembly",
                                       "performance": "fast"})
         self.assertEqual(answer["entry"]["role"], "note")
-        self.assertEqual(answer["entry"]["task_ids"], ["T-001", "T-002"])
+        self.assertEqual(answer["entry"]["task_ids"], ["T-001"])
         self.assertEqual(len(self.app.conversations["group-room"]), 1)
-        self.assertEqual(self.app.administrator.submit.call_count, 2)
+        self.assertEqual(self.app.administrator.submit.call_count, 1)
+        self.assertEqual(self.app.administrator.submit.call_args.args[0]["speaker"], "Coordinator")
         for call in self.app.administrator.submit.call_args_list:
             self.assertEqual(call.kwargs["required_permissions"], ["read", "propose"])
         thread.return_value.start.assert_called_once()
+
+    @patch("ground_space.webapp.probe_ollama", return_value={"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]})
+    @patch("ground_space.webapp.threading.Thread")
+    def test_group_goal_creates_pending_cards_not_work_assignments(self, thread, probe):
+        result = self.app.submit_chat({"agent": "group", "group_id": "group-1",
+                                       "prompt": "/goal Complete the Codex", "performance": "fast"})
+        self.assertEqual(len(result["proposal_ids"]), 3)
+        self.assertEqual(self.app.administrator.submit.call_count, 1)
+        self.assertEqual(len(self.app.proposals.snapshot()), 3)
+        self.assertTrue(all(x["status"] == "proposed" for x in self.app.proposals.snapshot()))
+        self.assertEqual(result["entry"]["proposal_ids"], result["proposal_ids"])
+        self.assertEqual(self.app.administrator.submit.call_args.args[0]["speaker"], "Coordinator")
 
     def test_admin_note_never_queues_work(self):
         answer = self.app.submit_chat({"agent": "administrator", "prompt": "/goal Improve the UI",
