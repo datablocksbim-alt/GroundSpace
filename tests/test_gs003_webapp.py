@@ -103,6 +103,48 @@ class GS003WebAppTests(unittest.TestCase):
         self.assertTrue(system_messages, 'Offline inference must not fail silently')
         self.assertEqual('qwen', system_messages[-1]['agent'])
 
+
+    def test_goal_and_milestone_notes_are_persisted_without_worker_tasks(self):
+        before = len(self.app.tasks())
+        for kind, description in (
+            ("goal", "Deliver a clear Pyrene learning journey"),
+            ("milestone", "Finish the Ground Space communication prototype"),
+        ):
+            response = self.post_json("/api/chat", {
+                "agent": "qwen", "prompt": f"/{kind} {description}",
+                "conversation_id": "planning-notes",
+            })
+            self.assertNotIn("task", response, "Notes must not create or dispatch tasks")
+            self.assertEqual("note", response["entry"]["role"])
+            self.assertEqual(kind, response["entry"]["kind"])
+            self.assertEqual(description, response["entry"]["content"])
+            self.assertTrue(response["entry"]["note_id"].startswith("NOTE-"))
+        self.assertEqual(before, len(self.app.tasks()))
+        restored = GroundSpaceApp(self.state_dir, ollama_endpoint="http://127.0.0.1:1")
+        records = restored.conversations["planning-notes"]
+        self.assertEqual(["goal", "milestone"], [note["kind"] for note in records])
+        self.assertTrue(all(note["source"] == "slash_command" for note in records))
+
+    def test_slash_messages_validate_type_and_nonempty_body(self):
+        for prompt in ("/goal", "/milestone   ", "/delete everything", "/go test"):
+            with self.subTest(prompt=prompt):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    self.post_json("/api/chat", {
+                        "agent": "qwen", "prompt": prompt,
+                        "conversation_id": "bad-planning-notes",
+                    })
+                self.assertEqual(400, caught.exception.code)
+        self.assertNotIn("bad-planning-notes", self.app.conversations)
+
+    def test_slash_notes_do_not_require_live_ollama_or_approval(self):
+        response = self.post_json("/api/chat", {
+            "agent": "administrator", "prompt": "/goal Create a safe local workflow",
+            "conversation_id": "admin-note",
+        })
+        self.assertEqual("administrator", response["entry"]["agent"])
+        self.assertNotIn("task", response)
+        self.assertIn("Create a safe local workflow", self.app.conversation_context("admin-note"))
+
     def test_add_and_remove_multiple_installed_models(self):
         fake = {"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b", "granite4:3b"]}
         with patch("ground_space.webapp.probe_ollama", return_value=fake):
