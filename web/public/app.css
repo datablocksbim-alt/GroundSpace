@@ -150,3 +150,30 @@
   .project-context select{max-width:180px}
   .workspace-dialog form{padding:18px}
 }
+
+/* GS-008 — compact sidebar identities and understated accessible scrollbars */
+.agent-choice{grid-template-columns:28px minmax(0,1fr) 7px;gap:10px;padding:10px;border-radius:12px}
+.agent-glyph{width:27px;height:24px;border-radius:7px;font:700 10px/1 Consolas,monospace;box-shadow:none}
+.agent-glyph.violet{background:#e8e3fa;color:#6451a5}
+.agent-glyph.amber{background:#f7eddf;color:#93672f}
+.room-avatar{flex:0 0 27px;width:27px;height:24px;border-radius:7px;font-size:12px;font-weight:650}
+.group-room,.project-room{padding-top:7px;padding-bottom:7px}
+.messages,.group-list,.project-list,.folder-picker,.workspace-dialog{
+  scrollbar-width:thin;scrollbar-color:rgba(112,104,144,.24) transparent;
+}
+.messages::-webkit-scrollbar,.group-list::-webkit-scrollbar,
+.project-list::-webkit-scrollbar,.folder-picker::-webkit-scrollbar,
+.workspace-dialog::-webkit-scrollbar{width:5px;height:5px}
+.messages::-webkit-scrollbar-track,.group-list::-webkit-scrollbar-track,
+.project-list::-webkit-scrollbar-track,.folder-picker::-webkit-scrollbar-track,
+.workspace-dialog::-webkit-scrollbar-track{background:transparent}
+.messages::-webkit-scrollbar-thumb,.group-list::-webkit-scrollbar-thumb,
+.project-list::-webkit-scrollbar-thumb,.folder-picker::-webkit-scrollbar-thumb,
+.workspace-dialog::-webkit-scrollbar-thumb{background:rgba(112,104,144,.24);border-radius:99px}
+.messages:hover,.group-list:hover,.project-list:hover,.folder-picker:hover,.workspace-dialog:hover{
+  scrollbar-color:rgba(112,104,144,.43) transparent;
+}
+.messages:hover::-webkit-scrollbar-thumb,.group-list:hover::-webkit-scrollbar-thumb,
+.project-list:hover::-webkit-scrollbar-thumb,.folder-picker:hover::-webkit-scrollbar-thumb,
+.workspace-dialog:hover::-webkit-scrollbar-thumb{background:rgba(112,104,144,.43)}
+@media(max-width:760px){.agent-choice{min-width:145px}.agent-glyph{width:26px;height:23px}}
