@@ -50,6 +50,6 @@ async function refresh(){
   }finally{state.refreshing=false;}
 }
 async function submit(event){event.preventDefault();const prompt=$('#prompt').value.trim();if(!prompt)return;$('#sendButton').disabled=true;try{const response=await api('/api/chat',{method:'POST',body:JSON.stringify({agent:state.agent,prompt,request_type:$('#requestType').value,conversation_id:state.conversationId})});localStorage.setItem('gs_conversation_id',state.conversationId);$('#prompt').value='';await refresh();toast('Task submitted — status appears below your message')}catch(error){toast(error.message)}finally{$('#sendButton').disabled=false}}
-$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
+$$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
 // Keep every task in this conversation observable, even after refresh or later messages.
 setInterval(()=>refresh().catch(()=>{$('#systemState').textContent='Ground Space disconnected'}),2500);
