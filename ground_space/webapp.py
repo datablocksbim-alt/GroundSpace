@@ -452,6 +452,14 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urllib.parse.urlparse(self.path).path
+        if path == "/api/projects/browse":
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            chosen = query.get("path", [None])[0]
+            try:
+                self._json(HTTPStatus.OK, self.app.workspaces.browse_folders(chosen))
+            except (ValueError, OSError) as error:
+                self._error(HTTPStatus.BAD_REQUEST, str(error))
+            return
         if path == "/api/bootstrap":
             token = secrets.token_urlsafe(24)
             self._json(200, {**self.app.bootstrap(), "csrf_token": token},
