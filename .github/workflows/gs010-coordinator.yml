@@ -1,6 +1,9 @@
 name: Ground Space Coordinator checks
 
 on:
+  push:
+    branches:
+      - "feature/gs-010-coordinator-chat-routing"
   pull_request:
     paths:
       - ".github/workflows/gs010-coordinator.yml"
