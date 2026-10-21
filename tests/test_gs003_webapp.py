@@ -309,6 +309,9 @@ class GS003WebAppTests(unittest.TestCase):
                 "project_id": "project-does-not-exist",
             })
         self.assertEqual(400, invalid.exception.code)
+        restricted = self.state_dir / "allowed-root"
+        restricted.mkdir()
+        self.app.workspaces.allowed_roots = [restricted.resolve()]
         with self.assertRaises(urllib.error.HTTPError) as folder:
             self.post_json("/api/projects/add", {
                 "path": str(self.state_dir),
