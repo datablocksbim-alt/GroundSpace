@@ -27,7 +27,7 @@
           <aside class="agent-rail">
             <p class="eyebrow">Active channel</p>
             <button class="agent-choice active" data-agent="qwen">
-              <span class="agent-glyph violet">Q</span><span><b>Qwen</b><small>Proposal worker</small></span><em></em>
+              <span class="agent-glyph violet">AI</span><span><b>Local AI</b><small>Choose an Ollama model</small></span><em></em>
             </button>
             <button class="agent-choice" data-agent="administrator">
               <span class="agent-glyph amber">A</span><span><b>Administrator</b><small>Task operations</small></span><em></em>
@@ -40,15 +40,22 @@
 
           <div class="conversation">
             <div class="conversation-head">
-              <div><p class="eyebrow">Secure local exchange</p><h1 id="conversationTitle">Qwen channel</h1></div>
+              <div><p class="eyebrow">Secure local exchange</p><h1 id="conversationTitle">Local AI channel</h1></div>
               <span class="permission-pill" id="permissionPill">READ · PROPOSE</span>
             </div>
             <div class="messages" id="messages" aria-live="polite">
-              <div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>Ask Qwen for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.</p></div>
+              <div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>Ask your selected local model for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.</p></div>
             </div>
             <form class="composer" id="chatForm">
               <label for="prompt">Message</label>
               <textarea id="prompt" maxlength="12000" rows="3" placeholder="Ask for an explanation…" required></textarea>
+              <div class="model-controls" id="modelControls">
+                <label for="modelSelect">AI model</label>
+                <select id="modelSelect" aria-label="Local AI model"></select>
+                <label for="performanceSelect">Response profile</label>
+                <select id="performanceSelect" aria-label="AI response profile"></select>
+                <small id="performanceHint">Higher detail permits longer responses; actual speed depends on hardware.</small>
+              </div>
               <div class="composer-foot">
                 <select id="requestType" aria-label="Request type">
                   <option value="explanation">Explanation</option>
@@ -65,6 +72,16 @@
 
       <section class="view" id="view-agents">
         <div class="page-head"><p class="eyebrow">Workforce registry</p><h1>Agents</h1><p>Live availability and enforced authority boundaries.</p></div>
+        <section class="model-manager" aria-label="Model management">
+          <h2>My local models</h2>
+          <p>Choose from models already installed in Ollama. Adding a model does not download anything or make a paid API call.</p>
+          <div class="model-add">
+            <select id="availableModel" aria-label="Installed models available to add"></select>
+            <button type="button" id="addModelButton">Add model</button>
+          </div>
+          <div id="registeredModels" class="registered-models"></div>
+          <p class="provider-note">Future connections: ChatGPT / OpenAI and Claude — not connected. Cloud subscriptions are not used by this prototype.</p>
+        </section>
         <div class="agent-grid" id="agentGrid"></div>
       </section>
 
