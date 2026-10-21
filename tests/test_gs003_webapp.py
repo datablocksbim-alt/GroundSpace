@@ -207,6 +207,152 @@ class GS003WebAppTests(unittest.TestCase):
         self.assertEqual({"openai", "anthropic"}, {p["id"] for p in catalog["future_providers"]})
         self.assertTrue(all(p["status"] == "not_connected" for p in catalog["future_providers"]))
 
+
+    def test_local_project_folder_picker_and_registration(self):
+        import urllib.parse
+        project_dir = self.state_dir / "My Demo Project"
+        project_dir.mkdir()
+        self.app.workspaces.allowed_roots = [self.state_dir.resolve()]
+        roots = self.get_json("/api/projects/browse")
+        self.assertEqual(1, len(roots["folders"]))
+        browsing = self.get_json("/api/projects/browse?path=" +
+                                 urllib.parse.quote(str(self.state_dir), safe=""))
+        self.assertIn(str(project_dir), [item["path"] for item in browsing["folders"]])
+        result = self.post_json("/api/projects/add", {
+            "name": "Demo", "path": str(project_dir),
+        })
+        self.assertEqual("Demo", result["name"])
+        self.assertEqual("metadata_only", result["scope"])
+        self.assertEqual(str(project_dir.resolve()), result["path"])
+        with self.assertRaises(urllib.error.HTTPError) as denied:
+            self.post_json("/api/projects/add", {
+                "name": "Root", "path": str(self.state_dir),
+            })
+        self.assertEqual(400, denied.exception.code)
+        restored = GroundSpaceApp(self.state_dir, ollama_endpoint="http://127.0.0.1:1")
+        self.assertIn(result["id"],
+                      [p["id"] for p in restored.workspaces.snapshot()["projects"]])
+
+    def test_group_creation_membership_and_project_are_persistent(self):
+        project_dir = self.state_dir / "Pyrene Project"
+        project_dir.mkdir()
+        self.app.workspaces.allowed_roots = [self.state_dir.resolve()]
+        project = self.post_json("/api/projects/add", {
+            "name": "Pyrene", "path": str(project_dir),
+        })
+        fake = {"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]}
+        with patch("ground_space.webapp.probe_ollama", return_value=fake):
+            self.post_json("/api/models/add", {"model": "qwen3.5:4b"})
+            group = self.post_json("/api/groups/create", {
+                "name": "Pyrene Coding",
+                "models": ["qwen2.5-coder:3b", "qwen3.5:4b"],
+                "project_id": project["id"],
+            })
+            self.assertEqual("sequential", group["execution"])
+            self.assertEqual(project["id"], group["project_id"])
+            self.assertEqual(2, len(group["models"]))
+            restored = GroundSpaceApp(self.state_dir, ollama_endpoint="http://127.0.0.1:1")
+            self.assertEqual(group["conversation_id"],
+                             restored.workspaces.get_group(group["id"])["conversation_id"])
+            updated = self.post_json("/api/groups/update", {
+                "group_id": group["id"], "project_id": project["id"],
+                "models": ["qwen3.5:4b"],
+            })
+            self.assertEqual(["qwen3.5:4b"], updated["models"])
+
+    def test_group_chat_one_user_message_multiple_scoped_workers(self):
+        fake = {"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]}
+        with patch("ground_space.webapp.probe_ollama", return_value=fake):
+            self.post_json("/api/models/add", {"model": "qwen3.5:4b"})
+            group = self.post_json("/api/groups/create", {
+                "name": "Code Review", "models": ["qwen2.5-coder:3b", "qwen3.5:4b"],
+            })
+            with patch.object(self.app, "_process_group") as runner:
+                response = self.post_json("/api/groups/send", {
+                    "group_id": group["id"], "prompt": "Propose a simple function",
+                    "request_type": "code_proposal", "performance": "fast",
+                })
+                # The background dispatch thread may begin before this check.
+                deadline = time.monotonic() + 2
+                while not runner.called and time.monotonic() < deadline:
+                    time.sleep(0.01)
+            self.assertEqual(2, len(response["task_ids"]))
+            records = self.app.conversations[group["conversation_id"]]
+            self.assertEqual(1, len(records))
+            self.assertEqual("user", records[0]["role"])
+            self.assertEqual("group", records[0]["agent"])
+            self.assertEqual(response["task_ids"], records[0]["task_ids"])
+            self.assertTrue(runner.called)
+            for model, task_id in zip(group["models"], response["task_ids"]):
+                task = self.app.task(task_id)
+                self.assertEqual(model, task["payload"]["model"])
+                self.assertEqual("fast", task["payload"]["performance"])
+                self.assertEqual(["read", "propose"], task["required_permissions"])
+                self.assertNotIn("path", task["payload"])
+                self.assertEqual(group["id"], task["payload"]["group_id"])
+
+    def test_group_execution_is_sequential_and_in_member_order(self):
+        group = self.post_json("/api/groups/create", {
+            "name": "Sequential", "models": ["qwen2.5-coder:3b"],
+        })
+        calls = []
+        with patch.object(self.app, "_process_and_record",
+                          side_effect=lambda task_id: calls.append(task_id)):
+            self.app._process_group(["first", "second", "third"])
+        self.assertEqual(["first", "second", "third"], calls)
+        self.assertEqual("sequential", group["execution"])
+
+    def test_group_rejects_unknown_project_and_unauthorized_folder(self):
+        with self.assertRaises(urllib.error.HTTPError) as invalid:
+            self.post_json("/api/groups/create", {
+                "name": "Bad project", "models": ["qwen2.5-coder:3b"],
+                "project_id": "project-does-not-exist",
+            })
+        self.assertEqual(400, invalid.exception.code)
+        restricted = self.state_dir / "allowed-root"
+        restricted.mkdir()
+        self.app.workspaces.allowed_roots = [restricted.resolve()]
+        with self.assertRaises(urllib.error.HTTPError) as folder:
+            self.post_json("/api/projects/add", {
+                "path": str(self.state_dir),
+            })
+        self.assertEqual(400, folder.exception.code)
+
+    def test_group_notes_and_invalid_members_never_dispatch(self):
+        group = self.post_json("/api/groups/create", {
+            "name": "Milestones", "models": ["qwen2.5-coder:3b"],
+        })
+        note = self.post_json("/api/chat", {
+            "agent": "group", "group_id": group["id"],
+            "prompt": "/milestone Complete the communication layer",
+        })
+        self.assertNotIn("task", note)
+        self.assertEqual("milestone", note["entry"]["kind"])
+        self.assertEqual(group["conversation_id"], note["conversation_id"])
+        for models in ([], ["qwen2.5-coder:3b", "qwen2.5-coder:3b"], ["missing:4b"]):
+            with self.subTest(models=models):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    self.post_json("/api/groups/create", {
+                        "name": "Invalid", "models": models,
+                    })
+                self.assertEqual(400, caught.exception.code)
+        with self.assertRaises(urllib.error.HTTPError) as missing:
+            self.post_json("/api/groups/send", {
+                "group_id": "group-unknown", "prompt": "Hi",
+            })
+        self.assertEqual(400, missing.exception.code)
+
+    def test_project_and_group_endpoints_require_csrf(self):
+        for endpoint, body in (
+            ("/api/projects/add", {"path": str(self.state_dir)}),
+            ("/api/groups/create", {"name": "One", "models": ["qwen2.5-coder:3b"]}),
+            ("/api/groups/send", {"group_id": "x", "prompt": "hi"}),
+        ):
+            with self.subTest(endpoint=endpoint):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    self.post_json(endpoint, body, csrf=False)
+                self.assertEqual(403, caught.exception.code)
+
     def test_private_history_survives_app_restart_and_is_bounded(self):
         for index in range(30):
             self.app.add_history("bounded", "user", f"message {index}")

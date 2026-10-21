@@ -1,10 +1,53 @@
-const state={agent:'qwen',csrf:'',conversationId:localStorage.getItem('gs_conversation_id')||crypto.randomUUID(),poll:null,data:null,refreshing:false,selectedModel:localStorage.getItem('gs_model')||'qwen2.5-coder:3b',performance:localStorage.getItem('gs_performance')||'balanced'};
+const state={agent:'qwen',csrf:'',conversationId:localStorage.getItem('gs_conversation_id')||crypto.randomUUID(),poll:null,data:null,refreshing:false,groupId:null,projectId:localStorage.getItem('gs_project_id')||'',directConversationId:null,selectedModel:localStorage.getItem('gs_model')||'qwen2.5-coder:3b',performance:localStorage.getItem('gs_performance')||'balanced'};
 const $=s=>document.querySelector(s);const $$=s=>[...document.querySelectorAll(s)];
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2600)}
 async function api(path,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(options.method==='POST')headers['X-Ground-Space-CSRF']=state.csrf;const response=await fetch(path,{...options,headers});const body=await response.json();if(!response.ok)throw new Error(body.error||`Request failed (${response.status})`);return body}
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function setView(name){$$('.nav-button').forEach(x=>x.classList.toggle('active',x.dataset.view===name));$$('.view').forEach(x=>x.classList.toggle('active',x.id===`view-${name}`));if(name!=='chat')refresh()}
-function setAgent(agent){state.agent=agent;$$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));$('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':'Administrator channel';$('#modelControls').hidden=agent!=='qwen';$('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':'TASK STATUS · READ';$('#requestType').hidden=agent!=='qwen';$('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';renderMessages()}
+function conversationFor(agent,projectId){
+  const key='gs_room_'+agent+'_'+(projectId||'general');
+  let value=localStorage.getItem(key);
+  if(!value){
+    value=(!projectId&&agent==='qwen')?(localStorage.getItem('gs_conversation_id')||crypto.randomUUID()):crypto.randomUUID();
+    localStorage.setItem(key,value);
+  }
+  return value;
+}
+function setAgent(agent){
+  state.agent=agent;state.groupId=null;
+  state.conversationId=conversationFor(agent,state.projectId);
+  $$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));
+  $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':'Administrator channel';
+  $('#editGroupButton').hidden=true;
+  $('#projectSelect').disabled=false;
+  $('#modelControls').hidden=agent!=='qwen';
+  $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':'TASK STATUS · READ';
+  $('#requestType').hidden=agent!=='qwen';
+  $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';
+  renderWorkspaces();renderMessages();updateComposerAvailability();
+}
+function selectGroup(groupId){
+  const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
+  if(!group){toast('Group not found');return;}
+  state.groupId=group.id;state.agent='group';
+  state.conversationId=group.conversation_id;
+  $$('.agent-choice').forEach(x=>x.classList.remove('active'));
+  $('#conversationTitle').textContent=group.name;
+  $('#editGroupButton').hidden=false;
+  $('#projectSelect').disabled=true;
+  $('#modelControls').hidden=true;
+  $('#requestType').hidden=false;
+  $('#permissionPill').textContent='GROUP · READ / PROPOSE';
+  $('#prompt').placeholder='Ask the whole group, or type /goal…';
+  renderWorkspaces();renderMessages();updateComposerAvailability();
+}
+function chooseProject(projectId){
+  state.projectId=projectId;
+  localStorage.setItem('gs_project_id',projectId);
+  if(state.agent==='group'){toast('Edit group members to change its project');return;}
+  state.conversationId=conversationFor(state.agent,projectId);
+  renderWorkspaces();renderMessages();
+}
 function taskStatus(task){
   if(!task)return '';
   const labels={queued:'Queued — waiting for worker',claimed:'Worker assigned',running:'Generating response…',retry_pending:'Retry pending — check Tasks for details',failed:'Task failed — check Tasks for details',blocked:'Task blocked',cancelled:'Task cancelled',completed:'Completed'};
@@ -31,7 +74,7 @@ function responseMeta(entry,task){
 function renderMessages(){
   const root=$('#messages');
   const nearBottom=(root.scrollHeight-root.scrollTop-root.clientHeight)<100;
-  const messages=(state.data?.conversations?.[state.conversationId]||[]).filter(x=>!x.agent||x.agent===state.agent);
+  const messages=(state.data?.conversations?.[state.conversationId]||[]).filter(x=>state.agent==='group'||!x.agent||x.agent===state.agent);
   const tasks=new Map((state.data?.tasks||[]).map(task=>[task.task_id,task]));
   const replies=new Set(messages.filter(x=>x.role==='assistant').map(x=>x.task_id));
   if(!messages.length){
@@ -41,11 +84,25 @@ function renderMessages(){
   const html=[];
   for(const entry of messages){
     const task=tasks.get(entry.task_id);
-    const progress=entry.role==='user'?taskStatus(task):'';
+    const groupTasks=Array.isArray(entry.task_ids)?entry.task_ids.map(id=>tasks.get(id)).filter(Boolean):[];
+    const groupProgress=groupTasks.map(t=>'<span class="group-task-status">'+esc(t.payload?.model||t.requested_worker)+' · '+taskStatus(t)+'</span>').join('');
+    const progress=entry.role==='user'?(groupTasks.length?groupProgress:taskStatus(task)):'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
-    const identity=entry.task_id||entry.note_id||'local';
-    html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
+    const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
+      ?'<span class="member-label">'+esc(entry.model||'Local AI')+'</span>':'';
+    const identity=entry.task_id||entry.note_id||entry.group_turn_id||'local';
+    html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
+    // Group replies may appear in task records before persistence in chat history.
+    if(entry.role==='user'&&groupTasks.length){
+      for(const groupTask of groupTasks){
+        if(groupTask.status==='completed'&&!replies.has(groupTask.task_id)
+           &&typeof groupTask.result?.answer==='string'&&groupTask.result.answer){
+          const model=groupTask.result.model||groupTask.payload?.model||'Local AI';
+          html.push(`<div class="message assistant"><span class="member-label">${esc(model)}</span><span class="message-content">${esc(groupTask.result.answer)}</span><small>${esc(groupTask.task_id)} · recovered from task result</small>${responseMeta({},groupTask)}${copyButton(groupTask.task_id)}</div>`);
+        }
+      }
+    }
     // Queue completion can be visible before the history writer finishes.
     // Show the authoritative result in that case instead of losing the reply.
     if(entry.role==='user'&&task?.status==='completed'&&!replies.has(entry.task_id)&&typeof task.result?.answer==='string'&&task.result.answer){
@@ -54,6 +111,81 @@ function renderMessages(){
   }
   root.innerHTML=html.join('');
   if(nearBottom)root.scrollTop=root.scrollHeight;
+}
+
+
+function renderWorkspaces(){
+  const workspace=state.data?.workspaces||{};
+  const projects=workspace.projects||[];
+  const groups=workspace.groups||[];
+  const names=new Map(projects.map(p=>[p.id,p.name]));
+  $('#groupList').innerHTML=groups.map(g=>
+    '<button type="button" class="group-room '+(g.id===state.groupId?'active':'')+
+    '" data-group="'+esc(g.id)+'"><span class="room-avatar">◎</span><span><b>'+esc(g.name)+
+    '</b><small>'+esc(g.models.length+' AI · '+(names.get(g.project_id)||'General'))+'</small></span></button>'
+  ).join('')||'<p class="rail-empty">No groups yet</p>';
+  $('#projectList').innerHTML=projects.map(p=>
+    '<button type="button" class="project-room '+(p.id===state.projectId&&state.agent!=='group'?'active':'')+
+    '" data-project="'+esc(p.id)+'" title="'+esc(p.path)+'">'+esc(p.name)+'</button>'
+  ).join('')||'<p class="rail-empty">Choose a folder to begin</p>';
+  const selector=$('#projectSelect');
+  const current=state.agent==='group'?(groups.find(g=>g.id===state.groupId)?.project_id||''):state.projectId;
+  const signature=JSON.stringify(projects.map(p=>[p.id,p.name]));
+  if(selector.dataset.optionsKey!==signature){
+    selector.innerHTML='<option value="">No project</option>'+
+      projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
+    selector.dataset.optionsKey=signature;
+  }
+  selector.value=current;
+}
+function projectOptions(selected){
+  return '<option value="">No project</option>'+
+    (state.data?.workspaces?.projects||[]).map(p=>'<option value="'+esc(p.id)+'"'+
+      (p.id===selected?' selected':'')+'>'+esc(p.name)+'</option>').join('');
+}
+function openGroupEditor(groupId=''){
+  const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
+  $('#groupForm').dataset.editGroup=group?.id||'';
+  $('#groupDialogTitle').textContent=group?'Edit group':'New group chat';
+  $('#groupName').value=group?.name||'';
+  $('#groupName').disabled=!!group;
+  $('#saveGroup').textContent=group?'Save changes':'Create group';
+  $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
+  $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>
+    '<label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
+    '"'+(group?.models.includes(item.model)?' checked':'')+'><span><b>'+esc(item.model)+
+    '</b><small>'+esc(item.available?'Available · proposal only':'Offline · proposal only')+
+    '</small></span></label>'
+  ).join('')||'<p>No registered local models. Add them under Agents first.</p>';
+  $('#groupDialog').showModal();
+}
+async function saveGroup(event){
+  event.preventDefault();
+  const models=$$('input[name="group-member"]:checked').map(x=>x.value);
+  const groupId=$('#groupForm').dataset.editGroup;
+  try{
+    const payload={name:$('#groupName').value,models,project_id:$('#groupProject').value||null};
+    const response=await api(groupId?'/api/groups/update':'/api/groups/create',{
+      method:'POST',body:JSON.stringify(groupId?{...payload,group_id:groupId}:payload)
+    });
+    $('#groupDialog').close();
+    await refresh();
+    selectGroup(response.id);
+    toast(groupId?'Group updated':'Group created');
+  }catch(error){toast(error.message);}
+}
+async function browseFolders(path=null){
+  try{
+    const data=await api('/api/projects/browse'+(path?'?path='+encodeURIComponent(path):''));
+    $('#folderPicker').hidden=false;
+    $('#folderCurrent').textContent=data.current||'Allowed project roots';
+    $('#folderUp').disabled=data.is_root_list;
+    $('#folderUp').dataset.parent=data.parent||'';
+    const choose=data.current?'<button type="button" class="folder-use" data-folder="'+esc(data.current)+'">✓ Use this folder</button>':'';
+    $('#folderEntries').innerHTML=choose+(data.folders||[]).map(item=>
+      '<button type="button" class="folder-entry" data-folder="'+esc(item.path)+'">📁 '+esc(item.name)+'</button>'
+    ).join('')||'<p>No subfolders</p>';
+  }catch(error){toast(error.message);}
 }
 
 function renderModels(){
@@ -127,8 +259,19 @@ async function refresh(){
     const data=await api('/api/bootstrap');
     state.csrf=data.csrf_token;
     state.data=data;
+    if(state.directConversationId===null){
+      state.directConversationId=conversationFor('qwen',state.projectId);
+      if(state.agent!=='group')state.conversationId=state.directConversationId;
+    }
+    if(state.agent==='group'&&state.groupId){
+      const current=(data.workspaces?.groups||[]).find(g=>g.id===state.groupId);
+      if(current){
+        $('#conversationTitle').textContent=current.name;
+        state.conversationId=current.conversation_id;
+      }
+    }
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
-    renderModels();renderMessages();renderAgents();renderTasks();
+    renderModels();renderWorkspaces();renderMessages();renderAgents();renderTasks();
   }finally{state.refreshing=false;}
 }
 async function submit(event){
@@ -137,16 +280,19 @@ async function submit(event){
   if(!prompt)return;
   $('#sendButton').disabled=true;
   try{
-    const response=await api('/api/chat',{method:'POST',body:JSON.stringify({
-      agent:state.agent,prompt,request_type:$('#requestType').value,
-      model:state.selectedModel,performance:state.performance,
-      conversation_id:state.conversationId
+    const isGroup=state.agent==='group';
+    const notes=/^\/(goal|milestone)(\s|$)/i.test(prompt);
+    const endpoint=isGroup&&!notes?'/api/groups/send':'/api/chat';
+    const response=await api(endpoint,{method:'POST',body:JSON.stringify({
+      agent:state.agent,group_id:state.groupId,project_id:state.projectId,
+      prompt,request_type:$('#requestType').value,model:state.selectedModel,
+      performance:state.performance,conversation_id:state.conversationId
     })});
-    localStorage.setItem('gs_conversation_id',state.conversationId);
+    if(!isGroup)localStorage.setItem('gs_conversation_id',state.conversationId);
     $('#prompt').value='';
     updateSlashMenu();
     await refresh();
-    toast(response.entry?'Planning note saved':'Task submitted — status appears below your message');
+    toast(response.entry?'Planning note saved':isGroup?'Group request sent to each AI':'Task submitted');
   }catch(error){toast(error.message)}
   finally{updateComposerAvailability();}
 }
@@ -203,6 +349,48 @@ $('#registeredModels').addEventListener('click',async event=>{
 $('#messages').addEventListener('click',event=>{
   const button=event.target.closest('button.copy-response');
   if(button)copyReply(button.dataset.taskId);
+});
+
+
+$('#newGroupButton').addEventListener('click',()=>openGroupEditor());
+$('#editGroupButton').addEventListener('click',()=>openGroupEditor(state.groupId));
+$('#groupForm').addEventListener('submit',saveGroup);
+$('#cancelGroup').addEventListener('click',()=>$('#groupDialog').close());
+$('#groupList').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-group]');
+  if(button)selectGroup(button.dataset.group);
+});
+$('#projectSelect').addEventListener('change',()=>chooseProject($('#projectSelect').value));
+$('#projectList').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-project]');
+  if(button){if(state.agent==='group')setAgent('qwen');chooseProject(button.dataset.project);}
+});
+$('#addProjectButton').addEventListener('click',()=>{
+  $('#projectName').value='';$('#projectPath').value='';$('#folderPicker').hidden=true;$('#projectDialog').showModal();
+});
+$('#cancelProject').addEventListener('click',()=>$('#projectDialog').close());
+$('#projectForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  try{
+    const project=await api('/api/projects/add',{method:'POST',body:JSON.stringify({
+      path:$('#projectPath').value,name:$('#projectName').value
+    })});
+    $('#projectDialog').close();
+    await refresh();
+    if(state.agent==='group')setAgent('qwen');
+    chooseProject(project.id);
+    toast('Project folder registered — file access remains disabled');
+  }catch(error){toast(error.message);}
+});
+$('#browseRoots').addEventListener('click',()=>browseFolders());
+$('#folderUp').addEventListener('click',()=>browseFolders($('#folderUp').dataset.parent||null));
+$('#folderEntries').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-folder]');
+  if(!button)return;
+  if(button.classList.contains('folder-use')){
+    $('#projectPath').value=button.dataset.folder;
+    $('#folderPicker').hidden=true;
+  }else browseFolders(button.dataset.folder);
 });
 
 $$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
