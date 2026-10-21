@@ -58,20 +58,32 @@ function renderModels(){
   const registered=data.registered||[];
   const online=registered.filter(item=>item.available);
   const choices=$('#modelSelect');
-  choices.innerHTML=registered.map(item=>'<option value="'+esc(item.model)+'" '+(!item.available?'disabled':'')+'>'+esc(item.model+(item.available?'':' (offline)'))+'</option>').join('');
+  const choicesKey=JSON.stringify(registered.map(item=>[item.model,item.available]));
+  if(choices.dataset.optionsKey!==choicesKey){
+    choices.innerHTML=registered.map(item=>'<option value="'+esc(item.model)+'" '+(!item.available?'disabled':'')+'>'+esc(item.model+(item.available?'':' (offline)'))+'</option>').join('');
+    choices.dataset.optionsKey=choicesKey;
+  }
   if(!online.some(item=>item.model===state.selectedModel)){
     state.selectedModel=online[0]?.model||'';
     if(state.selectedModel)localStorage.setItem('gs_model',state.selectedModel);
   }
   choices.value=state.selectedModel;
   const perf=$('#performanceSelect');
-  perf.innerHTML=(data.presets||[]).map(item=>'<option value="'+esc(item.id)+'">'+esc(item.label)+'</option>').join('');
+  const profileKey=JSON.stringify((data.presets||[]).map(item=>[item.id,item.label]));
+  if(perf.dataset.optionsKey!==profileKey){
+    perf.innerHTML=(data.presets||[]).map(item=>'<option value="'+esc(item.id)+'">'+esc(item.label)+'</option>').join('');
+    perf.dataset.optionsKey=profileKey;
+  }
   if(!(data.presets||[]).some(item=>item.id===state.performance))state.performance='balanced';
   perf.value=state.performance;
   const discovered=data.discovered||[];
   const available=$('#availableModel');
   const keep=available.value;
-  available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+  const availableKey=JSON.stringify(discovered);
+  if(available.dataset.optionsKey!==availableKey){
+    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+    available.dataset.optionsKey=availableKey;
+  }
   if(discovered.includes(keep))available.value=keep;
   $('#addModelButton').disabled=!discovered.length;
   $('#registeredModels').innerHTML=registered.map(item=>
