@@ -53,7 +53,8 @@ class AdministratorAdapter:
             "required_permissions": required_permissions or ["read"],
             "approval": {"status": "approved" if approved else "pending",
                          "owner": approval_source or "Karl",
-                         "method": ("manual" if approval_source == "ground-space-owner-click"\n                                     else "automatic" if approved and approval_source else "manual")},
+                         "method": ("manual" if approval_source == "ground-space-owner-click"
+                                     else "automatic" if approved and approval_source else "manual")},
             "execution_timeout_seconds": execution_timeout_seconds,
             "payload": payload,
         }
