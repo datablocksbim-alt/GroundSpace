@@ -52,6 +52,57 @@ function renderMessages(){
   root.innerHTML=html.join('');
   if(nearBottom)root.scrollTop=root.scrollHeight;
 }
+
+function renderModels(){
+  const data=state.data?.models||{};
+  const registered=data.registered||[];
+  const online=registered.filter(item=>item.available);
+  const choices=$('#modelSelect');
+  choices.innerHTML=registered.map(item=>'<option value="'+esc(item.model)+'" '+(!item.available?'disabled':'')+'>'+esc(item.model+(item.available?'':' (offline)'))+'</option>').join('');
+  if(!online.some(item=>item.model===state.selectedModel)){
+    state.selectedModel=online[0]?.model||'';
+    if(state.selectedModel)localStorage.setItem('gs_model',state.selectedModel);
+  }
+  choices.value=state.selectedModel;
+  const perf=$('#performanceSelect');
+  perf.innerHTML=(data.presets||[]).map(item=>'<option value="'+esc(item.id)+'">'+esc(item.label)+'</option>').join('');
+  if(!(data.presets||[]).some(item=>item.id===state.performance))state.performance='balanced';
+  perf.value=state.performance;
+  const discovered=data.discovered||[];
+  const available=$('#availableModel');
+  const keep=available.value;
+  available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+  if(discovered.includes(keep))available.value=keep;
+  $('#addModelButton').disabled=!discovered.length;
+  $('#registeredModels').innerHTML=registered.map(item=>
+    '<div class="registered-model"><span><b>'+esc(item.model)+'</b><small>'+
+    esc(item.available?'Ready · '+item.role:'Offline · '+item.role)+
+    '</small></span><button type="button" class="remove-model" data-model="'+esc(item.model)+
+    '" aria-label="Remove '+esc(item.model)+'">Remove</button></div>'
+  ).join('')||'<p>No models registered. Add an installed model above.</p>';
+  $('#sendButton').disabled=state.agent==='qwen'&&!state.selectedModel;
+}
+async function copyText(value){
+  try{
+    if(!navigator.clipboard?.writeText)throw new Error('Clipboard API unavailable');
+    await navigator.clipboard.writeText(value);
+  }catch(error){
+    const area=document.createElement('textarea');
+    area.value=value;area.style.position='fixed';area.style.opacity='0';
+    document.body.appendChild(area);area.select();
+    const ok=document.execCommand('copy');area.remove();
+    if(!ok)throw new Error('Clipboard unavailable — select the reply manually');
+  }
+}
+async function copyReply(taskId){
+  const conversation=state.data?.conversations?.[state.conversationId]||[];
+  const history=conversation.find(entry=>entry.role==='assistant'&&entry.task_id===taskId);
+  const task=(state.data?.tasks||[]).find(entry=>entry.task_id===taskId);
+  const answer=history?.content||task?.result?.answer;
+  if(typeof answer!=='string'||!answer){toast('Reply not ready');return;}
+  try{await copyText(answer);toast('Response copied');}catch(error){toast(error.message);}
+}
+
 function renderAgents(){const root=$('#agentGrid');root.innerHTML=(state.data?.agents||[]).map(a=>`<article class="agent-card"><header><h2>${esc(a.agent_id.replaceAll('-',' '))}</h2><span class="${a.active?'live':'live offline'}">${a.active?'● ONLINE':'○ INACTIVE'}</span></header><p>${esc(a.role)}${a.model?` · ${esc(a.model)}`:''}</p><div class="chips">${a.permissions.map(p=>`<span>${esc(p)}</span>`).join('')}</div></article>`).join('')}
 function renderTasks(){const rows=$('#taskRows'),tasks=state.data?.tasks||[];rows.innerHTML=tasks.map(t=>`<tr data-task="${esc(t.task_id)}"><td><b>${esc(t.task_id)}</b></td><td>${esc(t.requested_worker)}</td><td>${esc(t.approval?.status||'unknown')}</td><td><span class="badge ${esc(t.status)}">${esc(t.status)}</span></td><td>${new Date(t.updated_at).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="5">No tasks yet.</td></tr>';rows.querySelectorAll('tr[data-task]').forEach(row=>row.onclick=async()=>{$('#taskDetail').textContent=JSON.stringify(await api(`/api/tasks/${row.dataset.task}`),null,2)})}
 async function refresh(){
@@ -61,11 +112,31 @@ async function refresh(){
     const data=await api('/api/bootstrap');
     state.csrf=data.csrf_token;
     state.data=data;
-    $('#systemState').textContent=(data.agents.find(x=>x.agent_id==='qwen-proposal')?.active)?'Local systems ready':'Ollama unavailable';
-    renderMessages();renderAgents();renderTasks();
+    $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
+    renderModels();renderMessages();renderAgents();renderTasks();
   }finally{state.refreshing=false;}
 }
-async function submit(event){event.preventDefault();const prompt=$('#prompt').value.trim();if(!prompt)return;$('#sendButton').disabled=true;try{const response=await api('/api/chat',{method:'POST',body:JSON.stringify({agent:state.agent,prompt,request_type:$('#requestType').value,conversation_id:state.conversationId})});localStorage.setItem('gs_conversation_id',state.conversationId);$('#prompt').value='';await refresh();toast('Task submitted — status appears below your message')}catch(error){toast(error.message)}finally{$('#sendButton').disabled=false}}
+async function submit(event){event.preventDefault();const prompt=$('#prompt').value.trim();if(!prompt)return;$('#sendButton').disabled=true;try{const response=await api('/api/chat',{method:'POST',body:JSON.stringify({agent:state.agent,prompt,request_type:$('#requestType').value,model:state.selectedModel,performance:state.performance,conversation_id:state.conversationId})});localStorage.setItem('gs_conversation_id',state.conversationId);$('#prompt').value='';await refresh();toast('Task submitted — status appears below your message')}catch(error){toast(error.message)}finally{$('#sendButton').disabled=false}}
+
+$('#modelSelect').addEventListener('change',()=>{state.selectedModel=$('#modelSelect').value;localStorage.setItem('gs_model',state.selectedModel);});
+$('#performanceSelect').addEventListener('change',()=>{state.performance=$('#performanceSelect').value;localStorage.setItem('gs_performance',state.performance);});
+$('#addModelButton').addEventListener('click',async()=>{
+  const model=$('#availableModel').value;
+  if(!model)return;
+  try{await api('/api/models/add',{method:'POST',body:JSON.stringify({model})});await refresh();toast('Model added');}
+  catch(error){toast(error.message);}
+});
+$('#registeredModels').addEventListener('click',async event=>{
+  const button=event.target.closest('button.remove-model');
+  if(!button)return;
+  try{await api('/api/models/remove',{method:'POST',body:JSON.stringify({model:button.dataset.model})});await refresh();toast('Model removed');}
+  catch(error){toast(error.message);}
+});
+$('#messages').addEventListener('click',event=>{
+  const button=event.target.closest('button.copy-response');
+  if(button)copyReply(button.dataset.taskId);
+});
+
 $$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
 // Keep every task in this conversation observable, even after refresh or later messages.
 setInterval(()=>refresh().catch(()=>{$('#systemState').textContent='Ground Space disconnected'}),2500);
