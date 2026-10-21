@@ -1,10 +1,53 @@
-const state={agent:'qwen',csrf:'',conversationId:localStorage.getItem('gs_conversation_id')||crypto.randomUUID(),poll:null,data:null,refreshing:false,selectedModel:localStorage.getItem('gs_model')||'qwen2.5-coder:3b',performance:localStorage.getItem('gs_performance')||'balanced'};
+const state={agent:'qwen',csrf:'',conversationId:localStorage.getItem('gs_conversation_id')||crypto.randomUUID(),poll:null,data:null,refreshing:false,groupId:null,projectId:localStorage.getItem('gs_project_id')||'',directConversationId:null,selectedModel:localStorage.getItem('gs_model')||'qwen2.5-coder:3b',performance:localStorage.getItem('gs_performance')||'balanced'};
 const $=s=>document.querySelector(s);const $$=s=>[...document.querySelectorAll(s)];
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2600)}
 async function api(path,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(options.method==='POST')headers['X-Ground-Space-CSRF']=state.csrf;const response=await fetch(path,{...options,headers});const body=await response.json();if(!response.ok)throw new Error(body.error||`Request failed (${response.status})`);return body}
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function setView(name){$$('.nav-button').forEach(x=>x.classList.toggle('active',x.dataset.view===name));$$('.view').forEach(x=>x.classList.toggle('active',x.id===`view-${name}`));if(name!=='chat')refresh()}
-function setAgent(agent){state.agent=agent;$$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));$('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':'Administrator channel';$('#modelControls').hidden=agent!=='qwen';$('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':'TASK STATUS · READ';$('#requestType').hidden=agent!=='qwen';$('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';renderMessages()}
+function conversationFor(agent,projectId){
+  const key='gs_room_'+agent+'_'+(projectId||'general');
+  let value=localStorage.getItem(key);
+  if(!value){
+    value=(!projectId&&agent==='qwen')?(localStorage.getItem('gs_conversation_id')||crypto.randomUUID()):crypto.randomUUID();
+    localStorage.setItem(key,value);
+  }
+  return value;
+}
+function setAgent(agent){
+  state.agent=agent;state.groupId=null;
+  state.conversationId=conversationFor(agent,state.projectId);
+  $$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));
+  $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':'Administrator channel';
+  $('#editGroupButton').hidden=true;
+  $('#projectSelect').disabled=false;
+  $('#modelControls').hidden=agent!=='qwen';
+  $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':'TASK STATUS · READ';
+  $('#requestType').hidden=agent!=='qwen';
+  $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';
+  renderWorkspaces();renderMessages();updateComposerAvailability();
+}
+function selectGroup(groupId){
+  const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
+  if(!group){toast('Group not found');return;}
+  state.groupId=group.id;state.agent='group';
+  state.conversationId=group.conversation_id;
+  $$('.agent-choice').forEach(x=>x.classList.remove('active'));
+  $('#conversationTitle').textContent=group.name;
+  $('#editGroupButton').hidden=false;
+  $('#projectSelect').disabled=true;
+  $('#modelControls').hidden=true;
+  $('#requestType').hidden=false;
+  $('#permissionPill').textContent='GROUP · READ / PROPOSE';
+  $('#prompt').placeholder='Ask the whole group, or type /goal…';
+  renderWorkspaces();renderMessages();updateComposerAvailability();
+}
+function chooseProject(projectId){
+  state.projectId=projectId;
+  localStorage.setItem('gs_project_id',projectId);
+  if(state.agent==='group'){toast('Edit group members to change its project');return;}
+  state.conversationId=conversationFor(state.agent,projectId);
+  renderWorkspaces();renderMessages();
+}
 function taskStatus(task){
   if(!task)return '';
   const labels={queued:'Queued — waiting for worker',claimed:'Worker assigned',running:'Generating response…',retry_pending:'Retry pending — check Tasks for details',failed:'Task failed — check Tasks for details',blocked:'Task blocked',cancelled:'Task cancelled',completed:'Completed'};
@@ -31,7 +74,7 @@ function responseMeta(entry,task){
 function renderMessages(){
   const root=$('#messages');
   const nearBottom=(root.scrollHeight-root.scrollTop-root.clientHeight)<100;
-  const messages=(state.data?.conversations?.[state.conversationId]||[]).filter(x=>!x.agent||x.agent===state.agent);
+  const messages=(state.data?.conversations?.[state.conversationId]||[]).filter(x=>state.agent==='group'||!x.agent||x.agent===state.agent);
   const tasks=new Map((state.data?.tasks||[]).map(task=>[task.task_id,task]));
   const replies=new Set(messages.filter(x=>x.role==='assistant').map(x=>x.task_id));
   if(!messages.length){
@@ -41,11 +84,15 @@ function renderMessages(){
   const html=[];
   for(const entry of messages){
     const task=tasks.get(entry.task_id);
-    const progress=entry.role==='user'?taskStatus(task):'';
+    const groupTasks=Array.isArray(entry.task_ids)?entry.task_ids.map(id=>tasks.get(id)).filter(Boolean):[];
+    const groupProgress=groupTasks.map(t=>'<span class="group-task-status">'+esc(t.payload?.model||t.requested_worker)+' · '+taskStatus(t)+'</span>').join('');
+    const progress=entry.role==='user'?(groupTasks.length?groupProgress:taskStatus(task)):'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
-    const identity=entry.task_id||entry.note_id||'local';
-    html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
+    const memberLabel=state.agent==='group'&&entry.role==='assistant'
+      ?'<span class="member-label">'+esc(entry.model||'Local AI')+'</span>':'';
+    const identity=entry.task_id||entry.note_id||entry.group_turn_id||'local';
+    html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
     // Queue completion can be visible before the history writer finishes.
     // Show the authoritative result in that case instead of losing the reply.
     if(entry.role==='user'&&task?.status==='completed'&&!replies.has(entry.task_id)&&typeof task.result?.answer==='string'&&task.result.answer){
@@ -128,7 +175,7 @@ async function refresh(){
     state.csrf=data.csrf_token;
     state.data=data;
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
-    renderModels();renderMessages();renderAgents();renderTasks();
+    renderModels();renderWorkspaces();renderMessages();renderAgents();renderTasks();
   }finally{state.refreshing=false;}
 }
 async function submit(event){
