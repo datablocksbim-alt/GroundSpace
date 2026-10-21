@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .bridge import AdministratorAdapter, OrchestratorAdapter
+from .coordinator import coordinator_instructions, route_group_message
 from .messages import utc_timestamp
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
@@ -219,16 +220,27 @@ class GroundSpaceApp:
                 self._register_worker(model, availability)
             conversation_id = group["conversation_id"]
             context = self.conversation_context(conversation_id)
-            # Each member receives the same original prompt and previous context.
-            # Model responses are not chained together into implicit instructions.
-            full_prompt = (f"Bounded conversation context:\n{context}\n\nCurrent user request:\n{prompt}"
-                           if context else prompt)
+            # /goal and /milestone always reach Coordinator; only explicitly named
+            # specialists can speak for themselves. This is chat, never job approval.
+            route = route_group_message(prompt, models, force_coordinator=annotation_entry is not None)
             group_turn_id = "TURN-" + secrets.token_hex(8)
             task_ids = []
             timeout = PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
-            for model in models:
+            for model in route.models:
+                routed_prompt = (
+                    coordinator_instructions(
+                        prompt, group_models=models,
+                        kind=annotation_entry.get("kind") if annotation_entry else None,
+                        goal_id=annotation_entry.get("note_id") if annotation_entry else None,
+                    )
+                    if route.coordinator else prompt
+                )
+                full_prompt = (f"Bounded conversation context:\n{context}\n\nCurrent user request:\n{routed_prompt}"
+                               if context else routed_prompt)
+                speaker = "Coordinator" if route.coordinator else model
                 payload = {"request_type": request_type, "prompt": full_prompt,
                            "conversation_id": conversation_id, "model": model,
+                           "speaker": speaker,
                            "performance": performance, "group_id": group["id"],
                            "group_turn_id": group_turn_id,
                            "project_id": group["project_id"]}
@@ -417,7 +429,8 @@ class GroundSpaceApp:
         if answer:
             self.add_history(conversation_id, "assistant", str(answer), task_id=task_id,
                              agent="administrator" if result.get("requested_worker") == "administrator-console" else "qwen",
-                             model=worker_result.get("model"), performance=worker_result.get("performance"),
+                             model=worker_result.get("model"), speaker=payload.get("speaker"),
+                             performance=worker_result.get("performance"),
                              tokens_per_second=worker_result.get("tokens_per_second"),
                              generation_seconds=worker_result.get("generation_seconds"),
                              group_id=payload.get("group_id"),
@@ -428,7 +441,8 @@ class GroundSpaceApp:
                              str(result.get("failure") or result.get("failed_stage") or "Task did not complete"),
                              task_id=task_id,
                              agent="administrator" if result.get("requested_worker") == "administrator-console" else "qwen",
-                             model=payload.get("model"), group_id=payload.get("group_id"),
+                             model=payload.get("model"), speaker=payload.get("speaker"),
+                             group_id=payload.get("group_id"),
                              group_turn_id=payload.get("group_turn_id"),
                              project_id=payload.get("project_id"))
 
@@ -451,6 +465,8 @@ class GroundSpaceApp:
         with self.lock:
             registered = list(self.registered_models)
         return [
+            {"agent_id": "coordinator", "role": "group routing and proposal-only planning", "active": True,
+             "permissions": ["read", "propose"]},
             {"agent_id": "administrator", "role": "queue, automatic dispatch, audit", "active": True,
              "permissions": ["submit", "status"]},
             {"agent_id": "orchestrator", "role": "authorized routing", "active": True,
