@@ -1,10 +1,10 @@
-const state={agent:'qwen',csrf:'',conversationId:localStorage.getItem('gs_conversation_id')||crypto.randomUUID(),poll:null,data:null,refreshing:false};
+const state={agent:'qwen',csrf:'',conversationId:localStorage.getItem('gs_conversation_id')||crypto.randomUUID(),poll:null,data:null,refreshing:false,selectedModel:localStorage.getItem('gs_model')||'qwen2.5-coder:3b',performance:localStorage.getItem('gs_performance')||'balanced'};
 const $=s=>document.querySelector(s);const $$=s=>[...document.querySelectorAll(s)];
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2600)}
 async function api(path,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(options.method==='POST')headers['X-Ground-Space-CSRF']=state.csrf;const response=await fetch(path,{...options,headers});const body=await response.json();if(!response.ok)throw new Error(body.error||`Request failed (${response.status})`);return body}
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function setView(name){$$('.nav-button').forEach(x=>x.classList.toggle('active',x.dataset.view===name));$$('.view').forEach(x=>x.classList.toggle('active',x.id===`view-${name}`));if(name!=='chat')refresh()}
-function setAgent(agent){state.agent=agent;$$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));$('#conversationTitle').textContent=agent==='qwen'?'Qwen channel':'Administrator channel';$('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':'TASK STATUS · READ';$('#requestType').hidden=agent!=='qwen';$('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';renderMessages()}
+function setAgent(agent){state.agent=agent;$$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));$('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':'Administrator channel';$('#modelControls').hidden=agent!=='qwen';$('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':'TASK STATUS · READ';$('#requestType').hidden=agent!=='qwen';$('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';renderMessages()}
 function taskStatus(task){
   if(!task)return '';
   const labels={queued:'Queued — waiting for worker',claimed:'Worker assigned',running:'Generating response…',retry_pending:'Retry pending — check Tasks for details',failed:'Task failed — check Tasks for details',blocked:'Task blocked',cancelled:'Task cancelled',completed:'Completed'};
@@ -12,6 +12,22 @@ function taskStatus(task){
   const stage=(['retry_pending','failed','blocked'].includes(status)&&task.failed_stage)?' · '+task.failed_stage:'';
   return `<small class="task-state ${esc(status)}">${esc((labels[status]||status)+stage)}</small>`;
 }
+
+function copyButton(taskId){
+  return '<button type="button" class="copy-response" data-task-id="'+esc(taskId)+'" aria-label="Copy full AI response">Copy response</button>';
+}
+function responseMeta(entry,task){
+  const result=task?.result||{};
+  const model=entry.model||result.model;
+  const rate=entry.tokens_per_second??result.tokens_per_second;
+  const duration=entry.generation_seconds??result.generation_seconds;
+  const bits=[];
+  if(model)bits.push(model);
+  if(Number.isFinite(Number(rate))&&Number(rate)>0)bits.push(rate+' tokens/s');
+  if(Number.isFinite(Number(duration))&&Number(duration)>0)bits.push(duration+'s generation');
+  return bits.length?'<small class="response-meta">'+esc(bits.join(' · '))+'</small>':'';
+}
+
 function renderMessages(){
   const root=$('#messages');
   const nearBottom=(root.scrollHeight-root.scrollTop-root.clientHeight)<100;
@@ -19,18 +35,18 @@ function renderMessages(){
   const tasks=new Map((state.data?.tasks||[]).map(task=>[task.task_id,task]));
   const replies=new Set(messages.filter(x=>x.role==='assistant').map(x=>x.task_id));
   if(!messages.length){
-    root.innerHTML=`<div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>${state.agent==='qwen'?'Ask Qwen for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.':'Use read-only Administrator commands: help, list tasks, or status &lt;task-id&gt;.'}</p></div>`;
+    root.innerHTML=`<div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>${state.agent==='qwen'?'Ask the selected local model for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.':'Use read-only Administrator commands: help, list tasks, or status &lt;task-id&gt;.'}</p></div>`;
     return;
   }
   const html=[];
   for(const entry of messages){
     const task=tasks.get(entry.task_id);
     const progress=entry.role==='user'?taskStatus(task):'';
-    html.push(`<div class="message ${esc(entry.role)}">${esc(entry.content)}<small>${esc(entry.task_id||'local')} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}</div>`);
+    html.push(`<div class="message ${esc(entry.role)}">${esc(entry.content)}<small>${esc(entry.task_id||'local')} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
     // Queue completion can be visible before the history writer finishes.
     // Show the authoritative result in that case instead of losing the reply.
     if(entry.role==='user'&&task?.status==='completed'&&!replies.has(entry.task_id)&&typeof task.result?.answer==='string'&&task.result.answer){
-      html.push(`<div class="message assistant">${esc(task.result.answer)}<small>${esc(entry.task_id)} · recovered from task result</small></div>`);
+      html.push(`<div class="message assistant">${esc(task.result.answer)}<small>${esc(entry.task_id)} · recovered from task result</small>${responseMeta({},task)}${copyButton(entry.task_id)}</div>`);
     }
   }
   root.innerHTML=html.join('');
