@@ -24,7 +24,9 @@ class GS003WebAppTests(unittest.TestCase):
         self.thread.start()
         self.origin = f"http://127.0.0.1:{self.server.server_port}"
         cookie_jar = http.cookiejar.CookieJar()
-        self.client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
+        # Local test traffic must never be sent via an OS or environment HTTP proxy.
+        self.client = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+                                                  urllib.request.HTTPCookieProcessor(cookie_jar))
         self.bootstrap = self.get_json("/api/bootstrap")
 
     def tearDown(self):
