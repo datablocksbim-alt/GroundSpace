@@ -1,7 +1,8 @@
 """Private, lightweight registries for local projects and AI group chats.
 
 Folder selection is metadata only. No worker gains filesystem access by linking a
-project, and paths are never handed to the Ollama execution request.
+project. Ground Space may identify the selected folder in a local Ollama prompt,
+but workers receive no filesystem tools or read/write authority.
 """
 from __future__ import annotations
 

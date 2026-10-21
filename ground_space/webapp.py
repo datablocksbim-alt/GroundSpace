@@ -185,6 +185,19 @@ class GroundSpaceApp:
             str(body.get("path", "")), str(body.get("name", ""))
         )
 
+    def project_context(self, project_id: str | None) -> str:
+        """Describe the selected workspace without granting filesystem access."""
+        if not project_id:
+            return ""
+        project = self.workspaces.get_project(project_id)
+        return (
+            "Selected project metadata:\n"
+            f"- Name: {project['name']}\n"
+            f"- Registered local folder: {project['path']}\n"
+            "- Access boundary: metadata only. You have no filesystem tools and must not "
+            "claim to have inspected, changed, or executed files in this folder.\n"
+        )
+
     def create_group(self, body: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
             return self.workspaces.create_group(
@@ -221,6 +234,7 @@ class GroundSpaceApp:
                 self._register_worker(model, availability)
             conversation_id = group["conversation_id"]
             context = self.conversation_context(conversation_id)
+            project_context = self.project_context(group["project_id"])
             # /goal and /milestone always reach Coordinator; only explicitly named
             # specialists can speak for themselves. This is chat, never job approval.
             route = route_group_message(prompt, models, force_coordinator=annotation_entry is not None)
@@ -236,8 +250,11 @@ class GroundSpaceApp:
                     )
                     if route.coordinator else prompt
                 )
-                full_prompt = (f"Bounded conversation context:\n{context}\n\nCurrent user request:\n{routed_prompt}"
-                               if context else routed_prompt)
+                prompt_sections = [project_context.rstrip()] if project_context else []
+                if context:
+                    prompt_sections.append(f"Bounded conversation context:\n{context}")
+                prompt_sections.append(f"Current user request:\n{routed_prompt}")
+                full_prompt = "\n\n".join(prompt_sections)
                 speaker = "Coordinator" if route.coordinator else model
                 payload = {"request_type": request_type, "prompt": full_prompt,
                            "conversation_id": conversation_id, "model": model,
@@ -380,7 +397,12 @@ class GroundSpaceApp:
                     raise ValueError("Select a registered local model in the model manager")
                 self._register_worker(model, probe_ollama(self.ollama_endpoint))
             context = self.conversation_context(conversation_id)
-            full_prompt = f"Bounded conversation context:\n{context}\n\nCurrent user request:\n{prompt}" if context else prompt
+            project_context = self.project_context(project_id)
+            prompt_sections = [project_context.rstrip()] if project_context else []
+            if context:
+                prompt_sections.append(f"Bounded conversation context:\n{context}")
+            prompt_sections.append(f"Current user request:\n{prompt}")
+            full_prompt = "\n\n".join(prompt_sections)
             payload = {"request_type": request_type, "prompt": full_prompt,
                        "conversation_id": conversation_id, "model": model,
                        "performance": performance, "project_id": project_id}

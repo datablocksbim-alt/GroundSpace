@@ -266,6 +266,37 @@ class GS003WebAppTests(unittest.TestCase):
             })
             self.assertEqual(["qwen3.5:4b"], updated["models"])
 
+    def test_selected_project_identity_is_in_direct_and_group_prompts(self):
+        project_dir = self.state_dir / "Recognized Project"
+        project_dir.mkdir()
+        self.app.workspaces.allowed_roots = [self.state_dir.resolve()]
+        project = self.post_json("/api/projects/add", {
+            "name": "Recognized", "path": str(project_dir),
+        })
+        with patch.object(self.app, "_process_and_record"):
+            direct = self.post_json("/api/chat", {
+                "agent": "qwen", "prompt": "Which project is selected?",
+                "project_id": project["id"], "model": "qwen2.5-coder:3b",
+            })
+        direct_prompt = self.app.task(direct["task"]["task_id"])["payload"]["prompt"]
+        self.assertIn("Name: Recognized", direct_prompt)
+        self.assertIn(str(project_dir.resolve()), direct_prompt)
+        self.assertIn("metadata only", direct_prompt)
+        self.assertIn("no filesystem tools", direct_prompt)
+
+        group = self.post_json("/api/groups/create", {
+            "name": "Project group", "models": ["qwen2.5-coder:3b"],
+            "project_id": project["id"],
+        })
+        with patch.object(self.app, "_process_group"):
+            response = self.post_json("/api/groups/send", {
+                "group_id": group["id"], "prompt": "Identify our project",
+            })
+        group_prompt = self.app.task(response["task_ids"][0])["payload"]["prompt"]
+        self.assertIn("Name: Recognized", group_prompt)
+        self.assertIn(str(project_dir.resolve()), group_prompt)
+        self.assertIn("metadata only", group_prompt)
+
     def test_group_chat_unaddressed_routes_to_coordinator_only(self):
         fake = {"available": True, "models": ["qwen2.5-coder:3b", "qwen3.5:4b"]}
         with patch("ground_space.webapp.probe_ollama", return_value=fake):
