@@ -241,6 +241,9 @@ class GroundSpaceApp:
     def agents(self) -> list[dict[str, Any]]:
         availability = probe_ollama(self.ollama_endpoint)
         model_agents = {item.agent_id: item for item in ollama_descriptors(self.ollama_endpoint, availability)}
+        installed = set(availability.get("models", []))
+        with self.lock:
+            registered = list(self.registered_models)
         return [
             {"agent_id": "administrator", "role": "queue, automatic dispatch, audit", "active": True,
              "permissions": ["submit", "status"]},
@@ -248,7 +251,11 @@ class GroundSpaceApp:
              "permissions": ["claim", "dispatch", "retry"]},
             *[{"agent_id": item.agent_id, "role": item.role, "active": item.active,
                "permissions": sorted(item.permissions), "model": item.model}
-              for item in model_agents.values()],
+              for item in model_agents.values() if item.agent_id != "qwen-proposal"],
+            *[{"agent_id": self.worker_id(model), "role": "proposal_only_chat",
+               "active": bool(availability.get("available") and model in installed),
+               "permissions": ["read", "propose"], "model": model}
+              for model in registered],
         ]
 
     def bootstrap(self) -> dict[str, Any]:
