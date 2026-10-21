@@ -1,0 +1,59 @@
+{
+  "agents": [
+    {
+      "active": true,
+      "agent_id": "qwen-proposal",
+      "metadata": {
+        "production_write_authority": false
+      },
+      "model": "qwen3.5:4b",
+      "permissions": [
+        "propose",
+        "read"
+      ],
+      "provider": "ollama",
+      "qualified": true,
+      "role": "proposal_only"
+    },
+    {
+      "active": true,
+      "agent_id": "granite-review",
+      "metadata": {
+        "production_approval_authority": false
+      },
+      "model": "granite4:3b",
+      "permissions": [
+        "read",
+        "review"
+      ],
+      "provider": "ollama",
+      "qualified": true,
+      "role": "read_only_reviewer"
+    },
+    {
+      "active": false,
+      "agent_id": "ministral",
+      "metadata": {
+        "reason": "setup_and_qualification_incomplete"
+      },
+      "model": "ministral-3:8b",
+      "permissions": [
+        "read"
+      ],
+      "provider": "ollama",
+      "qualified": false,
+      "role": "orchestrator_candidate"
+    }
+  ],
+  "ollama": {
+    "available": true,
+    "endpoint": "http://127.0.0.1:11434",
+    "models": [
+      "granite4:3b",
+      "qwen2.5-coder:3b",
+      "qwen3.5:4b"
+    ],
+    "reason": null
+  },
+  "paid_api_usage": false
+}

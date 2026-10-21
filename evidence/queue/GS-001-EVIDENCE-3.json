@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "task_id": "GS-001-EVIDENCE-3",
+  "correlation_id": "gs001-round-trip-3",
+  "created_at": "2026-10-21T04:32:18.617917+00:00",
+  "status": "completed",
+  "source": "ground_space",
+  "requested_worker": "python-readonly-1",
+  "required_permissions": [
+    "read"
+  ],
+  "approval": {
+    "status": "approved",
+    "owner": "Karl"
+  },
+  "execution_timeout_seconds": 5.0,
+  "payload": {
+    "sequence": 3,
+    "instruction": "deterministic read-only inspection"
+  },
+  "attempt_count": 1,
+  "max_attempts": 3,
+  "history": [
+    {
+      "at": "2026-10-21T04:32:18.617917+00:00",
+      "from": null,
+      "to": "queued"
+    },
+    {
+      "at": "2026-10-21T04:32:18.631679+00:00",
+      "from": "queued",
+      "to": "claimed"
+    },
+    {
+      "at": "2026-10-21T04:32:18.649290+00:00",
+      "from": "claimed",
+      "to": "running"
+    },
+    {
+      "at": "2026-10-21T04:32:18.693745+00:00",
+      "from": "running",
+      "to": "completed"
+    }
+  ],
+  "updated_at": "2026-10-21T04:32:18.693745+00:00",
+  "claimed_by": "ground-space-orchestrator",
+  "claimed_at": "2026-10-21T04:32:18.631679+00:00",
+  "heartbeat_at": "2026-10-21T04:32:18.677225+00:00",
+  "lease_id": "ecea85f57f5043608166087f759f4eec",
+  "retry_after": null,
+  "started_at": "2026-10-21T04:32:18.649290+00:00",
+  "finished_at": "2026-10-21T04:32:18.693745+00:00",
+  "result": {
+    "operation": "deterministic_inspect",
+    "input_sha256": "40d25377ad1309ed2f2d1d508cb6a1f80530b1318b6218a95f849310f54a8a95",
+    "keys": [
+      "instruction",
+      "sequence"
+    ],
+    "read_only": true
+  },
+  "completed_by": "python-readonly-1"
+}

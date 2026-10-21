@@ -1,0 +1,53 @@
+{
+  "all_completed": true,
+  "cloud_services_used": false,
+  "paid_api_usage_aud": 0,
+  "round_trips": [
+    {
+      "attempt_count": 1,
+      "completed_by": "python-readonly-1",
+      "result": {
+        "input_sha256": "594176510b5c8cab647c0ff31cd95336edb1c6084063ca1b0a7fd1f3f9747fa5",
+        "keys": [
+          "instruction",
+          "sequence"
+        ],
+        "operation": "deterministic_inspect",
+        "read_only": true
+      },
+      "status": "completed",
+      "task_id": "GS-001-EVIDENCE-1"
+    },
+    {
+      "attempt_count": 1,
+      "completed_by": "python-readonly-1",
+      "result": {
+        "input_sha256": "86df916c8f447585d68dd1c6d2a3ddb97f5ed544f8486596033bea140b33a6cc",
+        "keys": [
+          "instruction",
+          "sequence"
+        ],
+        "operation": "deterministic_inspect",
+        "read_only": true
+      },
+      "status": "completed",
+      "task_id": "GS-001-EVIDENCE-2"
+    },
+    {
+      "attempt_count": 1,
+      "completed_by": "python-readonly-1",
+      "result": {
+        "input_sha256": "40d25377ad1309ed2f2d1d508cb6a1f80530b1318b6218a95f849310f54a8a95",
+        "keys": [
+          "instruction",
+          "sequence"
+        ],
+        "operation": "deterministic_inspect",
+        "read_only": true
+      },
+      "status": "completed",
+      "task_id": "GS-001-EVIDENCE-3"
+    }
+  ],
+  "schema_version": 1
+}
