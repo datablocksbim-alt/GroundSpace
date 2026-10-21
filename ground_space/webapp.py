@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .bridge import AdministratorAdapter, OrchestratorAdapter
+from .coordinator import ProposalStore, coordinator_prompt, select_participants
 from .messages import utc_timestamp
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
@@ -85,6 +86,7 @@ class GroundSpaceApp:
         self.queue_dir = self.state_dir / "private" / "queue"
         self.models_path = self.state_dir / "private" / "chat_models.json"
         self.workspaces = WorkspaceRegistry(self.state_dir / "private", allowed_project_roots(ADMIN_ROOT))
+        self.proposals = ProposalStore(self.state_dir / "private" / "coordinator_proposals.json")
         self.group_dispatch_lock = threading.Lock()
         self.lock = threading.RLock()
         self.administrator = AdministratorAdapter(
@@ -210,28 +212,35 @@ class GroundSpaceApp:
         performance = str(body.get("performance", "balanced"))
         if performance not in PERFORMANCE_PRESETS:
             raise ValueError("Unknown performance preset")
-        models = list(group["models"])
         with self.lock:
+            models = list(group["models"])
             if not set(models).issubset(set(self.registered_models)):
                 raise ValueError("A group AI model is no longer registered; edit its members")
+            # An unaddressed message is for Coordinator. Explicit @model mentions
+            # select only those room members; no unconnected cloud provider fallback.
+            targets = ([(models[0], "Coordinator")] if annotation_entry is not None
+                       else select_participants(prompt, models))
             availability = probe_ollama(self.ollama_endpoint)
-            for model in models:
+            for model, _speaker in targets:
                 self._register_worker(model, availability)
             conversation_id = group["conversation_id"]
             context = self.conversation_context(conversation_id)
-            # Each member receives the same original prompt and previous context.
-            # Model responses are not chained together into implicit instructions.
-            full_prompt = (f"Bounded conversation context:\n{context}\n\nCurrent user request:\n{prompt}"
-                           if context else prompt)
+            new_cards = (self.proposals.create_goal(annotation_entry["content"], group)
+                         if annotation_entry is not None and annotation_entry.get("kind") == "goal"
+                         else [])
             group_turn_id = "TURN-" + secrets.token_hex(8)
-            task_ids = []
+            task_ids: list[str] = []
             timeout = PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
-            for model in models:
+            for model, speaker in targets:
+                current_request = (coordinator_prompt(prompt, new_cards)
+                                   if speaker == "Coordinator" else prompt)
+                # Never feed another model's current-turn output into this request.
+                full_prompt = (f"Bounded conversation context:\n{context}\n\nCurrent user request:\n{current_request}"
+                               if context else current_request)
                 payload = {"request_type": request_type, "prompt": full_prompt,
-                           "conversation_id": conversation_id, "model": model,
+                           "conversation_id": conversation_id, "model": model, "speaker": speaker,
                            "performance": performance, "group_id": group["id"],
-                           "group_turn_id": group_turn_id,
-                           "project_id": group["project_id"]}
+                           "group_turn_id": group_turn_id, "project_id": group["project_id"]}
                 task = self.administrator.submit(
                     payload, worker_id=self.worker_id(model),
                     required_permissions=["read", "propose"],
@@ -246,15 +255,70 @@ class GroundSpaceApp:
                     task_ids=task_ids, project_id=group["project_id"],
                 )
             else:
-                annotation_entry.update(task_ids=task_ids, group_turn_id=group_turn_id)
+                annotation_entry.update(task_ids=task_ids, group_turn_id=group_turn_id,
+                                        proposal_ids=[card["task_id"] for card in new_cards])
                 atomic_json(self.history_path, self.conversations)
         threading.Thread(
             target=self._process_group, args=(task_ids,), daemon=True,
         ).start()
-        response = {"group": group, "task_ids": task_ids, "conversation_id": conversation_id}
+        response = {"group": group, "task_ids": task_ids, "conversation_id": conversation_id,
+                    "proposal_ids": [card["task_id"] for card in new_cards]}
         if annotation_entry is not None:
             response["entry"] = annotation_entry
         return response
+
+    def approve_proposal(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Explicit owner action, limited to tool-free read/propose worker calls."""
+        if body.get("confirm") is not True:
+            raise ValueError("Explicit task approval confirmation is required")
+        task_id = str(body.get("task_id", ""))
+        group_id = str(body.get("group_id", ""))
+        with self.lock:
+            proposal = self.proposals.get(task_id)
+            group = self.workspaces.get_group(group_id)
+            if proposal["group_id"] != group["id"] or proposal["project_id"] != group["project_id"]:
+                raise ValueError("Proposal does not belong to this group and project")
+            if proposal["status"] != "proposed":
+                raise ValueError("Proposal already dispatched")
+            if proposal["assignee"] not in group["models"] or proposal["assignee"] not in self.registered_models:
+                raise ValueError("Proposed worker is no longer a registered group member")
+            for dependency in proposal["depends_on"]:
+                previous = self.proposals.get(dependency)
+                if previous["goal_id"] != proposal["goal_id"] or previous["project_id"] != proposal["project_id"]:
+                    raise ValueError("Invalid proposal dependency")
+                try:
+                    predecessor = self.administrator.status(dependency)
+                except (OSError, ValueError) as error:
+                    raise ValueError("Complete prerequisite tasks before approving this proposal") from error
+                if predecessor.get("status") != "completed":
+                    raise ValueError("Complete prerequisite tasks before approving this proposal")
+            availability = probe_ollama(self.ollama_endpoint)
+            model = proposal["assignee"]
+            if model not in availability.get("models", []):
+                raise ValueError("Assigned local Ollama model is currently unavailable")
+            self._register_worker(model, availability)
+            # File system paths and execution privileges are NEVER passed to the worker.
+            payload = {
+                "request_type": "code_proposal",
+                "prompt": "Produce a written, non-executing proposal for this approved task. "
+                          "Do not claim to inspect or edit files. No tools are available.\n"
+                          f"Goal: {proposal['goal']}\nAssignment: {proposal['title']}\n"
+                          f"Instructions: {proposal['instructions']}\n"
+                          f"Acceptance: {', '.join(proposal['acceptance_criteria'])}",
+                "model": model, "speaker": model, "group_id": group_id,
+                "conversation_id": proposal["conversation_id"],
+                "project_id": proposal["project_id"],
+                "proposal_id": task_id, "performance": "balanced",
+            }
+            queued = self.administrator.submit(
+                payload, task_id=task_id, worker_id=self.worker_id(model),
+                required_permissions=["read", "propose"],
+                execution_timeout_seconds=PERFORMANCE_PRESETS["balanced"]["timeout_seconds"] + 5,
+                approved=True, approval_source="ground-space-owner-click",
+            )
+            self.proposals.mark_queued(task_id)
+        threading.Thread(target=self._process_group, args=([task_id],), daemon=True).start()
+        return {"task": queued, "proposal_id": task_id}
 
     def _process_group(self, task_ids: list[str]) -> None:
         # Single laptop GPU: avoid parallel simultaneous Ollama generations.
@@ -416,7 +480,9 @@ class GroundSpaceApp:
         answer = worker_result.get("answer")
         if answer:
             self.add_history(conversation_id, "assistant", str(answer), task_id=task_id,
-                             agent="administrator" if result.get("requested_worker") == "administrator-console" else "qwen",
+                             agent=("administrator" if result.get("requested_worker") == "administrator-console"
+                                     else "coordinator" if payload.get("speaker") == "Coordinator" else "qwen"),
+                              speaker=payload.get("speaker"),
                              model=worker_result.get("model"), performance=worker_result.get("performance"),
                              tokens_per_second=worker_result.get("tokens_per_second"),
                              generation_seconds=worker_result.get("generation_seconds"),
@@ -427,7 +493,9 @@ class GroundSpaceApp:
             self.add_history(conversation_id, "system",
                              str(result.get("failure") or result.get("failed_stage") or "Task did not complete"),
                              task_id=task_id,
-                             agent="administrator" if result.get("requested_worker") == "administrator-console" else "qwen",
+                             agent=("administrator" if result.get("requested_worker") == "administrator-console"
+                                     else "coordinator" if payload.get("speaker") == "Coordinator" else "qwen"),
+                              speaker=payload.get("speaker"),
                              model=payload.get("model"), group_id=payload.get("group_id"),
                              group_turn_id=payload.get("group_turn_id"),
                              project_id=payload.get("project_id"))
@@ -453,6 +521,8 @@ class GroundSpaceApp:
         return [
             {"agent_id": "administrator", "role": "queue, automatic dispatch, audit", "active": True,
              "permissions": ["submit", "status"]},
+            {"agent_id": "coordinator", "role": "group conversation and proposed task planning", "active": True,
+              "permissions": ["read", "propose"]},
             {"agent_id": "orchestrator", "role": "authorized routing", "active": True,
              "permissions": ["claim", "dispatch", "retry"]},
             *[{"agent_id": item.agent_id, "role": item.role, "active": item.active,
@@ -471,6 +541,7 @@ class GroundSpaceApp:
                        for key, records in self.conversations.items()}
         return {"agents": self.agents(), "tasks": self.tasks(), "conversations": history,
                 "models": self.catalog(), "workspaces": self.workspaces.snapshot(),
+                 "proposals": self.proposals.snapshot(),
                 "paid_api_usage_aud": 0}
 
 
@@ -577,6 +648,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/groups/send":
                 self._json(HTTPStatus.CREATED, self.app.submit_group(body))
+                return
+            if path == "/api/coordinator/approve":
+                self._json(HTTPStatus.CREATED, self.app.approve_proposal(body))
                 return
             if path == "/api/models/add":
                 self._json(HTTPStatus.CREATED, self.app.add_model(str(body.get("model", ""))))
