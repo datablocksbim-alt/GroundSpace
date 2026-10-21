@@ -1,0 +1,164 @@
+"""Private, lightweight registries for local projects and AI group chats.
+
+Folder selection is metadata only. No worker gains filesystem access by linking a
+project, and paths are never handed to the Ollama execution request.
+"""
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import threading
+from pathlib import Path
+from typing import Any
+
+from .messages import utc_timestamp
+
+MAX_PROJECTS = 30
+MAX_GROUPS = 30
+MAX_GROUP_MODELS = 6
+
+
+def _save(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    try:
+        temporary.write_text(json.dumps(value, indent=2), encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def allowed_project_roots(admin_root: Path) -> list[Path]:
+    """Existing configured folders are roots for user-selected project paths."""
+    candidates = [admin_root.parent, Path.home()]
+    extra = os.environ.get("GROUND_SPACE_ALLOWED_PROJECT_ROOTS", "")
+    candidates.extend(Path(item.strip()) for item in extra.split(os.pathsep) if item.strip())
+    roots: list[Path] = []
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve(strict=True)
+            if resolved.is_dir() and resolved not in roots:
+                roots.append(resolved)
+        except (OSError, RuntimeError):
+            continue
+    return roots
+
+
+class WorkspaceRegistry:
+    def __init__(self, private_dir: Path, allowed_roots: list[Path]):
+        self.private_dir = private_dir
+        self.projects_file = private_dir / "projects.json"
+        self.groups_file = private_dir / "groups.json"
+        self.allowed_roots = [root.resolve() for root in allowed_roots]
+        self.lock = threading.RLock()
+        self.projects = self._load(self.projects_file, "projects")
+        self.groups = self._load(self.groups_file, "groups")
+
+    @staticmethod
+    def _load(path: Path, key: str) -> list[dict[str, Any]]:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return []
+        if not isinstance(data, dict) or not isinstance(data.get(key), list):
+            raise ValueError(f"Invalid private {key} registry")
+        return data[key]
+
+    def snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            return {"projects": [dict(p) for p in self.projects],
+                    "groups": [dict(g) for g in self.groups],
+                    "allowed_project_roots": [str(root) for root in self.allowed_roots]}
+
+    def get_project(self, project_id: str) -> dict[str, Any]:
+        with self.lock:
+            for project in self.projects:
+                if project["id"] == project_id:
+                    return dict(project)
+        raise ValueError("Unknown project ID")
+
+    def validate_project(self, project_id: str | None) -> str | None:
+        if not project_id:
+            return None
+        return self.get_project(str(project_id))["id"]
+
+    def add_project(self, path_text: str, name: str = "") -> dict[str, Any]:
+        if not isinstance(path_text, str) or len(path_text) > 1200:
+            raise ValueError("Invalid project directory")
+        supplied = Path(path_text.strip()).expanduser()
+        if not supplied.is_absolute():
+            raise ValueError("Provide an absolute local project folder path")
+        try:
+            resolved = supplied.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise ValueError("Project folder does not exist on this computer") from error
+        if not resolved.is_dir() or not any(
+            resolved != root and resolved.is_relative_to(root) for root in self.allowed_roots
+        ):
+            raise ValueError("Project folder must be inside an allowed project root")
+        label = name.strip() or resolved.name
+        if len(label) > 80 or not label:
+            raise ValueError("Project name must be 1–80 characters")
+        with self.lock:
+            if any(p["path"] == str(resolved) for p in self.projects):
+                raise ValueError("This project folder is already registered")
+            if len(self.projects) >= MAX_PROJECTS:
+                raise ValueError("Project registry is full")
+            project = {"id": "project-" + secrets.token_hex(8), "name": label,
+                       "path": str(resolved), "created_at": utc_timestamp(),
+                       "scope": "metadata_only"}
+            updated = [*self.projects, project]
+            _save(self.projects_file, {"schema_version": 1, "projects": updated})
+            self.projects = updated
+            return dict(project)
+
+    def get_group(self, group_id: str) -> dict[str, Any]:
+        with self.lock:
+            for group in self.groups:
+                if group["id"] == group_id:
+                    return dict(group)
+        raise ValueError("Unknown group chat")
+
+    @staticmethod
+    def _validate_members(models: Any, registered: list[str]) -> list[str]:
+        if not isinstance(models, list) or not 1 <= len(models) <= MAX_GROUP_MODELS:
+            raise ValueError("Choose between 1 and 6 local AI models")
+        if not all(isinstance(m, str) for m in models):
+            raise ValueError("Group members must be model identifiers")
+        if len(set(models)) != len(models):
+            raise ValueError("Duplicate AI models are not permitted in a group")
+        if not set(models).issubset(set(registered)):
+            raise ValueError("Group models must be registered under Agents first")
+        return list(models)
+
+    def create_group(self, name: str, models: Any, project_id: str | None,
+                     registered: list[str]) -> dict[str, Any]:
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 70:
+            raise ValueError("Group name must be 1–70 characters")
+        members = self._validate_members(models, registered)
+        project = self.validate_project(project_id)
+        with self.lock:
+            if len(self.groups) >= MAX_GROUPS:
+                raise ValueError("Group registry is full")
+            group = {"id": "group-" + secrets.token_hex(8),
+                     "conversation_id": "room-" + secrets.token_hex(12),
+                     "name": name.strip(), "models": members,
+                     "project_id": project, "created_at": utc_timestamp(),
+                     "execution": "sequential", "scope": "proposal_only"}
+            updated = [*self.groups, group]
+            _save(self.groups_file, {"schema_version": 1, "groups": updated})
+            self.groups = updated
+            return dict(group)
+
+    def update_group(self, group_id: str, models: Any, project_id: str | None,
+                     registered: list[str]) -> dict[str, Any]:
+        members = self._validate_members(models, registered)
+        project = self.validate_project(project_id)
+        with self.lock:
+            target = self.get_group(group_id)
+            updated_group = {**target, "models": members, "project_id": project}
+            updated = [updated_group if g["id"] == group_id else g for g in self.groups]
+            _save(self.groups_file, {"schema_version": 1, "groups": updated})
+            self.groups = updated
+            return dict(updated_group)
