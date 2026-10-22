@@ -20,9 +20,17 @@ function setMobileOptions(open){
   $('#mobileOptionsToggle').setAttribute('aria-expanded',String(active));
   $('#mobileOptionsToggle').innerHTML=active?'Hide options <span aria-hidden="true">⌃</span>':'Options <span aria-hidden="true">⌄</span>';
 }
+function syncMobileViewportHeight(){
+  const viewport=window.visualViewport;
+  if(!mobileViewport.matches||!viewport){document.documentElement.style.removeProperty('--gs-mobile-viewport-height');return;}
+  // Mobile Safari does not always resize CSS 100dvh when the software keyboard opens.
+  const height=Math.round(viewport.height);
+  if(height>0)document.documentElement.style.setProperty('--gs-mobile-viewport-height',height+'px');
+}
 function syncMobileLayout(){
   if(!mobileViewport.matches){setMobileRail(false);setMobileOptions(false);$('#agentRail').inert=false;}
   else if(!$('#agentRail').classList.contains('mobile-open'))$('#agentRail').inert=true;
+  syncMobileViewportHeight();
 }
 function setView(name){
   setMobileRail(false);$$('.nav-button').forEach(x=>x.classList.toggle('active',x.dataset.view===name));$$('.view').forEach(x=>x.classList.toggle('active',x.id===`view-${name}`));if(name!=='chat')refresh()}
@@ -516,6 +524,8 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&$('#agentRail').classList.contains('mobile-open')){setMobileRail(false);$('#mobileRailToggle').focus();}
 });
 mobileViewport.addEventListener('change',syncMobileLayout);
+window.visualViewport?.addEventListener('resize',syncMobileViewportHeight);
+window.addEventListener('orientationchange',syncMobileViewportHeight);
 syncMobileLayout();
 $('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
 // Keep every task in this conversation observable, even after refresh or later messages.
