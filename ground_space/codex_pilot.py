@@ -86,6 +86,8 @@ class CodexPilot:
         if mode=="disabled": raise ValueError("Codex is disabled for this project")
         if not self.which("codex"): raise ValueError("Codex CLI is not installed or available to Ground Space")
         with self.lock:
+            if sum(job["status"]=="pending_approval" for job in self.jobs)>=10:
+                raise ValueError("Codex review queue is full; approve or reject pending reviews first")
             record = {"id":"CODEX-"+secrets.token_hex(7),"project_id":project_id,
                       "project_name":project["name"],"prompt":prompt.strip(),
                       "mode_at_submission":mode,"status":"pending_approval",
@@ -104,6 +106,8 @@ class CodexPilot:
         with self.lock:
             job=self._job(job_id)
             if job["status"]!="pending_approval": raise ValueError("Codex job is not awaiting approval")
+            if any(other["status"]=="running" for other in self.jobs):
+                raise ValueError("Another Codex review is already running; wait for it to finish")
             if self.mode(job["project_id"])=="disabled": raise ValueError("Codex is disabled for this project")
             self.workspaces.get_project(job["project_id"])
             if not self.which("codex"): raise ValueError("Codex CLI is unavailable")
