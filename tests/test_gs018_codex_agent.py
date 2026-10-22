@@ -69,14 +69,17 @@ class WorkspaceAgentTests(unittest.TestCase):
             self.assertNotIn("full-auto",args[0])
             self.assertEqual(False,kwargs["shell"])
             self.assertTrue(os.path.samefile(self.project_path,kwargs["cwd"]))
-            self.assertIn("Create",kwargs["input"] if "Create" in kwargs["input"] else "Create")
+            self.assertIn("Edit and test",kwargs["input"])
 
     def test_auto_writable_requires_opt_in_and_explicit_request(self):
         self.codex.set_registered(True)
         with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}):
+            group=self.workspaces.create_group("Agent dev",["codex"],self.project["id"],["codex"],
+                {"codex":"approve_for_me"})
             with patch("ground_space.codex_pilot.threading.Thread") as worker:
                 result=self.codex.submit({"project_id":self.project["id"],"prompt":"Implement a unit test",
-                                         "scope":"workspace_write","auto_approve_workspace_write":True})
+                                         "scope":"workspace_write","group_id":group["id"]},
+                                         group_auto_approval=True)
                 self.assertEqual("running",result["status"])
                 worker.assert_called_once()
 
