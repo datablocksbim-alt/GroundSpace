@@ -180,13 +180,13 @@ class WorkspaceRegistry:
     def _validate_approvals(approvals: Any, members: list[str], existing: dict[str, str] | None = None) -> dict[str, str]:
         if approvals is None:
             # Existing groups used automatic read/propose chat. Preserve that behavior.
-            return {model: (existing or {}).get(model, "approve_for_me") for model in members}
+            return {model: (existing or {}).get(model, "manual" if model == "codex" else "approve_for_me") for model in members}
         if not isinstance(approvals, dict) or set(approvals) - set(members):
             raise ValueError("Approval settings must match selected group members")
         if any(not isinstance(mode, str) or mode not in GROUP_APPROVAL_MODES
                for mode in approvals.values()):
             raise ValueError("Invalid group bot approval mode")
-        return {model: approvals.get(model, (existing or {}).get(model, "approve_for_me")) for model in members}
+        return {model: approvals.get(model, (existing or {}).get(model, "manual" if model == "codex" else "approve_for_me")) for model in members}
 
     def create_group(self, name: str, models: Any, project_id: str | None,
                      registered: list[str], approval_modes: Any = None) -> dict[str, Any]:
