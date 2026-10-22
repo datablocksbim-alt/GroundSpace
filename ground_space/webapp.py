@@ -316,8 +316,7 @@ class GroundSpaceApp:
                         "project_id": group["project_id"], "prompt": prompt,
                         "scope": "workspace_write", "conversation_id": conversation_id,
                         "group_id": group["id"],
-                        "auto_approve_workspace_write": automatic,
-                    })
+                    }, group_auto_approval=automatic)
                     codex_job_ids.append(item["id"])
                     continue
                 task = self.administrator.submit(
