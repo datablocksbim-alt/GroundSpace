@@ -9,7 +9,7 @@ import {chromium} from 'playwright';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const registered = [{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only'}];
-const discovered = ['granite4:3b'];
+const discovered = ['granite4:3b','codex'];
 const projects = [];
 const groups = [];
 const tasks = [];
@@ -40,7 +40,8 @@ const bootstrap = () => ({
     groups:groups.map(g=>({...g})),
     allowed_project_roots:['D:\\000_AI Project'],
   },
-  codex:{scope:'single_owner_pilot',per_user_accounts:false,cli_installed:true,max_permission:'read_only',
+  codex:{scope:'single_owner_pilot',per_user_accounts:false,cli_installed:true,
+    registered:registered.some(x=>x.model==='codex'),write_enabled:true,max_permission:'workspace_write_if_owner_approved',
     default_mode:codex.default_mode,project_modes:{...codex.project_modes},jobs:[...codex.jobs].reverse()},
   paid_api_usage_aud:0,
 });
@@ -98,7 +99,9 @@ const server=createServer(async(req,res)=>{
         const i=discovered.indexOf(body.model);
         if(i<0)return json(res,400,{error:'Model must already be installed in local Ollama'});
         discovered.splice(i,1);
-        registered.push({model:body.model,available:true,label:body.model,role:'proposal-only'});
+        registered.push({model:body.model,available:true,label:body.model,
+          provider:body.model==='codex'?'openai_codex_cli':'ollama',
+          role:body.model==='codex'?'workspace coding agent':'proposal-only'});
         return json(res,201,bootstrap().models);
       }
       if(path==='/api/groups/create'){
@@ -155,8 +158,8 @@ try{
   browser=await chromium.launch({headless:true});
   for(const viewport of [{width:390,height:844,mobile:true},{width:1280,height:800,mobile:false}]){
     const label=viewport.mobile?'mobile':'desktop';
-    registered.splice(0,registered.length,{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only'});
-    discovered.splice(0,discovered.length,'granite4:3b');
+    registered.splice(0,registered.length,{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only',provider:'ollama'});
+    discovered.splice(0,discovered.length,'granite4:3b','codex');
     const context=await browser.newContext({viewport:{width:viewport.width,height:viewport.height},isMobile:viewport.mobile,hasTouch:viewport.mobile});
     const page=await context.newPage();
     const exceptions=[];
@@ -180,7 +183,11 @@ try{
     assert.equal(await page.locator('#addModelButton').isEnabled(),true,label+' installed model available');
     await page.locator('#addModelButton').click();
     await page.waitForFunction(()=>document.querySelector('#registeredModels')?.textContent.includes('granite4:3b'));
-    assert.equal(await page.locator('#addModelButton').isEnabled(),false,label+' no undiscovered models');
+    assert.equal(await page.locator('#addModelButton').isEnabled(),true,label+' Codex should appear for registration');
+    await page.locator('#availableModel').selectOption('codex');
+    await page.locator('#addModelButton').click();
+    await page.waitForFunction(()=>document.querySelector('#registeredModels')?.textContent.includes('codex'));
+    assert.equal(await page.locator('#addModelButton').isEnabled(),false,label+' all agents registered');
     assert.match(await page.locator('#modelImportStatus').innerText(),/already registered|No additional installed/);
 
     await page.locator('.nav-button[data-view="chat"]').click();
@@ -240,7 +247,9 @@ try{
       assert.equal(await page.locator('#chatOptions').isVisible(),true,'Model options toggle');
     }
     // Codex per-project owner approval options must work in desktop and mobile view.
-    await page.locator('.nav-button[data-view="codex"]').click();
+    await page.locator('.nav-button[data-view="agents"]').click();
+    assert.equal(await page.locator('#codexAgentSettings').isVisible(),true);
+    assert.equal(await page.locator('#codexAgentChannel').isVisible(),false);
     const selectedProject=projects[projects.length-1].id;
     await page.locator('#codexPolicyProject').selectOption(selectedProject);
     await page.locator('#codexApprovalMode').selectOption('auto_read_only');
@@ -259,7 +268,7 @@ try{
     await page.waitForFunction(()=>document.querySelector('#codexJobList')?.textContent.includes('running'));
     assert.equal(codex.jobs[codex.jobs.length-1].status,'running');
     assert.equal(exceptions.length,0,label+' Codex settings and approvals: '+exceptions.join(', '));
-    console.log('PASS: '+label+' buttons, project add, local model import, Codex approval choice/review, group chat and layout');
+    console.log('PASS: '+label+' buttons, project add, Codex added in Agents, Codex approvals, group chat and layout');
     await context.close();
   }
 } finally{
