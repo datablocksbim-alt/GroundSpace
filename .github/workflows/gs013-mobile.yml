@@ -35,5 +35,12 @@ jobs:
         run: python -m unittest tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
       - name: Verify existing chat interface JavaScript
         run: node --check web/public/app.js
+      - name: Parse guarded mobile PowerShell setup helper
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("tools/activate_gs013_mobile.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { $errors | Format-List; exit 1 }
 
 # Live HTTPS route, ASUS task queue, and iPhone Safari remain manual release gates.
