@@ -36,7 +36,7 @@ SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
 # Explicit single HTTPS origin. Never accept arbitrary Host or forwarded headers as
 # authorization to bypass Ground Space's existing same-origin CSRF protection.
 TAILSCALE_ORIGIN_RE = re.compile(
-    r"^https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.){2,}ts\.net$"
+    r"^https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.){2,}ts\.net(?::8443)?$"
 )
 
 
@@ -48,7 +48,7 @@ def configured_tailscale_origin() -> str | None:
         raise ValueError(
             "GROUND_SPACE_TAILSCALE_ORIGIN must be an exact HTTPS "
             "Tailscale Serve origin, such as https://asus.example.ts.net "
-            "(without path, port, spaces, or trailing slash)"
+            "(optional :8443; no other ports, path, spaces or trailing slash)"
         )
     return value
 
@@ -545,10 +545,10 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
 
 
 def create_server(app: GroundSpaceApp, port: int) -> ThreadingHTTPServer:
+    remote_origin = configured_tailscale_origin()
     server = ThreadingHTTPServer(("127.0.0.1", port), GroundSpaceHandler)
     server.app = app  # type: ignore[attr-defined]
     local_origin = f"http://127.0.0.1:{server.server_port}"
-    remote_origin = configured_tailscale_origin()
     server.allowed_origins = frozenset(  # type: ignore[attr-defined]
         {local_origin, remote_origin} if remote_origin else {local_origin}
     )
