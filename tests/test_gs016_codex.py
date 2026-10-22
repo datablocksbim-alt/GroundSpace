@@ -92,6 +92,18 @@ class CodexPilotTests(unittest.TestCase):
             self.pilot.approve({"job_id":entry["id"]})
         self.assertFalse(self.run.called)
 
+    def test_only_one_codex_review_can_run_and_pending_queue_is_bounded(self):
+        first=self.pilot.submit({"project_id":"project-1","prompt":"First"})
+        second=self.pilot.submit({"project_id":"project-1","prompt":"Second"})
+        with patch("ground_space.codex_pilot.threading.Thread"):
+            self.pilot.approve({"job_id":first["id"]})
+            with self.assertRaisesRegex(ValueError,"already running"):
+                self.pilot.approve({"job_id":second["id"]})
+        for i in range(9):
+            self.pilot.submit({"project_id":"project-1","prompt":f"Review {i}"})
+        with self.assertRaisesRegex(ValueError,"queue is full"):
+            self.pilot.submit({"project_id":"project-1","prompt":"Review beyond limit"})
+
     def test_cli_missing_never_starts_job(self):
         pilot=CodexPilot(self.path/"other",FakeWorkspaces(self.project),
                          run=self.run,which=lambda _: None)
