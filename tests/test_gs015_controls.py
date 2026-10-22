@@ -18,6 +18,7 @@ class FunctionalControlsTests(unittest.TestCase):
         js = (Path(__file__).resolve().parents[1] / "web/public/app.js").read_text(encoding="utf-8")
         self.assertIn("$$('.nav-button').forEach", js)
         self.assertIn("$$('.agent-choice').forEach", js)
+        self.assertIn("\n$$('.nav-button').forEach(x=>x.onclick=()=>setView", js)
 
     def test_dialog_errors_are_inside_dialog_top_layer(self):
         base = Path(__file__).resolve().parents[1] / "web/public"
