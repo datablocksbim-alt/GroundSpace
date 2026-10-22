@@ -120,6 +120,18 @@ const server=createServer(async(req,res)=>{
       }
       if(path==='/api/groups/send'){
         const group=groups.find(g=>g.id===body.group_id);
+        if(body.prompt.startsWith('@Codex') && group.models.includes('codex')){
+          const item={id:'CODEX-'+(codex.jobs.length+1),project_id:group.project_id,
+            group_id:group.id,conversation_id:group.conversation_id,project_name:'Demo',
+            prompt:body.prompt,mode_at_submission:'manual',status:'pending_approval',
+            scope:'workspace_write',answer:'',error:''};
+          codex.jobs.push(item);
+          const entry={role:'user',agent:'group',content:body.prompt,
+            timestamp:new Date().toISOString(),codex_job_ids:[item.id],task_ids:[]};
+          conversations[group.conversation_id]||=[];
+          conversations[group.conversation_id].push(entry);
+          return json(res,201,{group,task_ids:[],codex_job_ids:[item.id],conversation_id:group.conversation_id});
+        }
         const model=group.models[0];
         const mode=group.approval_modes[model]||'approve_for_me';
         if(mode==='disabled')return json(res,400,{error:'Bot disabled'});
@@ -141,6 +153,17 @@ const server=createServer(async(req,res)=>{
       }
       if(path==='/api/chat'){
         const id=body.conversation_id||'chat';
+        if(body.agent==='codex'){
+          const item={id:'CODEX-'+(codex.jobs.length+1),project_id:body.project_id,
+            conversation_id:id,project_name:'Demo',prompt:body.prompt,scope:'workspace_write',
+            mode_at_submission:'manual',status:'pending_approval',answer:'',error:''};
+          codex.jobs.push(item);
+          conversations[id]||=[];
+          const entry={role:'user',agent:'codex',content:body.prompt,
+            timestamp:new Date().toISOString(),codex_job_ids:[item.id]};
+          conversations[id].push(entry);
+          return json(res,201,{entry,codex_job:item,conversation_id:id});
+        }
         conversations[id]||=[];
         const entry={role:'note',agent:body.agent,kind:'goal',content:'Check mobile',timestamp:new Date().toISOString()};
         conversations[id].push(entry);return json(res,201,{entry,conversation_id:id});
@@ -239,6 +262,22 @@ try{
     await page.locator('#saveGroup').click();
     await page.locator('#groupDialog').waitFor({state:'hidden'});
     assert.equal(groups[groups.length-1].approval_modes['qwen2.5-coder:3b'],'approve_for_me');
+    // Codex can be added to the same AI members selector, configured per group,
+    // and asked to write files only after this specific job is approved.
+    await page.locator('#editGroupButton').click();
+    await page.locator('#groupMemberOptions input[value="codex"]').check();
+    await page.locator('#groupMemberOptions .group-member-policy[data-model="codex"]').selectOption('manual');
+    await page.locator('#saveGroup').click();
+    await page.locator('#groupDialog').waitFor({state:'hidden'});
+    assert.equal(groups[groups.length-1].approval_modes.codex,'manual');
+    await page.locator('#prompt').fill('@Codex create a basic test module');
+    await page.locator('#sendButton').click();
+    await page.locator('#messages button[data-codex-decision="approve"]').last().waitFor({state:'visible'});
+    assert.equal(codex.jobs[codex.jobs.length-1].scope,'workspace_write');
+    assert.equal(codex.jobs[codex.jobs.length-1].status,'pending_approval');
+    await page.locator('#messages button[data-codex-decision="approve"]').last().click();
+    await page.waitForFunction(()=>document.querySelector('#messages')?.textContent.includes('running'));
+    assert.equal(codex.jobs[codex.jobs.length-1].status,'running');
     if(viewport.mobile){
       assert.equal(await page.locator('#mobileRailBackdrop').isVisible(),false,'Drawer must close after group selection');
       const availableHeight=await page.locator('#messages').evaluate(el=>el.getBoundingClientRect().height);
