@@ -31,6 +31,17 @@ foreach ($processId in $serverPids) {
         throw "PID $processId is not verified as the Ground Space service; refusing to stop it"
     }
 }
+if ($serverPids.Count -gt 0) {
+    try {
+        $existing = Invoke-RestMethod 'http://127.0.0.1:8765/api/bootstrap' -TimeoutSec 8
+    } catch {
+        throw 'Cannot inspect running Codex jobs; refusing restart until current server is healthy.'
+    }
+    $activeCodex = @($existing.codex.jobs | Where-Object { $_.status -eq 'running' })
+    if ($activeCodex.Count -gt 0) {
+        throw 'A Codex review or workspace edit is running. Wait for it to finish before restarting Ground Space.'
+    }
+}
 if (-not $Restart) { Write-Host 'Preflight only. Add -Restart to restart Ground Space. Add -EnableCodexWrite only if you accept approved Codex edits/runs/deletes in registered projects.'; return }
 if ($serverPids.Count -gt 1) { throw 'Multiple processes on 8765; manual investigation required' }
 foreach ($processId in $serverPids) { Stop-Process -Id $processId -ErrorAction Stop }
