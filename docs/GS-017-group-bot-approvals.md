@@ -40,7 +40,7 @@ git switch feature/gs-017-group-approval-controls
 git pull --ff-only
 ```
 
-GS-017 modifies Python server code, so **restart only Ground Space** after installing this branch, using the guarded GS-016 preflight/restart helper or manually restarting that single process. The helper checks its expected branch and must be updated to allow this stacked GS-017 branch before use. Keep the existing Tailscale Serve `:8443` mapping, previous dashboard, Ollama and Administrator unchanged.
+GS-017 modifies Python server code, so **restart only Ground Space** after installing this branch, using the guarded GS-016 preflight/restart helper or manually restarting that single process. The helper in this branch already checks for GS-017. Run `\.\\tools\\restart_gs016_codex.ps1` for a read-only preflight, then explicitly `\.\\tools\\restart_gs016_codex.ps1 -Restart` when satisfied. The script verifies the running process before stopping it. Keep the existing Tailscale Serve `:8443` mapping, previous dashboard, Ollama and Administrator unchanged.
 
 On the iPhone, refresh Ground Space, open group chat → **Members**, set Qwen/Granite modes, save, and send an @mention to each bot to verify the chosen behavior. Approving a pending reply should show it move to approved/queued, then completed (or an error if the model is offline). Rejecting a pending reply should permanently prevent that queued reply from running.
 
