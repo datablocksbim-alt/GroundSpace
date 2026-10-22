@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import threading
 import urllib.parse
@@ -31,6 +32,25 @@ MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
+
+# Explicit single HTTPS origin. Never accept arbitrary Host or forwarded headers as
+# authorization to bypass Ground Space's existing same-origin CSRF protection.
+TAILSCALE_ORIGIN_RE = re.compile(
+    r"^https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.){2,}ts\.net(?::8443)?$"
+)
+
+
+def configured_tailscale_origin() -> str | None:
+    value = os.environ.get("GROUND_SPACE_TAILSCALE_ORIGIN", "")
+    if not value:
+        return None
+    if not TAILSCALE_ORIGIN_RE.fullmatch(value):
+        raise ValueError(
+            "GROUND_SPACE_TAILSCALE_ORIGIN must be an exact HTTPS "
+            "Tailscale Serve origin, such as https://asus.example.ts.net "
+            "(optional :8443; no other ports, path, spaces or trailing slash)"
+        )
+    return value
 
 
 def parse_slash_note(prompt: str) -> tuple[str, str] | None:
@@ -437,8 +457,8 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
 
     def _csrf_valid(self) -> bool:
         origin = self.headers.get("Origin", "")
-        expected_origin = f"http://127.0.0.1:{self.server.server_port}"  # type: ignore[attr-defined]
-        if origin != expected_origin or self.headers.get_content_type() != "application/json":
+        allowed_origins = self.server.allowed_origins  # type: ignore[attr-defined]
+        if origin not in allowed_origins or self.headers.get_content_type() != "application/json":
             return False
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
         cookie_token = cookie.get("gs_csrf")
@@ -525,8 +545,13 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
 
 
 def create_server(app: GroundSpaceApp, port: int) -> ThreadingHTTPServer:
+    remote_origin = configured_tailscale_origin()
     server = ThreadingHTTPServer(("127.0.0.1", port), GroundSpaceHandler)
     server.app = app  # type: ignore[attr-defined]
+    local_origin = f"http://127.0.0.1:{server.server_port}"
+    server.allowed_origins = frozenset(  # type: ignore[attr-defined]
+        {local_origin, remote_origin} if remote_origin else {local_origin}
+    )
     return server
 
 
