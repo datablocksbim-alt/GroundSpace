@@ -57,6 +57,9 @@ class CodexPilot:
             self.agent_settings = {"registered": enabled}
         return self.snapshot()
 
+    def available(self) -> bool:
+        return bool(self.which("codex"))
+
     def writable_available(self) -> bool:
         # Explicit opt-in; requires separate confirmation on the actual owner ASUS.
         return os.environ.get("GROUND_SPACE_CODEX_WRITE_ENABLED") == "1"
