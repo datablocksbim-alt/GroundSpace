@@ -224,14 +224,14 @@ class GroundSpaceApp:
         with self.lock:
             return self.workspaces.create_group(
                 body.get("name"), body.get("models"), body.get("project_id"),
-                list(self.registered_models),
+                list(self.registered_models), body.get("approval_modes"),
             )
 
     def update_group(self, body: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
             return self.workspaces.update_group(
                 str(body.get("group_id", "")), body.get("models"),
-                body.get("project_id"), list(self.registered_models),
+                body.get("project_id"), list(self.registered_models), body.get("approval_modes"),
             )
 
     def submit_group(self, body: dict[str, Any], *, annotation_entry: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -260,8 +260,14 @@ class GroundSpaceApp:
             # /goal and /milestone always reach Coordinator; only explicitly named
             # specialists can speak for themselves. This is chat, never job approval.
             route = route_group_message(prompt, models, force_coordinator=annotation_entry is not None)
+            # Validate all routed bots before creating any queue tasks.
+            modes = {model: group.get("approval_modes", {}).get(model, "approve_for_me")
+                     for model in route.models}
+            if any(mode == "disabled" for mode in modes.values()):
+                raise ValueError("An addressed group bot is disabled; edit Members → Approval settings")
             group_turn_id = "TURN-" + secrets.token_hex(8)
             task_ids = []
+            automatic_task_ids = []
             timeout = PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
             for model in route.models:
                 routed_prompt = (
@@ -284,13 +290,16 @@ class GroundSpaceApp:
                            "performance": performance, "group_id": group["id"],
                            "group_turn_id": group_turn_id,
                            "project_id": group["project_id"]}
+                automatic = modes[model] == "approve_for_me"
                 task = self.administrator.submit(
                     payload, worker_id=self.worker_id(model),
                     required_permissions=["read", "propose"],
-                    execution_timeout_seconds=timeout, approved=True,
-                    approval_source="ground-space-group-chat",
+                    execution_timeout_seconds=timeout, approved=automatic,
+                    approval_source="ground-space-group-auto-readonly" if automatic else None,
                 )
                 task_ids.append(task["task_id"])
+                if automatic:
+                    automatic_task_ids.append(task["task_id"])
             if annotation_entry is None:
                 self.add_history(
                     conversation_id, "user", prompt, agent="group",
@@ -300,13 +309,50 @@ class GroundSpaceApp:
             else:
                 annotation_entry.update(task_ids=task_ids, group_turn_id=group_turn_id)
                 atomic_json(self.history_path, self.conversations)
-        threading.Thread(
-            target=self._process_group, args=(task_ids,), daemon=True,
-        ).start()
+        if automatic_task_ids:
+            threading.Thread(
+                target=self._process_group, args=(automatic_task_ids,), daemon=True,
+            ).start()
         response = {"group": group, "task_ids": task_ids, "conversation_id": conversation_id}
         if annotation_entry is not None:
             response["entry"] = annotation_entry
         return response
+
+    def decide_group_task(self, body: dict[str, Any], *, approve: bool) -> dict[str, Any]:
+        """Owner decision for exactly one queued group read/propose reply."""
+        task_id = body.get("task_id")
+        group_id = body.get("group_id")
+        if not isinstance(task_id, str) or not task_id.startswith("GS-"):
+            raise ValueError("Valid group task ID required")
+        if not isinstance(group_id, str) or not group_id:
+            raise ValueError("Group ID required")
+        with self.lock:
+            group = self.workspaces.get_group(group_id)
+            task = self.administrator.status(task_id)
+            payload = task.get("payload", {})
+            model = payload.get("model")
+            if (task.get("source") != "ground_space" or
+                task.get("status") != "queued" or
+                task.get("approval", {}).get("status") != "pending" or
+                payload.get("group_id") != group_id or
+                model not in group["models"] or
+                task.get("requested_worker") != self.worker_id(model) or
+                set(task.get("required_permissions", [])) != {"read", "propose"}):
+                raise ValueError("Only a pending read-only bot reply in this group may be decided")
+            if approve and group.get("approval_modes", {}).get(model, "approve_for_me") == "disabled":
+                raise ValueError("This bot is disabled in the group")
+            if approve:
+                updated = self.administrator.approve(task_id, owner="ground-space-group-owner")
+            else:
+                updated = self.administrator.queue.transition(
+                    task, "queued", approval={
+                        "status": "rejected", "owner": "ground-space-group-owner",
+                        "decided_at": utc_timestamp(), "method": "manual",
+                    }
+                )
+        if approve:
+            threading.Thread(target=self._process_group, args=([task_id],), daemon=True).start()
+        return updated
 
     def _process_group(self, task_ids: list[str]) -> None:
         # Single laptop GPU: avoid parallel simultaneous Ollama generations.
@@ -651,6 +697,12 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/groups/update":
                 self._json(HTTPStatus.OK, self.app.update_group(body))
+                return
+            if path == "/api/groups/approve":
+                self._json(HTTPStatus.OK, self.app.decide_group_task(body, approve=True))
+                return
+            if path == "/api/groups/reject":
+                self._json(HTTPStatus.OK, self.app.decide_group_task(body, approve=False))
                 return
             if path == "/api/groups/send":
                 self._json(HTTPStatus.CREATED, self.app.submit_group(body))

@@ -2,7 +2,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$expected = 'feature/gs-016-codex-approval-pilot'
+$expected = 'feature/gs-017-group-approval-controls'
 $branch = (& git -C $repo branch --show-current).Trim()
 if ($branch -ne $expected) { throw "Expected checkout $expected; current: $branch" }
 $dirty = & git -C $repo status --porcelain

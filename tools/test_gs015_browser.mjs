@@ -12,6 +12,7 @@ const registered = [{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'
 const discovered = ['granite4:3b'];
 const projects = [];
 const groups = [];
+const tasks = [];
 const conversations = {};
 const codex = {default_mode:'manual',project_modes:{},jobs:[]};
 const state = {csrf:'functional-test-token'};
@@ -27,7 +28,7 @@ const reqBody = async req => {
 const bootstrap = () => ({
   csrf_token:state.csrf,
   agents:[{agent_id:'administrator',active:true,role:'Read only',permissions:['read']}],
-  tasks:[],
+  tasks:tasks.map(t=>({...t,approval:{...t.approval}})),
   conversations,
   models:{
     registered:registered.map(x=>({...x})),
@@ -103,8 +104,37 @@ const server=createServer(async(req,res)=>{
       if(path==='/api/groups/create'){
         if(!body.name||!body.models?.length)return json(res,400,{error:'Choose between 1 and 6 local AI models'});
         const group={id:'group-'+(groups.length+1),name:body.name,models:body.models,
-          project_id:body.project_id,conversation_id:'room-'+(groups.length+1)};
+          approval_modes:body.approval_modes||{},project_id:body.project_id,
+          conversation_id:'room-'+(groups.length+1)};
         groups.push(group);return json(res,201,group);
+      }
+      if(path==='/api/groups/update'){
+        const group=groups.find(g=>g.id===body.group_id);
+        if(!group)return json(res,404,{error:'Group missing'});
+        group.models=body.models;group.approval_modes=body.approval_modes||{};
+        group.project_id=body.project_id;
+        return json(res,200,group);
+      }
+      if(path==='/api/groups/send'){
+        const group=groups.find(g=>g.id===body.group_id);
+        const model=group.models[0];
+        const mode=group.approval_modes[model]||'approve_for_me';
+        if(mode==='disabled')return json(res,400,{error:'Bot disabled'});
+        const task={task_id:'GS-MOCK-'+(tasks.length+1),status:'queued',
+          payload:{group_id:group.id,model,speaker:'Coordinator'},required_permissions:['read','propose'],
+          approval:{status:mode==='manual'?'pending':'approved'}};
+        tasks.push(task);
+        const entry={role:'user',agent:'group',content:body.prompt,
+          timestamp:new Date().toISOString(),task_ids:[task.task_id]};
+        conversations[group.conversation_id]||=[];
+        conversations[group.conversation_id].push(entry);
+        return json(res,201,{group,task_ids:[task.task_id],conversation_id:group.conversation_id});
+      }
+      if(path==='/api/groups/approve'||path==='/api/groups/reject'){
+        const task=tasks.find(t=>t.task_id===body.task_id&&t.payload.group_id===body.group_id);
+        if(!task||task.approval.status!=='pending')return json(res,400,{error:'Pending task not found'});
+        task.approval.status=path.endsWith('/approve')?'approved':'rejected';
+        return json(res,200,task);
       }
       if(path==='/api/chat'){
         const id=body.conversation_id||'chat';
@@ -180,12 +210,28 @@ try{
     await page.locator('#newGroupButton').click();
     await page.locator('#groupName').fill(label+' Review');
     await page.locator('#groupMemberOptions input[name="group-member"]').first().check();
+    await page.locator('#groupMemberOptions .group-member-policy').first().selectOption('manual');
     await page.locator('#saveGroup').click();
     await page.locator('#groupDialog').waitFor({state:'hidden'});
     await page.waitForFunction(name=>
       document.querySelector('#conversationTitle')?.textContent===name,
       label+' Review');
     assert.equal(exceptions.length,0,label+' group error: '+exceptions.join(', '));
+    assert.equal(groups[groups.length-1].approval_modes['qwen2.5-coder:3b'],'manual');
+    // A manual-approval bot must not respond until its queued reply is approved.
+    await page.locator('#prompt').fill('How is our project doing?');
+    await page.locator('#sendButton').click();
+    await page.locator('#messages button[data-group-decision="approve"]').first().waitFor({state:'visible'});
+    assert.equal(tasks[tasks.length-1].approval.status,'pending');
+    await page.locator('#messages button[data-group-decision="approve"]').first().click();
+    await page.waitForFunction(()=>document.querySelector('#messages')?.textContent.includes('Queued — waiting for worker'));
+    assert.equal(tasks[tasks.length-1].approval.status,'approved');
+    // Per-bot approval choices are editable in the current group's Members dialog.
+    await page.locator('#editGroupButton').click();
+    await page.locator('#groupMemberOptions .group-member-policy').first().selectOption('approve_for_me');
+    await page.locator('#saveGroup').click();
+    await page.locator('#groupDialog').waitFor({state:'hidden'});
+    assert.equal(groups[groups.length-1].approval_modes['qwen2.5-coder:3b'],'approve_for_me');
     if(viewport.mobile){
       assert.equal(await page.locator('#mobileRailBackdrop').isVisible(),false,'Drawer must close after group selection');
       const availableHeight=await page.locator('#messages').evaluate(el=>el.getBoundingClientRect().height);
