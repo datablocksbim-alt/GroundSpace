@@ -201,8 +201,9 @@ class CodexPilot:
                  "Do not edit files, install packages, execute untrusted code or request "
                  "elevated permissions.\\n\\n")
             ) + job["prompt"]
-            args=[executable,"--ask-for-approval","never","exec","--sandbox",
-                  "workspace-write" if writable else "read-only","--skip-git-repo-check","-"]
+            args=[executable,"exec","--sandbox",
+                  "workspace-write" if writable else "read-only",
+                  "--ask-for-approval","never","--skip-git-repo-check","-"]
             completed=self.run(args,input=prompt,text=True,cwd=str(cwd),
                                capture_output=True,timeout=180,shell=False,check=False)
             if completed.returncode:
