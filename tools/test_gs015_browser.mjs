@@ -103,6 +103,8 @@ try{
   browser=await chromium.launch({headless:true});
   for(const viewport of [{width:390,height:844,mobile:true},{width:1280,height:800,mobile:false}]){
     const label=viewport.mobile?'mobile':'desktop';
+    registered.splice(0,registered.length,{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only'});
+    discovered.splice(0,discovered.length,'granite4:3b');
     const context=await browser.newContext({viewport:{width:viewport.width,height:viewport.height},isMobile:viewport.mobile,hasTouch:viewport.mobile});
     const page=await context.newPage();
     const exceptions=[];
@@ -126,6 +128,7 @@ try{
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
     await page.locator('#addProjectButton').click();
     await page.locator('#browseRoots').click();
+    await page.locator('#folderEntries button.folder-entry').first().click();
     await page.locator('#folderEntries button.folder-entry').first().click();
     await page.locator('#folderEntries button.folder-use').click();
     await page.locator('#projectName').fill(label+' Demo');
