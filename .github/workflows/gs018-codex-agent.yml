@@ -1,0 +1,47 @@
+name: Ground Space Codex integrated agent
+on:
+  push:
+    branches:
+      - "feature/gs-018-codex-workspace-agent"
+  pull_request:
+    branches:
+      - "feature/gs-017-group-approval-controls"
+permissions:
+  contents: read
+jobs:
+  python:
+    name: Codex workspace agent and regression (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Python compile
+        run: python -m compileall -q ground_space
+      - name: Validate Codex writable gating and previous security tests
+        run: python -m unittest tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: JavaScript syntax
+        run: node --check web/public/app.js
+      - name: Browser test syntax
+        run: node --check tools/test_gs015_browser.mjs
+  browser:
+    name: UI buttons and group flows (mobile + desktop Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright only for tests
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run direct browser button tests
+        run: node tools/test_gs015_browser.mjs
+
+# Codex CLI is mocked; a real Windows sandbox and account remain live verification gates.
