@@ -107,6 +107,50 @@ class WorkspaceAgentTests(unittest.TestCase):
         self.assertIn("codex",[x["model"] for x in cat["registered"]])
         self.assertNotIn("codex",cat["discovered"])
 
+    def test_direct_codex_agent_submits_writable_job_to_chat(self):
+        self.codex.set_registered(True)
+        app=GroundSpaceApp.__new__(GroundSpaceApp)
+        app.codex=self.codex
+        app.lock=threading.RLock()
+        app.workspaces=self.workspaces
+        app.conversations={}
+        app.history_path=self.root/"state"/"history.json"
+        with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}):
+            result=app.submit_chat({"agent":"codex","project_id":self.project["id"],
+                                    "conversation_id":"direct-codex","prompt":"Add a test file"})
+        self.assertEqual("workspace_write",result["codex_job"]["scope"])
+        self.assertEqual("pending_approval",result["codex_job"]["status"])
+        self.assertEqual("codex",result["entry"]["agent"])
+        self.assertEqual([result["codex_job"]["id"]],result["entry"]["codex_job_ids"])
+        self.assertFalse(self.run.called)
+
+    def test_group_codex_mention_creates_writable_job_but_coordinator_is_read_only(self):
+        self.codex.set_registered(True)
+        app=GroundSpaceApp.__new__(GroundSpaceApp)
+        app.codex=self.codex
+        app.lock=threading.RLock()
+        app.group_dispatch_lock=threading.Lock()
+        app.workspaces=self.workspaces
+        app.registered_models=[]
+        app.ollama_endpoint="http://127.0.0.1:1"
+        app._register_worker=Mock()
+        app.conversations={}
+        app.history_path=self.root/"state"/"history.json"
+        app.conversation_context=lambda _room: ""
+        app.project_context=lambda _project: ""
+        group=self.workspaces.create_group("Codex team",["codex"],self.project["id"],["codex"],
+                                         {"codex":"manual"})
+        with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}),\
+             patch("ground_space.webapp.probe_ollama",return_value={"available":False,"models":[]}):
+            task=app.submit_group({"group_id":group["id"],"prompt":"@Codex create a test"})
+            job=self.codex.get(task["codex_job_ids"][0])
+            self.assertEqual("workspace_write",job["scope"])
+            self.assertEqual("pending_approval",job["status"])
+            ordinary=app.submit_group({"group_id":group["id"],"prompt":"How are we doing?"})
+            planning=self.codex.get(ordinary["codex_job_ids"][0])
+            self.assertEqual("read_only",planning["scope"])
+            self.assertEqual("pending_approval",planning["status"])
+
     def test_codex_does_not_accept_unknown_paths_or_permissions(self):
         self.codex.set_registered(True)
         with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}):
