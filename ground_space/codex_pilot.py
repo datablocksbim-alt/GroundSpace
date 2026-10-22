@@ -129,7 +129,7 @@ class CodexPilot:
         if mode=="auto_read_only" and scope=="read_only": self.approve({"job_id":record["id"]})
         # Only the trusted group dispatcher may grant an auto-approval based
         # on the persisted per-bot policy. Never use a browser-submitted flag.
-        if group_auto_approval and scope=="workspace_write":
+        if group_auto_approval:
             group_id=record.get("group_id")
             if not isinstance(group_id,str) or not group_id:
                 raise ValueError("Automatic writable permission requires a group")
