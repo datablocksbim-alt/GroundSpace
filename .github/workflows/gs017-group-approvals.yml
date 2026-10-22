@@ -1,0 +1,47 @@
+name: Ground Space group bot approvals
+on:
+  push:
+    branches:
+      - "feature/gs-017-group-approval-controls"
+  pull_request:
+    branches:
+      - "feature/gs-016-codex-approval-pilot"
+permissions:
+  contents: read
+jobs:
+  checks:
+    name: Group policies and regression (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile application
+        run: python -m compileall -q ground_space
+      - name: Group, Codex, Coordinator and mobile security regression
+        run: python -m unittest tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Frontend JavaScript parser
+        run: node --check web/public/app.js
+      - name: Browser test parser
+        run: node --check tools/test_gs015_browser.mjs
+  browser:
+    name: Real browser click-through (mobile and desktop Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install test-only Playwright
+        run: npm install --no-save playwright
+      - name: Install Chromium and dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Test group per-bot approvals, Codex and project button flows
+        run: node tools/test_gs015_browser.mjs
+
+# Live iPhone Safari and the owner's Windows Administrator queue require a separate owner check.
