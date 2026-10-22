@@ -3,7 +3,29 @@ const $=s=>document.querySelector(s);const $$=s=>[...document.querySelectorAll(s
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2600)}
 async function api(path,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(options.method==='POST')headers['X-Ground-Space-CSRF']=state.csrf;const response=await fetch(path,{...options,headers});const body=await response.json();if(!response.ok)throw new Error(body.error||`Request failed (${response.status})`);return body}
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function setView(name){$$('.nav-button').forEach(x=>x.classList.toggle('active',x.dataset.view===name));$$('.view').forEach(x=>x.classList.toggle('active',x.id===`view-${name}`));if(name!=='chat')refresh()}
+const mobileViewport=window.matchMedia('(max-width: 760px)');
+function setMobileRail(open){
+  const active=Boolean(open&&mobileViewport.matches);
+  const rail=$('#agentRail');
+  rail.classList.toggle('mobile-open',active);
+  rail.inert=mobileViewport.matches&&!active;
+  $('#mobileRailBackdrop').hidden=!active;
+  $('#mobileRailToggle').setAttribute('aria-expanded',String(active));
+  $('#mobileRailToggle').setAttribute('aria-label',active?'Close chats and projects':'Open chats and projects');
+  if(active)$('#closeMobileRail').focus();
+}
+function setMobileOptions(open){
+  const active=Boolean(open&&mobileViewport.matches);
+  $('#chatForm').classList.toggle('options-open',active);
+  $('#mobileOptionsToggle').setAttribute('aria-expanded',String(active));
+  $('#mobileOptionsToggle').innerHTML=active?'Hide options <span aria-hidden="true">⌃</span>':'Options <span aria-hidden="true">⌄</span>';
+}
+function syncMobileLayout(){
+  if(!mobileViewport.matches){setMobileRail(false);setMobileOptions(false);$('#agentRail').inert=false;}
+  else if(!$('#agentRail').classList.contains('mobile-open'))$('#agentRail').inert=true;
+}
+function setView(name){
+  setMobileRail(false);$$('.nav-button').forEach(x=>x.classList.toggle('active',x.dataset.view===name));$$('.view').forEach(x=>x.classList.toggle('active',x.id===`view-${name}`));if(name!=='chat')refresh()}
 function conversationFor(agent,projectId){
   const key='gs_room_'+agent+'_'+(projectId||'general');
   let value=localStorage.getItem(key);
@@ -25,6 +47,7 @@ function setAgent(agent){
   $('#requestType').hidden=agent!=='qwen';
   $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';
   renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
+  setMobileRail(false);
 }
 function selectGroup(groupId){
   const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
@@ -40,6 +63,7 @@ function selectGroup(groupId){
   $('#permissionPill').textContent='COORDINATOR · READ / PROPOSE';
   $('#prompt').placeholder='Ask Coordinator, type /goal, or mention @Qwen…';
   renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
+  setMobileRail(false);
 }
 function chooseProject(projectId){
   state.projectId=projectId;
@@ -47,6 +71,7 @@ function chooseProject(projectId){
   if(state.agent==='group'){toast('Edit group members to change its project');return;}
   state.conversationId=conversationFor(state.agent,projectId);
   renderWorkspaces();renderMessages();
+  setMobileRail(false);
 }
 function taskStatus(task){
   if(!task)return '';
@@ -92,7 +117,11 @@ function renderMessages(){
     const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
       ?'<span class="member-label">'+esc(entry.speaker||entry.model||'Local AI')+'</span>':'';
     const identity=entry.task_id||entry.note_id||entry.group_turn_id||'local';
-    html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
+    const timestamp=new Date(entry.timestamp);
+    const shortTime=Number.isNaN(timestamp.getTime())?'':timestamp.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    const fullTime=Number.isNaN(timestamp.getTime())?'':timestamp.toLocaleString();
+    const meta='<small class="message-meta"><span class="message-id">'+esc(identity)+' · </span><span class="message-time" title="'+esc(fullTime)+'">'+esc(shortTime)+'</span></small>';
+    html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span>${meta}${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
     // Group replies may appear in task records before persistence in chat history.
     if(['user','note'].includes(entry.role)&&groupTasks.length){
       for(const groupTask of groupTasks){
@@ -479,6 +508,15 @@ $('#folderEntries').addEventListener('click',event=>{
   }else browseFolders(button.dataset.folder);
 });
 
-$$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
+$('#mobileRailToggle').addEventListener('click',()=>setMobileRail(!$('#agentRail').classList.contains('mobile-open')));
+$('#mobileRailBackdrop').addEventListener('click',()=>{setMobileRail(false);$('#mobileRailToggle').focus();});
+$('#closeMobileRail').addEventListener('click',()=>{setMobileRail(false);$('#mobileRailToggle').focus();});
+$('#mobileOptionsToggle').addEventListener('click',()=>setMobileOptions(!$('#chatForm').classList.contains('options-open')));
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&$('#agentRail').classList.contains('mobile-open')){setMobileRail(false);$('#mobileRailToggle').focus();}
+});
+mobileViewport.addEventListener('change',syncMobileLayout);
+syncMobileLayout();
+$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
 // Keep every task in this conversation observable, even after refresh or later messages.
 setInterval(()=>refresh().catch(()=>{$('#systemState').textContent='Ground Space disconnected'}),2500);
