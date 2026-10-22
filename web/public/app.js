@@ -86,6 +86,9 @@ function chooseProject(projectId){
 function taskStatus(task){
   if(!task)return '';
   const labels={queued:'Queued — waiting for worker',claimed:'Worker assigned',running:'Generating response…',retry_pending:'Retry pending — check Tasks for details',failed:'Task failed — check Tasks for details',blocked:'Task blocked',cancelled:'Task cancelled',completed:'Completed'};
+  const approval=task.approval?.status;
+  if(approval==='rejected')return '<small class="task-state">Rejected — bot will not run</small>';
+  if(approval==='pending')return '<small class="task-state">Waiting for your approval</small>';
   const status=String(task.status||'queued');
   const stage=(['retry_pending','failed','blocked'].includes(status)&&task.failed_stage)?' · '+task.failed_stage:'';
   return `<small class="task-state ${esc(status)}">${esc((labels[status]||status)+stage)}</small>`;
@@ -120,7 +123,14 @@ function renderMessages(){
   for(const entry of messages){
     const task=tasks.get(entry.task_id);
     const groupTasks=Array.isArray(entry.task_ids)?entry.task_ids.map(id=>tasks.get(id)).filter(Boolean):[];
-    const groupProgress=groupTasks.map(t=>'<span class="group-task-status">'+esc(t.payload?.model||t.requested_worker)+' · '+taskStatus(t)+'</span>').join('');
+    const groupProgress=groupTasks.map(t=>{
+      const pending=t.status==='queued'&&t.approval?.status==='pending';
+      const actions=pending?'<span class="group-approval-actions">'+
+        '<button type="button" data-group-decision="approve" data-task-id="'+esc(t.task_id)+'">Approve reply</button>'+
+        '<button type="button" data-group-decision="reject" data-task-id="'+esc(t.task_id)+'">Reject</button></span>':'';
+      return '<span class="group-task-status">'+esc(t.payload?.speaker||t.payload?.model||t.requested_worker)+
+        ' · '+taskStatus(t)+actions+'</span>';
+    }).join('');
     const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task)):'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
@@ -225,12 +235,17 @@ function openGroupEditor(groupId=''){
   $('#groupName').disabled=!!group;
   $('#saveGroup').textContent=group?'Save changes':'Create group';
   $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
-  $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>
-    '<label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
-    '"'+(group?.models.includes(item.model)?' checked':'')+'><span><b>'+esc(item.model)+
-    '</b><small>'+esc(item.available?'Available · proposal only':'Offline · proposal only')+
-    '</small></span></label>'
-  ).join('')||'<p>No registered local models. Add them under Agents first.</p>';
+  $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>{
+    const mode=group?.approval_modes?.[item.model]||'approve_for_me';
+    const opts=[['manual','Ask me'],['approve_for_me','Approve for me'],['disabled','Off']]
+      .map(([value,label])=>'<option value="'+value+'"'+(mode===value?' selected':'')+'>'+label+'</option>').join('');
+    return '<div class="group-member-setting"><label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
+      '"'+(group?.models.includes(item.model)?' checked':'')+'><span><b>'+esc(item.model)+
+      '</b><small>'+esc(item.available?'Available · read/propose only':'Offline · read/propose only')+
+      '</small></span></label><label class="group-member-policy-label">Bot approval'+
+      '<select class="group-member-policy" data-model="'+esc(item.model)+'" aria-label="Approval for '+esc(item.model)+'">'+
+      opts+'</select></label></div>';
+  }).join('')||'<p>No registered local models. Add them under Agents first.</p>';
   $('#groupDialog').showModal();
 }
 async function saveGroup(event){
@@ -238,7 +253,12 @@ async function saveGroup(event){
   const models=$$('input[name="group-member"]:checked').map(x=>x.value);
   const groupId=$('#groupForm').dataset.editGroup;
   try{
-    const payload={name:$('#groupName').value,models,project_id:$('#groupProject').value||null};
+    const approval_modes={};
+    for(const select of $$('.group-member-policy')){
+      if(models.includes(select.dataset.model))approval_modes[select.dataset.model]=select.value;
+    }
+    const payload={name:$('#groupName').value,models,approval_modes,
+      project_id:$('#groupProject').value||null};
     const response=await api(groupId?'/api/groups/update':'/api/groups/create',{
       method:'POST',body:JSON.stringify(groupId?{...payload,group_id:groupId}:payload)
     });
@@ -335,7 +355,7 @@ function renderAgents(){const root=$('#agentGrid');root.innerHTML=(state.data?.a
 function renderTasks(){const rows=$('#taskRows'),tasks=state.data?.tasks||[];rows.innerHTML=tasks.map(t=>`<tr data-task="${esc(t.task_id)}"><td><b>${esc(t.task_id)}</b></td><td>${esc(t.requested_worker)}</td><td>${esc(t.approval?.status||'unknown')}</td><td><span class="badge ${esc(t.status)}">${esc(t.status)}</span></td><td>${new Date(t.updated_at).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="5">No tasks yet.</td></tr>';rows.querySelectorAll('tr[data-task]').forEach(row=>row.onclick=async()=>{$('#taskDetail').textContent=JSON.stringify(await api(`/api/tasks/${row.dataset.task}`),null,2)})}
 const CODEX_MODES={
   manual:'Every Codex review waits for your explicit approval.',
-  auto_read_only:'Codex may start read-only reviews automatically. File edits, installs and elevated commands are still blocked.',
+  auto_read_only:'Approve for me: Codex starts read-only reviews automatically. File edits, installs and elevated commands stay blocked.',
   disabled:'Codex review requests are blocked for this scope.'
 };
 function codexProjectMode(projectId){
@@ -539,6 +559,16 @@ $('#registeredModels').addEventListener('click',async event=>{
   catch(error){toast(error.message);}
 });
 $('#messages').addEventListener('click',event=>{
+  const decision=event.target.closest('button[data-group-decision]');
+  if(decision){
+    decision.disabled=true;
+    api('/api/groups/'+decision.dataset.groupDecision,{
+      method:'POST',body:JSON.stringify({group_id:state.groupId,task_id:decision.dataset.taskId})
+    }).then(()=>refresh()).then(()=>toast(decision.dataset.groupDecision==='approve'?
+      'Read-only bot reply approved':'Bot reply rejected'))
+      .catch(error=>{toast(error.message);decision.disabled=false;});
+    return;
+  }
   const button=event.target.closest('button.copy-response');
   if(button)copyReply(button.dataset.taskId);
 });
