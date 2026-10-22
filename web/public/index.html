@@ -18,6 +18,7 @@
         <button class="nav-button active" data-view="chat">Chat</button>
         <button class="nav-button" data-view="agents">Agents</button>
         <button class="nav-button" data-view="tasks">Tasks</button>
+        <button class="nav-button" data-view="codex">Codex</button>
       </nav>
     </header>
 
@@ -121,6 +122,48 @@
         <div class="task-table-wrap"><table><thead><tr><th>Task</th><th>Worker</th><th>Approval</th><th>Status</th><th>Updated</th></tr></thead><tbody id="taskRows"></tbody></table></div>
         <pre class="task-detail" id="taskDetail">Select a task to inspect its record.</pre>
       </section>
+      <section class="view" id="view-codex" aria-label="Codex pilot and approvals">
+        <div class="page-head codex-head">
+          <p class="eyebrow">Owner-only integration pilot</p>
+          <h1>Codex worker</h1>
+          <p>Connect the Codex CLI already signed in on this ASUS. Review work is read-only; no project writes or elevated commands are enabled.</p>
+        </div>
+        <div class="codex-workspace">
+          <section class="codex-card" aria-labelledby="codexPolicyTitle">
+            <h2 id="codexPolicyTitle">Approval settings</h2>
+            <p>Choose an approval policy for your personal workspace. Project settings override the default. This private prototype does not yet support separate user accounts.</p>
+            <p id="codexAvailability" class="codex-status" role="status"></p>
+            <form id="codexPolicyForm">
+              <label for="codexPolicyProject">Applies to</label>
+              <select id="codexPolicyProject" aria-label="Approval project"><option value="">All projects — default</option></select>
+              <label for="codexApprovalMode">When Codex receives a review</label>
+              <select id="codexApprovalMode" required>
+                <option value="manual">Ask me every time (recommended)</option>
+                <option value="auto_read_only">Automatically run read-only reviews</option>
+                <option value="disabled">Disable Codex</option>
+              </select>
+              <p id="codexPolicyDescription" class="codex-policy-description">Every Codex review awaits a manual approval.</p>
+              <button type="submit" id="saveCodexPolicy">Save approval settings</button>
+            </form>
+          </section>
+          <section class="codex-card" aria-labelledby="codexReviewTitle">
+            <h2 id="codexReviewTitle">Request code review</h2>
+            <p>Codex will inspect an existing project on the ASUS, prepare findings and recommend changes without editing any files.</p>
+            <form id="codexReviewForm">
+              <label for="codexReviewProject">Project</label>
+              <select id="codexReviewProject" required><option value="">Select a registered project</option></select>
+              <label for="codexReviewPrompt">Review instructions</label>
+              <textarea id="codexReviewPrompt" maxlength="4000" rows="4" placeholder="Review the movement scripts for bugs. Propose a minimal, testable fix." required></textarea>
+              <button type="submit" id="submitCodexReview">Request Codex review</button>
+            </form>
+          </section>
+          <section class="codex-card codex-jobs" aria-labelledby="codexQueueTitle">
+            <h2 id="codexQueueTitle">Reviews &amp; approvals</h2>
+            <div id="codexJobList" aria-live="polite"><p>No Codex reviews yet.</p></div>
+          </section>
+        </div>
+      </section>
+
     </main>
 
     <footer><span>DATA BLOCKS GROUND SPACE</span><span>LOCALHOST · AUD $0</span></footer>
