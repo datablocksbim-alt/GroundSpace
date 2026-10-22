@@ -24,7 +24,8 @@
     <main>
       <section class="view active" id="view-chat">
         <div class="chat-layout">
-          <aside class="agent-rail">
+          <aside class="agent-rail" id="agentRail" aria-label="Chats and projects">
+            <div class="mobile-rail-heading"><strong>Chats &amp; projects</strong><button type="button" id="closeMobileRail" aria-label="Close chats and projects">✕</button></div>
             <p class="eyebrow">Active channel</p>
             <button class="agent-choice active" data-agent="qwen">
               <span class="agent-glyph violet">AI</span><span><b>Local AI</b><small>Choose an Ollama model</small></span><em></em>
@@ -45,10 +46,12 @@
               <p>Every request enters the Administrator queue and starts automatically within the agent’s allowed permissions.</p>
             </div>
           </aside>
+          <button type="button" id="mobileRailBackdrop" class="mobile-rail-backdrop" aria-label="Close chats and projects" hidden></button>
 
           <div class="conversation">
             <div class="conversation-head">
-              <div><p class="eyebrow">Secure local exchange</p><h1 id="conversationTitle">Local AI channel</h1>
+              <button type="button" id="mobileRailToggle" class="mobile-rail-toggle" aria-controls="agentRail" aria-expanded="false" aria-label="Open chats and projects"><span aria-hidden="true">☰</span><span>Chats</span></button>
+              <div class="conversation-info"><p class="eyebrow">Secure local exchange</p><h1 id="conversationTitle">Local AI channel</h1>
                 <div class="project-context">
                   <label for="projectSelect">Project</label>
                   <select id="projectSelect" aria-label="Select local project"><option value="">No project</option></select>
@@ -69,7 +72,7 @@
               </div>
               <div id="mentionMenu" class="slash-menu mention-menu" aria-label="Mention an AI participant" hidden></div>
               <div class="composer-foot">
-                <div class="chat-options" aria-label="AI options and capabilities">
+                <div class="chat-options" id="chatOptions" aria-label="AI options and capabilities">
                   <label class="sr-only" for="requestType">AI capability</label>
                   <select id="requestType" aria-label="AI capability" title="Capability">
                     <option value="explanation">Explanation</option>
@@ -83,6 +86,7 @@
                     <select id="performanceSelect" aria-label="Response performance" title="Response profile: Fast, Balanced, or Detailed"></select>
                   </div>
                 </div>
+                <button type="button" id="mobileOptionsToggle" class="mobile-options-toggle" aria-controls="chatOptions" aria-expanded="false">Options <span aria-hidden="true">⌄</span></button>
                 <span class="composer-safety">Local only · No tools</span>
                 <button type="submit" id="sendButton">Send message <b>↗</b></button>
               </div>
