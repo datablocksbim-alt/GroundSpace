@@ -37,8 +37,8 @@ function selectGroup(groupId){
   $('#projectSelect').disabled=true;
   $('#modelControls').hidden=true;
   $('#requestType').hidden=false;
-  $('#permissionPill').textContent='GROUP · READ / PROPOSE';
-  $('#prompt').placeholder='Ask the whole group, or type /goal…';
+  $('#permissionPill').textContent='COORDINATOR · READ / PROPOSE';
+  $('#prompt').placeholder='Message Coordinator, or @Qwen, or /goal…';
   renderWorkspaces();renderMessages();updateComposerAvailability();
 }
 function chooseProject(projectId){
@@ -76,6 +76,7 @@ function renderMessages(){
   const nearBottom=(root.scrollHeight-root.scrollTop-root.clientHeight)<100;
   const messages=(state.data?.conversations?.[state.conversationId]||[]).filter(x=>state.agent==='group'||!x.agent||x.agent===state.agent);
   const tasks=new Map((state.data?.tasks||[]).map(task=>[task.task_id,task]));
+  const proposals=new Map((state.data?.proposals||[]).map(card=>[card.task_id,card]));
   const replies=new Set(messages.filter(x=>x.role==='assistant').map(x=>x.task_id));
   if(!messages.length){
     root.innerHTML=`<div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>${state.agent==='qwen'?'Ask the selected local model for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.':'Use read-only Administrator commands: help, list tasks, or status &lt;task-id&gt;.'}</p></div>`;
@@ -85,20 +86,28 @@ function renderMessages(){
   for(const entry of messages){
     const task=tasks.get(entry.task_id);
     const groupTasks=Array.isArray(entry.task_ids)?entry.task_ids.map(id=>tasks.get(id)).filter(Boolean):[];
-    const groupProgress=groupTasks.map(t=>'<span class="group-task-status">'+esc(t.payload?.model||t.requested_worker)+' · '+taskStatus(t)+'</span>').join('');
+    const groupProgress=groupTasks.map(t=>'<span class="group-task-status">'+esc(t.payload?.speaker||t.payload?.model||t.requested_worker)+' · '+taskStatus(t)+'</span>').join('');
     const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task)):'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
     const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
-      ?'<span class="member-label">'+esc(entry.model||'Local AI')+'</span>':'';
+      ?'<span class="member-label">'+esc(entry.speaker||entry.model||'Local AI')+'</span>':'';
     const identity=entry.task_id||entry.note_id||entry.group_turn_id||'local';
     html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span><small>${esc(identity)} · ${new Date(entry.timestamp).toLocaleString()}</small>${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
+    for(const proposalId of (entry.proposal_ids||[])){
+      const card=proposals.get(proposalId);if(!card)continue;
+      const queue=tasks.get(card.task_id);
+      const status=queue?.status||card.status;
+      const canApprove=card.status==='proposed';
+      html.push(`<div class="coordinator-task-card"><span class="task-heading">${esc(card.task_id)} · ${esc(card.title)}</span><span class="task-assignee">${esc(card.assignee)} · ${esc(status)}</span><p>${esc(card.instructions)}</p>${card.depends_on?.length?`<small>After: ${esc(card.depends_on.join(', '))}</small>`:''}${canApprove?`<button type="button" class="approve-proposal" data-task-id="${esc(card.task_id)}" data-group="${esc(card.group_id)}">Approve read/propose</button>`:''}</div>`);
+    }
+
     // Group replies may appear in task records before persistence in chat history.
     if(['user','note'].includes(entry.role)&&groupTasks.length){
       for(const groupTask of groupTasks){
         if(groupTask.status==='completed'&&!replies.has(groupTask.task_id)
            &&typeof groupTask.result?.answer==='string'&&groupTask.result.answer){
-          const model=groupTask.result.model||groupTask.payload?.model||'Local AI';
+          const model=groupTask.payload?.speaker||groupTask.result.model||groupTask.payload?.model||'Local AI';
           html.push(`<div class="message assistant"><span class="member-label">${esc(model)}</span><span class="message-content">${esc(groupTask.result.answer)}</span><small>${esc(groupTask.task_id)} · recovered from task result</small>${responseMeta({},groupTask)}${copyButton(groupTask.task_id)}</div>`);
         }
       }
@@ -122,7 +131,7 @@ function renderWorkspaces(){
   $('#groupList').innerHTML=groups.map(g=>
     '<button type="button" class="group-room '+(g.id===state.groupId?'active':'')+
     '" data-group="'+esc(g.id)+'"><span class="room-avatar">◎</span><span><b>'+esc(g.name)+
-    '</b><small>'+esc(g.models.length+' AI · '+(names.get(g.project_id)||'General'))+'</small></span></button>'
+    '</b><small>'+esc('Coordinator + '+g.models.length+' AI · '+(names.get(g.project_id)||'General'))+'</small></span></button>'
   ).join('')||'<p class="rail-empty">No groups yet</p>';
   $('#projectList').innerHTML=projects.map(p=>
     '<button type="button" class="project-room '+(p.id===state.projectId&&state.agent!=='group'?'active':'')+
@@ -292,9 +301,15 @@ async function submit(event){
     $('#prompt').value='';
     updateSlashMenu();
     await refresh();
-    toast(response.entry?(response.task||response.task_ids?'Planning note saved · AI review queued':'Planning note saved'):isGroup?'Group request sent to each AI':'Task submitted');
+    toast(response.entry?(response.task||response.task_ids?'Planning note saved · AI review queued':'Planning note saved'):isGroup?'Message routed to Coordinator or mentioned models':'Task submitted');
   }catch(error){toast(error.message)}
   finally{updateComposerAvailability();}
+}
+async function approveProposal(button){
+  if(!window.confirm('Approve this read/propose-only task for its named local model? No project files will be accessed.'))return;
+  button.disabled=true;
+  try{await api('/api/coordinator/approve',{method:'POST',body:JSON.stringify({task_id:button.dataset.taskId,group_id:button.dataset.group,confirm:true})});await refresh();toast('Proposal approved · worker queued');}
+  catch(error){toast(error.message);button.disabled=false;}
 }
 function isSlashAnnotation(){return /^\/(goal|milestone)(\s|$)/i.test($('#prompt').value.trim());}
 function updateComposerAvailability(){
@@ -348,7 +363,9 @@ $('#registeredModels').addEventListener('click',async event=>{
 });
 $('#messages').addEventListener('click',event=>{
   const button=event.target.closest('button.copy-response');
-  if(button)copyReply(button.dataset.taskId);
+  if(button){copyReply(button.dataset.taskId);return;}
+  const approve=event.target.closest('button.approve-proposal');
+  if(approve)approveProposal(approve);
 });
 
 

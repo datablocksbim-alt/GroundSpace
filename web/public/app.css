@@ -180,3 +180,11 @@
 .project-list:hover::-webkit-scrollbar-thumb,.folder-picker:hover::-webkit-scrollbar-thumb,
 .workspace-dialog:hover::-webkit-scrollbar-thumb{background:rgba(112,104,144,.43)}
 @media(max-width:760px){.agent-choice{min-width:145px}.agent-glyph{width:26px;height:23px}}
+
+/* GS-010: discreet pending Coordinator task cards */
+.coordinator-task-card{margin:6px 0 10px 8%;padding:12px 14px;border:1px solid rgba(106,105,140,.18);border-radius:12px;background:rgba(249,249,252,.75);display:flex;flex-direction:column;gap:5px;font-size:.83rem}
+.coordinator-task-card .task-heading{font-weight:650;color:var(--text,#37364b)}
+.coordinator-task-card .task-assignee{opacity:.72;font-size:.75rem}
+.coordinator-task-card p{margin:2px 0 4px}
+.coordinator-task-card button{align-self:flex-start;padding:6px 10px;border:1px solid #bcb7df;border-radius:8px;background:#f1effa;color:#4b4488;cursor:pointer}
+.coordinator-task-card button:disabled{opacity:.5;cursor:wait}

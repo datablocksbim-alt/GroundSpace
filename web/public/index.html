@@ -118,14 +118,14 @@
   <dialog id="groupDialog" class="workspace-dialog">
     <form id="groupForm">
       <h2 id="groupDialogTitle">New group chat</h2>
-      <p>Choose a project and the local AI models that should reply to the group.</p>
+      <p>Coordinator replies by default. Mention a group model, such as @Qwen, to hear directly from it.</p>
       <label for="groupName">Group name</label>
       <input id="groupName" maxlength="70" placeholder="e.g. Pyrene Development" required>
       <label for="groupProject">Local project</label>
       <select id="groupProject" aria-label="Group project"><option value="">No project</option></select>
       <div class="workspace-dialog-row">
         <span>AI participants</span>
-        <small>Up to 6 · Replies run sequentially</small>
+        <small>Up to 6 · Mentioned replies run sequentially</small>
       </div>
       <div id="groupMemberOptions" class="group-members"></div>
       <div class="dialog-actions">
