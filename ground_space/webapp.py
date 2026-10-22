@@ -34,6 +34,7 @@ MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
+BACKEND_RELEASE = "GS-021"
 
 # A single explicit private HTTPS Origin is opt-in for the owner-only Tailscale
 # Serve pilot. Never derive trusted origins from untrusted Host/forwarded headers.
@@ -642,6 +643,7 @@ class GroundSpaceApp:
                 "conversations": history,
                 "models": self.catalog(availability=availability),
                 "workspaces": self.workspaces.snapshot(), "codex": self.codex.snapshot(),
+                "backend_release": BACKEND_RELEASE,
                 "paid_api_usage_aud": 0}
 
 
