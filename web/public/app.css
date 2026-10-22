@@ -374,3 +374,47 @@
   .model-import-status{font-size:13px!important}
   .model-add select,.model-add button{min-height:42px}
 }
+
+
+/* GS-016 — Codex approval settings; never implies backend write permission. */
+.codex-head{padding-bottom:12px}
+.codex-workspace{max-width:1220px;margin:0 auto 44px;padding:0 30px;display:grid;
+ grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.codex-card{background:var(--panel);border:1px solid #e0dce9;border-radius:16px;
+ box-shadow:0 8px 30px rgba(30,22,68,.04);padding:21px;min-width:0}
+.codex-card h2{font-size:20px;letter-spacing:-.02em;margin:0 0 12px}
+.codex-card p{font-size:13px;line-height:1.55;color:var(--muted)}
+.codex-card form{display:grid;gap:10px}
+.codex-card label{font-size:12px;font-weight:650;margin-top:4px}
+.codex-card select,.codex-card textarea{width:100%;min-height:43px;padding:10px 12px;
+ border:1px solid #ddd8ed;border-radius:10px;background:#fff;color:var(--ink);
+ font:15px/1.45 Inter,"Segoe UI",sans-serif}
+.codex-card textarea{resize:vertical;min-height:106px}
+.codex-card form>button,.codex-decision{min-height:43px;cursor:pointer;border:0;
+ border-radius:10px;background:#7155d9;color:#fff;padding:10px 13px;font-size:13px;font-weight:650}
+.codex-card button:disabled{opacity:.55;cursor:not-allowed}
+.codex-card .codex-policy-description{margin:2px 0 5px;font-size:12px;color:#625789}
+.codex-card .codex-status{background:#f2f0fb;border:1px solid #e4dff8;border-radius:8px;padding:8px 10px}
+.codex-jobs{grid-column:1/-1}
+.codex-job{margin-top:10px;border:1px solid #e0dce9;border-radius:11px;padding:14px;
+ background:#fff;overflow-wrap:anywhere}
+.codex-job header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:9px}
+.codex-job strong{font-size:14px}
+.codex-job .codex-state{font:700 10px Consolas,monospace;text-transform:uppercase;color:#7763b7}
+.codex-job small{display:block;margin-top:6px;font:11px/1.5 Consolas,monospace;color:var(--muted)}
+.codex-job summary{cursor:pointer;margin-top:8px}
+.codex-job pre{white-space:pre-wrap;word-break:break-word;font:12px/1.6 Consolas,monospace;max-height:320px;overflow:auto}
+.codex-job .codex-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.codex-job button[data-decision="reject"]{background:#e9e5f1;color:#493c71}
+@media(max-width:760px){
+ .topbar nav{grid-template-columns:repeat(4,minmax(0,1fr))}
+ .codex-head{padding:16px 14px 10px}
+ .codex-head h1{font-size:25px}
+ .codex-workspace{display:grid;grid-template-columns:minmax(0,1fr);padding:0 12px 25px;gap:12px}
+ .codex-card,.codex-jobs{grid-column:1;padding:15px}
+ .codex-card h2{font-size:18px}
+ .codex-card p{font-size:13px}
+ .codex-card select,.codex-card textarea{font-size:16px}
+ .codex-job{padding:11px}
+ .codex-job button{min-height:42px}
+}
