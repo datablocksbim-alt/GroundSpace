@@ -282,6 +282,14 @@ class GroundSpaceApp:
                      for model in route.models}
             if any(mode == "disabled" for mode in modes.values()):
                 raise ValueError("An addressed group bot is disabled; edit Members → Approval settings")
+            if "codex" in route.models:
+                if not group["project_id"]:
+                    raise ValueError("Select a registered project before assigning Codex group work")
+                if not self.codex.is_registered():
+                    raise ValueError("Add Codex from Agents before mentioning it in a group")
+                if not (route.coordinator or annotation_entry) and not self.codex.writable_available():
+                    raise ValueError("Codex workspace editing is disabled on the ASUS; enable it explicitly")
+
             group_turn_id = "TURN-" + secrets.token_hex(8)
             task_ids = []
             automatic_task_ids = []
