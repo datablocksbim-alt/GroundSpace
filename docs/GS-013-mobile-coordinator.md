@@ -26,6 +26,24 @@ git pull --ff-only
 
 Do not switch branches if `git status --short` shows unsaved local changes. GitHub CI is useful, but the Windows/live integration gate still matters.
 
+## Simplest activation after the test gate
+
+Use the checked-in guarded helper to preserve the two existing dashboard routes, reject a port-8443 conflict, and start the integrated Ground Space with the right exact Tailscale origin.
+
+```powershell
+.\tools\activate_gs013_mobile.ps1 -CheckOnly
+```
+
+Then press **Ctrl+C in the existing Ground Space server window only**; leave Tailscale and Administrator running. In the project PowerShell window run:
+
+```powershell
+.\tools\activate_gs013_mobile.ps1
+```
+
+This helper starts the updated Ground Space process, verifies its local UI, and **adds only the dedicated private HTTPS :8443 Serve route** if unused. It prints the exact mobile URL and a local log path. It refuses to replace an already-running process or existing Serve endpoint. If it refuses, investigate rather than overriding either check.
+
+Steps 2–3 below are the **manual alternative** if you prefer not to use the helper; do not run both methods.
+
 ## Step 2 — stop only the running Ground Space process and restart with the approved origin
 
 The existing process listening on 8765 must be restarted to load the updated code and opt-in HTTPS origin. **In the terminal that is running Ground Space**, press Ctrl+C and wait for it to stop. Do not stop the Administrator, existing dashboard, or Tailscale.
