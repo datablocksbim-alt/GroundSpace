@@ -29,6 +29,13 @@ jobs:
         run: node --check web/public/app.js
       - name: Browser test parser
         run: node --check tools/test_gs015_browser.mjs
+      - name: PowerShell restart safety script parser
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('tools/restart_gs016_codex.ps1', [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
   browser:
     name: Real browser click-through (mobile and desktop Chromium)
     runs-on: ubuntu-latest
