@@ -1,0 +1,37 @@
+name: Ground Space validated proposals
+
+on:
+  push:
+    branches:
+      - "feature/gs-011-validated-code-proposals"
+  pull_request:
+    paths:
+      - ".github/workflows/gs011-validation.yml"
+      - "examples/**"
+      - "ground_space/proposal_validation.py"
+      - "tests/test_gs011_*.py"
+      - "tests/fixtures/gs011_scheduler_contract.py"
+
+permissions:
+  contents: read
+
+jobs:
+  trusted_checks:
+    name: Trusted regression checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile scheduler and gate
+        run: python -m compileall -q examples ground_space/proposal_validation.py tests/test_gs011_scheduler.py tests/test_gs011_validation.py
+      - name: Run trusted Python regressions (no untrusted execution)
+        run: python -m unittest tests.test_gs011_scheduler tests.test_gs011_validation -v
+
+# Docker is MOCKED in the unit tests. This CI does not claim actual candidate
+# sandbox execution, Windows full suite, or owner approval of project writes.
