@@ -44,7 +44,7 @@
             </section>
             <div class="rail-note">
               <span>BOUNDARY 01</span>
-              <p>Every request enters the Administrator queue and starts automatically within the agent’s allowed permissions.</p>
+              <p>Group bots can be set to Ask me, Approve for me or Off. All AI chat is read/propose only; code execution is separately restricted.</p>
             </div>
           </aside>
           <button type="button" id="mobileRailBackdrop" class="mobile-rail-backdrop" aria-label="Close chats and projects" hidden></button>
@@ -139,7 +139,7 @@
               <label for="codexApprovalMode">When Codex receives a review</label>
               <select id="codexApprovalMode" required>
                 <option value="manual">Ask me every time (recommended)</option>
-                <option value="auto_read_only">Automatically run read-only reviews</option>
+                <option value="auto_read_only">Approve for me — read-only reviews</option>
                 <option value="disabled">Disable Codex</option>
               </select>
               <p id="codexPolicyDescription" class="codex-policy-description">Every Codex review awaits a manual approval.</p>
@@ -181,6 +181,7 @@
         <span>AI participants</span>
         <small>Up to 6 · Replies run sequentially</small>
       </div>
+      <p class="group-approval-intro">Choose each AI bot's approval behavior. This applies only to local read-only chat and proposals, never project file changes.</p>
       <div id="groupMemberOptions" class="group-members"></div>
       <p id="groupDialogError" class="dialog-feedback" role="alert" hidden></p>
       <div class="dialog-actions">
