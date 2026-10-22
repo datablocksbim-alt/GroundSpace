@@ -168,6 +168,43 @@ class WorkspaceAgentTests(unittest.TestCase):
             self.assertEqual("read_only",planning["scope"])
             self.assertEqual("pending_approval",planning["status"])
 
+    def test_codex_cli_approval_flag_is_before_exec(self):
+        self.codex.set_registered(True)
+        with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}):
+            job=self.codex.submit({"project_id":self.project["id"],
+                                   "prompt":"Create a disposable test file","scope":"workspace_write"})
+            with patch("ground_space.codex_pilot.threading.Thread"):
+                self.codex.approve({"job_id":job["id"]})
+            self.codex._execute(job["id"])
+            argv=self.run.call_args.args[0]
+            self.assertEqual(["--ask-for-approval","never","exec"],argv[1:4])
+            self.assertLess(argv.index("--ask-for-approval"),argv.index("exec"))
+            self.assertEqual("workspace-write",argv[argv.index("--sandbox")+1])
+
+    def test_cli_errors_are_actionable_without_exposing_secrets(self):
+        self.codex.set_registered(True)
+        self.run.return_value=SimpleNamespace(
+            returncode=2,stdout="",stderr="error: unexpected argument '--ask-for-approval' found; secret=sk-TEST-SECRET")
+        job=self.codex.submit({"project_id":self.project["id"],"prompt":"Inspect","scope":"read_only"})
+        with patch("ground_space.codex_pilot.threading.Thread"):
+            self.codex.approve({"job_id":job["id"]})
+        self.codex._execute(job["id"])
+        item=self.codex.get(job["id"])
+        self.assertEqual("failed",item["status"])
+        self.assertIn("command option",item["error"])
+        self.assertNotIn("sk-TEST-SECRET",item["error"])
+
+        self.run.return_value=SimpleNamespace(
+            returncode=1,stdout="",stderr="authentication required for user@example.com; Authorization: Bearer secret")
+        second=self.codex.submit({"project_id":self.project["id"],"prompt":"Inspect again","scope":"read_only"})
+        with patch("ground_space.codex_pilot.threading.Thread"):
+            self.codex.approve({"job_id":second["id"]})
+        self.codex._execute(second["id"])
+        failed=self.codex.get(second["id"])
+        self.assertIn("authentication",failed["error"])
+        self.assertNotIn("user@example.com",failed["error"])
+        self.assertNotIn("Bearer secret",failed["error"])
+
     def test_codex_does_not_accept_unknown_paths_or_permissions(self):
         self.codex.set_registered(True)
         with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}):
