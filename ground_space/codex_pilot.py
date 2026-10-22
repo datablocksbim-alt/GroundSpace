@@ -174,6 +174,34 @@ class CodexPilot:
             persist(self.jobs_path,self.jobs)
             return dict(job)
 
+    @staticmethod
+    def _diagnose_cli_failure(completed: Any) -> str:
+        """Show only fixed diagnostic categories, never potentially secret CLI stderr."""
+        error = str(getattr(completed, "stderr", "") or "").lower()
+        status = getattr(completed, "returncode", "unknown")
+        if "unexpected argument" in error or "unrecognized option" in error or "unknown flag" in error:
+            return ("Codex CLI rejected a command option (exit " + str(status)
+                    + "). Run codex exec --help and update the Ground Space Codex adapter.")
+        if any(marker in error for marker in (
+            "not logged in", "not authenticated", "authentication required",
+            "login required", "sign in", "login status", "unauthorized",
+            "invalid refresh token", "token expired",
+        )):
+            return ("Codex CLI authentication is unavailable to Ground Space (exit "
+                    + str(status) + "). On the ASUS run codex login status, then codex login.")
+        if "sandbox" in error or "permission denied" in error or "access is denied" in error:
+            return ("Codex CLI sandbox or project permission failed (exit "
+                    + str(status) + "). Verify the local Windows sandbox and registered project folder.")
+        if "rate limit" in error or "usage limit" in error or "quota" in error:
+            return ("Codex CLI usage limit or quota was reached (exit "
+                    + str(status) + "). Check usage for the signed-in ChatGPT account.")
+        if "network" in error or "dns" in error or "connection" in error:
+            return ("Codex CLI network connection failed (exit "
+                    + str(status) + "). Check the ASUS network and CLI connectivity.")
+        return ("Codex CLI exited with code " + str(status)
+                + ". Run the same test directly in PowerShell to see the original error. "
+                  "Ground Space does not expose raw CLI logs in chat.")
+
     def _execute(self, job_id: str) -> None:
         try:
             job=self.get(job_id)
@@ -201,13 +229,15 @@ class CodexPilot:
                  "Do not edit files, install packages, execute untrusted code or request "
                  "elevated permissions.\\n\\n")
             ) + job["prompt"]
-            args=[executable,"exec","--sandbox",
+            # --ask-for-approval is a global CLI flag. Some installed Codex
+            # versions reject it after "exec" before a task even starts.
+            args=[executable,"--ask-for-approval","never","exec","--sandbox",
                   "workspace-write" if writable else "read-only",
-                  "--ask-for-approval","never","--skip-git-repo-check","-"]
+                  "--skip-git-repo-check","-"]
             completed=self.run(args,input=prompt,text=True,cwd=str(cwd),
                                capture_output=True,timeout=180,shell=False,check=False)
             if completed.returncode:
-                raise RuntimeError("Codex exited unsuccessfully. Check local CLI login and logs.")
+                raise RuntimeError(self._diagnose_cli_failure(completed))
             answer=completed.stdout.strip()
             if not answer: raise RuntimeError("Codex returned no review")
             with self.lock:
