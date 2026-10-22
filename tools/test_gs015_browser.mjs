@@ -109,8 +109,15 @@ try{
     const page=await context.newPage();
     const exceptions=[];
     page.on('pageerror',error=>exceptions.push(error.message));
+    const requests=[];
+    page.on('response',response=>{if(response.status()>=400)requests.push(response.status()+' '+response.url());});
     await page.goto(url,{waitUntil:'domcontentloaded'});
-    await page.waitForFunction(()=>document.querySelector('#systemState')?.textContent==='Local systems ready');
+    try{
+      await page.waitForFunction(()=>document.querySelector('#systemState')?.textContent==='Local systems ready',null,{timeout:6000});
+    }catch(error){
+      console.error('STARTUP DIAG',label,{exceptions,requests,system:await page.locator('#systemState').textContent(),page:await page.title()});
+      throw error;
+    }
     assert.equal(exceptions.length,0,label+' startup errors: '+exceptions.join(', '));
 
     // Navigation is the previously broken startup handler.
