@@ -445,3 +445,16 @@
  .group-member-policy{min-height:43px;font-size:16px}
  .group-approval-actions button{min-height:43px}
 }
+
+
+/* Codex is an ordinary agent choice and an integrated Agents section, not its own app. */
+#codexAgentChannel[hidden]{display:none!important}
+.codex-integrated{max-width:1280px;margin:16px auto 40px;border-top:1px solid #e2deea;padding-top:8px}
+.codex-integrated .page-head{padding-top:22px}
+.codex-integrated .page-head h2{font-size:23px;line-height:1.2}
+@media(max-width:760px){
+ .topbar nav{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .codex-integrated{margin:12px 0 28px}
+ .codex-integrated .page-head{padding:16px 14px 10px}
+ .codex-integrated .page-head h2{font-size:21px}
+}
