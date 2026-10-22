@@ -362,3 +362,15 @@
 @media (max-width:760px) and (prefers-reduced-motion:reduce){
   .chat-layout .agent-rail{transition:none}
 }
+
+
+/* GS-015 — actionable errors must be visible inside top-layer dialogs. */
+.workspace-dialog .dialog-feedback{margin:12px 0;padding:11px 12px;border:1px solid #e7b4ae;background:#fff1ef;color:#8e302b;border-radius:11px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.workspace-dialog .dialog-feedback[hidden]{display:none}
+.model-import-status{margin:2px 0 13px!important;color:#5d5878!important;font-size:12px!important;line-height:1.55}
+@media (max-width:760px){
+  .workspace-dialog{max-width:calc(100vw - 22px);width:calc(100vw - 22px)}
+  .workspace-dialog .dialog-feedback{font-size:14px}
+  .model-import-status{font-size:13px!important}
+  .model-add select,.model-add button{min-height:42px}
+}

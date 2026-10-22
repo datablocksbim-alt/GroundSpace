@@ -1,6 +1,8 @@
 const state={agent:'qwen',csrf:'',conversationId:localStorage.getItem('gs_conversation_id')||crypto.randomUUID(),poll:null,data:null,refreshing:false,groupId:null,projectId:localStorage.getItem('gs_project_id')||'',directConversationId:null,selectedModel:localStorage.getItem('gs_model')||'qwen2.5-coder:3b',performance:localStorage.getItem('gs_performance')||'balanced'};
 const $=s=>document.querySelector(s);const $$=s=>[...document.querySelectorAll(s)];
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2600)}
+function clearDialogError(id){const el=$(id);el.hidden=true;el.textContent='';}
+function showDialogError(id,error){const el=$(id);el.textContent=error?.message||String(error);el.hidden=false;el.scrollIntoView({block:'nearest'});}
 async function api(path,options={}){const headers={'Content-Type':'application/json',...(options.headers||{})};if(options.method==='POST')headers['X-Ground-Space-CSRF']=state.csrf;const response=await fetch(path,{...options,headers});const body=await response.json();if(!response.ok)throw new Error(body.error||`Request failed (${response.status})`);return body}
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 const mobileViewport=window.matchMedia('(max-width: 760px)');
@@ -214,6 +216,8 @@ function projectOptions(selected){
       (p.id===selected?' selected':'')+'>'+esc(p.name)+'</option>').join('');
 }
 function openGroupEditor(groupId=''){
+  setMobileRail(false);
+  clearDialogError('#groupDialogError');
   const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
   $('#groupForm').dataset.editGroup=group?.id||'';
   $('#groupDialogTitle').textContent=group?'Edit group':'New group chat';
@@ -242,11 +246,12 @@ async function saveGroup(event){
     await refresh();
     selectGroup(response.id);
     toast(groupId?'Group updated':'Group created');
-  }catch(error){toast(error.message);}
+  }catch(error){showDialogError('#groupDialogError',error);}
 }
 async function browseFolders(path=null){
   try{
     const data=await api('/api/projects/browse'+(path?'?path='+encodeURIComponent(path):''));
+    clearDialogError('#projectDialogError');
     $('#folderPicker').hidden=false;
     $('#folderCurrent').textContent=data.current||'Allowed project roots';
     $('#folderUp').disabled=data.is_root_list;
@@ -255,7 +260,7 @@ async function browseFolders(path=null){
     $('#folderEntries').innerHTML=choose+(data.folders||[]).map(item=>
       '<button type="button" class="folder-entry" data-folder="'+esc(item.path)+'">📁 '+esc(item.name)+'</button>'
     ).join('')||'<p>No subfolders</p>';
-  }catch(error){toast(error.message);}
+  }catch(error){showDialogError('#projectDialogError',error);}
 }
 
 function renderModels(){
@@ -290,7 +295,13 @@ function renderModels(){
     available.dataset.optionsKey=availableKey;
   }
   if(discovered.includes(keep))available.value=keep;
+  if(!discovered.length)available.innerHTML='<option value="">No additional Ollama models</option>';
   $('#addModelButton').disabled=!discovered.length;
+  $('#modelImportStatus').textContent=discovered.length
+    ? discovered.length+' installed model'+(discovered.length===1?'':'s')+' available to add on this ASUS.'
+    : data.registered?.some(item=>item.available)
+      ? 'All detected Ollama models are already registered, or no additional model is installed. To add more, install them in Ollama on the ASUS first.'
+      : 'No additional installed Ollama models detected. Check that Ollama is running on the ASUS. Online AI accounts require a separate integration.';
   $('#registeredModels').innerHTML=registered.map(item=>
     '<div class="registered-model"><span><b>'+esc(item.model)+'</b><small>'+
     esc(item.available?'Ready · '+item.role:'Offline · '+item.role)+
@@ -489,12 +500,15 @@ $('#projectList').addEventListener('click',event=>{
   if(button){if(state.agent==='group')setAgent('qwen');chooseProject(button.dataset.project);}
 });
 $('#addProjectButton').addEventListener('click',()=>{
+  setMobileRail(false);
+  clearDialogError('#projectDialogError');
   $('#projectName').value='';$('#projectPath').value='';$('#folderPicker').hidden=true;$('#projectDialog').showModal();
 });
 $('#cancelProject').addEventListener('click',()=>$('#projectDialog').close());
 $('#projectForm').addEventListener('submit',async event=>{
   event.preventDefault();
   try{
+    clearDialogError('#projectDialogError');
     const project=await api('/api/projects/add',{method:'POST',body:JSON.stringify({
       path:$('#projectPath').value,name:$('#projectName').value
     })});
@@ -503,7 +517,7 @@ $('#projectForm').addEventListener('submit',async event=>{
     if(state.agent==='group')setAgent('qwen');
     chooseProject(project.id);
     toast('Project folder registered — file access remains disabled');
-  }catch(error){toast(error.message);}
+  }catch(error){showDialogError('#projectDialogError',error);}
 });
 $('#browseRoots').addEventListener('click',()=>browseFolders());
 $('#folderUp').addEventListener('click',()=>browseFolders($('#folderUp').dataset.parent||null));
@@ -527,6 +541,6 @@ mobileViewport.addEventListener('change',syncMobileLayout);
 window.visualViewport?.addEventListener('resize',syncMobileViewportHeight);
 window.addEventListener('orientationchange',syncMobileViewportHeight);
 syncMobileLayout();
-$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
+$$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
 // Keep every task in this conversation observable, even after refresh or later messages.
 setInterval(()=>refresh().catch(()=>{$('#systemState').textContent='Ground Space disconnected'}),2500);
