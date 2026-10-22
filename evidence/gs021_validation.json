@@ -1,0 +1,80 @@
+{
+  "task": "GS-021",
+  "validated_at": "2026-10-23T08:54:36+11:00",
+  "branch": "feature/gs-021-codex-execution",
+  "backend_release": "GS-021",
+  "codex_cli": "codex-cli 0.163.0-alpha.11",
+  "workspace": "D:\\000_AI Project\\Codex Test",
+  "paid_api_budget_aud": 0,
+  "live_backend_tests": [
+    {
+      "operation": "create",
+      "job_id": "CODEX-79e7344047d650",
+      "approval_state_before_execution": "pending_approval",
+      "final_status": "completed",
+      "filesystem_evidence": "hello_codex.py contained exactly print(\"Ground Space Codex OK\")",
+      "observed_stdout": "Ground Space Codex OK"
+    },
+    {
+      "operation": "execute_initial",
+      "job_id": "CODEX-d4d13828f60c74",
+      "approval_state_before_execution": "pending_approval",
+      "final_status": "completed",
+      "observed_stdout": "Ground Space Codex OK"
+    },
+    {
+      "operation": "edit",
+      "job_id": "CODEX-c2adf79692c64d",
+      "approval_state_before_execution": "pending_approval",
+      "final_status": "completed",
+      "filesystem_evidence": "hello_codex.py contained exactly print(\"Ground Space Codex Edit OK\")"
+    },
+    {
+      "operation": "execute_edited",
+      "job_id": "CODEX-4358dc93f56d5a",
+      "approval_state_before_execution": "pending_approval",
+      "final_status": "completed",
+      "observed_stdout": "Ground Space Codex Edit OK"
+    },
+    {
+      "operation": "delete",
+      "job_id": "CODEX-001d4ab82e08fb",
+      "approval_state_before_execution": "pending_approval",
+      "final_status": "completed",
+      "filesystem_evidence": "hello_codex.py absent after the approved task"
+    },
+    {
+      "operation": "reject",
+      "job_id": "CODEX-164332ee00d852",
+      "approval_state_before_execution": "pending_approval",
+      "final_status": "rejected",
+      "filesystem_evidence": "rejected_should_not_exist.txt was not created"
+    }
+  ],
+  "security_checks": {
+    "server_bound_to_localhost": true,
+    "tailscale_serve_configuration_changed": false,
+    "unregistered_project_rejected": true,
+    "pending_or_running_jobs_after_validation": 0,
+    "qwen_or_granite_received_write_or_execute_permissions": false,
+    "private_diagnostic_records": 5,
+    "diagnostics_contained_bearer_token": false,
+    "diagnostics_contained_openai_style_key": false,
+    "diagnostics_contained_email_address": false
+  },
+  "ui_evidence": {
+    "codex_status": "ONLINE workspace coding agent",
+    "completed_jobs_visible": 5,
+    "rejected_jobs_visible": 1,
+    "tailnet_bootstrap_release": "GS-021"
+  },
+  "automated_tests": {
+    "focused": "30 passed",
+    "full_suite": "111 passed, 1 pre-existing unrelated Windows 8.3 path spelling failure"
+  },
+  "notes": [
+    "The evidence file contains no credentials or raw Codex transcripts.",
+    "Raw redacted diagnostics remain in the owner-local private state directory outside Git.",
+    "The disposable hello_codex.py file was removed by the final approved live operation."
+  ]
+}
