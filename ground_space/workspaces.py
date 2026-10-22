@@ -18,6 +18,8 @@ from .messages import utc_timestamp
 MAX_PROJECTS = 30
 MAX_GROUPS = 30
 MAX_GROUP_MODELS = 6
+# These options approve only local read/propose chat, never filesystem or CLI writes.
+GROUP_APPROVAL_MODES = frozenset({'manual', 'approve_for_me', 'disabled'})
 
 
 def _save(path: Path, value: Any) -> None:
@@ -69,7 +71,7 @@ class WorkspaceRegistry:
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
             return {"projects": [dict(p) for p in self.projects],
-                    "groups": [dict(g) for g in self.groups],
+                    "groups": [{**g, "approval_modes": dict(g.get("approval_modes", {}))} for g in self.groups],
                     "allowed_project_roots": [str(root) for root in self.allowed_roots]}
 
     def browse_folders(self, path_text: str | None = None) -> dict[str, Any]:
@@ -174,11 +176,24 @@ class WorkspaceRegistry:
             raise ValueError("Group models must be registered under Agents first")
         return list(models)
 
+    @staticmethod
+    def _validate_approvals(approvals: Any, members: list[str], existing: dict[str, str] | None = None) -> dict[str, str]:
+        if approvals is None:
+            # Existing groups used automatic read/propose chat. Preserve that behavior.
+            return {model: (existing or {}).get(model, "approve_for_me") for model in members}
+        if not isinstance(approvals, dict) or set(approvals) - set(members):
+            raise ValueError("Approval settings must match selected group members")
+        if any(not isinstance(mode, str) or mode not in GROUP_APPROVAL_MODES
+               for mode in approvals.values()):
+            raise ValueError("Invalid group bot approval mode")
+        return {model: approvals.get(model, (existing or {}).get(model, "approve_for_me")) for model in members}
+
     def create_group(self, name: str, models: Any, project_id: str | None,
-                     registered: list[str]) -> dict[str, Any]:
+                     registered: list[str], approval_modes: Any = None) -> dict[str, Any]:
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 70:
             raise ValueError("Group name must be 1–70 characters")
         members = self._validate_members(models, registered)
+        approvals = self._validate_approvals(approval_modes, members)
         project = self.validate_project(project_id)
         with self.lock:
             if len(self.groups) >= MAX_GROUPS:
@@ -186,7 +201,7 @@ class WorkspaceRegistry:
             group = {"id": "group-" + secrets.token_hex(8),
                      "conversation_id": "room-" + secrets.token_hex(12),
                      "name": name.strip(), "models": members,
-                     "project_id": project, "created_at": utc_timestamp(),
+                     "approval_modes": approvals, "project_id": project, "created_at": utc_timestamp(),
                      "execution": "sequential", "scope": "proposal_only"}
             updated = [*self.groups, group]
             _save(self.groups_file, {"schema_version": 1, "groups": updated})
@@ -194,12 +209,14 @@ class WorkspaceRegistry:
             return dict(group)
 
     def update_group(self, group_id: str, models: Any, project_id: str | None,
-                     registered: list[str]) -> dict[str, Any]:
+                     registered: list[str], approval_modes: Any = None) -> dict[str, Any]:
         members = self._validate_members(models, registered)
         project = self.validate_project(project_id)
         with self.lock:
             target = self.get_group(group_id)
-            updated_group = {**target, "models": members, "project_id": project}
+            approvals = self._validate_approvals(approval_modes, members, target.get("approval_modes"))
+            updated_group = {**target, "models": members, "approval_modes": approvals,
+                             "project_id": project}
             updated = [updated_group if g["id"] == group_id else g for g in self.groups]
             _save(self.groups_file, {"schema_version": 1, "groups": updated})
             self.groups = updated
