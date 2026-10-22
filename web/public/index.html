@@ -109,8 +109,9 @@
             <select id="availableModel" aria-label="Installed models available to add"></select>
             <button type="button" id="addModelButton">Add model</button>
           </div>
+          <p id="modelImportStatus" class="model-import-status" role="status" aria-live="polite">Checking local Ollama models…</p>
           <div id="registeredModels" class="registered-models"></div>
-          <p class="provider-note">Future connections: ChatGPT / OpenAI and Claude — not connected. Cloud subscriptions are not used by this prototype.</p>
+          <p class="provider-note">This adds only models already installed in Ollama on your ASUS. Online ChatGPT, Claude and Grok connections are not implemented yet; they cannot be imported with this button.</p>
         </section>
         <div class="agent-grid" id="agentGrid"></div>
       </section>
@@ -138,6 +139,7 @@
         <small>Up to 6 · Replies run sequentially</small>
       </div>
       <div id="groupMemberOptions" class="group-members"></div>
+      <p id="groupDialogError" class="dialog-feedback" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="button" id="cancelGroup">Cancel</button>
         <button type="submit" id="saveGroup">Create group</button>
@@ -147,7 +149,7 @@
   <dialog id="projectDialog" class="workspace-dialog">
     <form id="projectForm">
       <h2>Select local project folder</h2>
-      <p>Project folders only identify your workspace. AI models cannot read or change those files from chat.</p>
+      <p>Browse folders on your ASUS computer, not your iPhone. This only links an existing local folder; AI file access stays disabled.</p>
       <label for="projectName">Project label (optional)</label>
       <input id="projectName" maxlength="80" placeholder="Project name">
       <label for="projectPath">Local folder path</label>
@@ -160,6 +162,7 @@
         <div class="folder-picker-head"><button type="button" id="folderUp">↑ Up</button><small id="folderCurrent">Allowed folders</small></div>
         <div id="folderEntries" class="folder-entries"></div>
       </div>
+      <p id="projectDialogError" class="dialog-feedback" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="button" id="cancelProject">Cancel</button>
         <button type="submit" id="saveProject">Add project</button>
