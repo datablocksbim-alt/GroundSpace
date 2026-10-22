@@ -1,0 +1,48 @@
+name: Ground Space Codex approval pilot
+on:
+  push:
+    branches:
+      - "feature/gs-016-codex-approval-pilot"
+  pull_request:
+    branches:
+      - "feature/gs-015-functional-controls"
+permissions:
+  contents: read
+jobs:
+  policies:
+    name: Codex approval and existing regression (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile local backend
+        run: python -m compileall -q ground_space
+      - name: Policy, read-only enforcement and existing Ground Space tests
+        run: python -m unittest tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Check frontend JavaScript
+        run: node --check web/public/app.js
+      - name: Check browser test JavaScript
+        run: node --check tools/test_gs015_browser.mjs
+  browser:
+    name: Mobile + desktop Codex approval interactions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install test-only browser
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Click through Ground Space and Codex settings
+        run: node tools/test_gs015_browser.mjs
+
+# CI uses a fake Codex CLI for unit and mocked browser tests.
+# Actual CLI login and Windows sandbox support require owner ASUS verification.
