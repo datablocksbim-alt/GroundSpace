@@ -13,6 +13,7 @@ const discovered = ['granite4:3b'];
 const projects = [];
 const groups = [];
 const conversations = {};
+const codex = {default_mode:'manual',project_modes:{},jobs:[]};
 const state = {csrf:'functional-test-token'};
 const json = (res,status,value) => {
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
@@ -38,6 +39,8 @@ const bootstrap = () => ({
     groups:groups.map(g=>({...g})),
     allowed_project_roots:['D:\\000_AI Project'],
   },
+  codex:{scope:'single_owner_pilot',per_user_accounts:false,cli_installed:true,max_permission:'read_only',
+    default_mode:codex.default_mode,project_modes:{...codex.project_modes},jobs:[...codex.jobs].reverse()},
   paid_api_usage_aud:0,
 });
 const server=createServer(async(req,res)=>{
@@ -65,6 +68,25 @@ const server=createServer(async(req,res)=>{
     if(req.method==='POST'){
       assert.equal(req.headers['x-ground-space-csrf'],state.csrf,'CSRF token missing');
       const body=await reqBody(req);
+      if(path==='/api/codex/policy'){
+        if(!['manual','auto_read_only','disabled'].includes(body.mode))return json(res,400,{error:'Invalid approval mode'});
+        if(body.project_id)codex.project_modes[body.project_id]=body.mode;
+        else codex.default_mode=body.mode;
+        return json(res,200,bootstrap().codex);
+      }
+      if(path==='/api/codex/submit'){
+        const mode=codex.project_modes[body.project_id]||codex.default_mode;
+        if(mode==='disabled')return json(res,400,{error:'Codex disabled'});
+        const job={id:'CODEX-'+(codex.jobs.length+1),project_id:body.project_id,project_name:'Demo',
+          prompt:body.prompt,mode_at_submission:mode,status:mode==='manual'?'pending_approval':'running',
+          scope:'read_only',answer:'',error:''};
+        codex.jobs.push(job);return json(res,201,job);
+      }
+      if(path==='/api/codex/approve'||path==='/api/codex/reject'){
+        const job=codex.jobs.find(x=>x.id===body.job_id);
+        if(!job||job.status!=='pending_approval')return json(res,400,{error:'Not pending'});
+        job.status=path.endsWith('/approve')?'running':'rejected';return json(res,200,job);
+      }
       if(path==='/api/projects/add'){
         if(!String(body.path).startsWith('D:\\000_AI Project\\')||String(body.path).includes('Forbidden'))
           return json(res,400,{error:'Project folder must be inside an allowed project root'});
@@ -171,7 +193,27 @@ try{
       await page.locator('#mobileOptionsToggle').click();
       assert.equal(await page.locator('#chatOptions').isVisible(),true,'Model options toggle');
     }
-    console.log('PASS: '+label+' buttons, project browser/save/rejection, local AI model import, group creation, and chat layout');
+    // Codex per-project owner approval options must work in desktop and mobile view.
+    await page.locator('.nav-button[data-view="codex"]').click();
+    const selectedProject=projects[projects.length-1].id;
+    await page.locator('#codexPolicyProject').selectOption(selectedProject);
+    await page.locator('#codexApprovalMode').selectOption('auto_read_only');
+    await page.locator('#saveCodexPolicy').click();
+    await page.waitForFunction(id=>document.querySelector('#codexPolicyProject')?.value===id,selectedProject);
+    assert.equal(codex.project_modes[selectedProject],'auto_read_only');
+    await page.locator('#codexApprovalMode').selectOption('manual');
+    await page.locator('#saveCodexPolicy').click();
+    assert.equal(codex.project_modes[selectedProject],'manual');
+    await page.locator('#codexReviewProject').selectOption(selectedProject);
+    await page.locator('#codexReviewPrompt').fill('Review current implementation');
+    await page.locator('#submitCodexReview').click();
+    await page.locator('#codexJobList .codex-actions button[data-decision="approve"]').first().waitFor({state:'visible'});
+    assert.equal(codex.jobs[codex.jobs.length-1].status,'pending_approval');
+    await page.locator('#codexJobList .codex-actions button[data-decision="approve"]').first().click();
+    await page.waitForFunction(()=>document.querySelector('#codexJobList')?.textContent.includes('running'));
+    assert.equal(codex.jobs[codex.jobs.length-1].status,'running');
+    assert.equal(exceptions.length,0,label+' Codex settings and approvals: '+exceptions.join(', '));
+    console.log('PASS: '+label+' buttons, project add, local model import, Codex approval choice/review, group chat and layout');
     await context.close();
   }
 } finally{

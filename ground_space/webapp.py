@@ -20,6 +20,7 @@ from typing import Any
 
 from .bridge import AdministratorAdapter, OrchestratorAdapter
 from .coordinator import coordinator_instructions, route_group_message, specialist_instructions
+from .codex_pilot import CodexPilot
 from .messages import utc_timestamp
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
@@ -119,6 +120,7 @@ class GroundSpaceApp:
         for model in self.registered_models:
             self._register_worker(model, availability)
         self.conversations = self._load_history()
+        self.codex = CodexPilot(self.state_dir / "private", self.workspaces)
 
 
     @staticmethod
@@ -536,7 +538,8 @@ class GroundSpaceApp:
         return {"agents": self.agents(availability=availability), "tasks": self.tasks(),
                 "conversations": history,
                 "models": self.catalog(availability=availability),
-                "workspaces": self.workspaces.snapshot(), "paid_api_usage_aud": 0}
+                "workspaces": self.workspaces.snapshot(), "codex": self.codex.snapshot(),
+                "paid_api_usage_aud": 0}
 
 
 class GroundSpaceHandler(BaseHTTPRequestHandler):
@@ -651,6 +654,18 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/groups/send":
                 self._json(HTTPStatus.CREATED, self.app.submit_group(body))
+                return
+            if path == "/api/codex/policy":
+                self._json(HTTPStatus.OK, self.app.codex.set_policy(body))
+                return
+            if path == "/api/codex/submit":
+                self._json(HTTPStatus.CREATED, self.app.codex.submit(body))
+                return
+            if path == "/api/codex/approve":
+                self._json(HTTPStatus.OK, self.app.codex.approve(body))
+                return
+            if path == "/api/codex/reject":
+                self._json(HTTPStatus.OK, self.app.codex.reject(body))
                 return
             if path == "/api/models/add":
                 self._json(HTTPStatus.CREATED, self.app.add_model(str(body.get("model", ""))))

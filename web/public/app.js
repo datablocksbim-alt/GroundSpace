@@ -333,6 +333,64 @@ async function copyReply(taskId){
 
 function renderAgents(){const root=$('#agentGrid');root.innerHTML=(state.data?.agents||[]).map(a=>`<article class="agent-card"><header><h2>${esc(a.agent_id.replaceAll('-',' '))}</h2><span class="${a.active?'live':'live offline'}">${a.active?'● ONLINE':'○ INACTIVE'}</span></header><p>${esc(a.role)}${a.model?` · ${esc(a.model)}`:''}</p><div class="chips">${a.permissions.map(p=>`<span>${esc(p)}</span>`).join('')}</div></article>`).join('')}
 function renderTasks(){const rows=$('#taskRows'),tasks=state.data?.tasks||[];rows.innerHTML=tasks.map(t=>`<tr data-task="${esc(t.task_id)}"><td><b>${esc(t.task_id)}</b></td><td>${esc(t.requested_worker)}</td><td>${esc(t.approval?.status||'unknown')}</td><td><span class="badge ${esc(t.status)}">${esc(t.status)}</span></td><td>${new Date(t.updated_at).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="5">No tasks yet.</td></tr>';rows.querySelectorAll('tr[data-task]').forEach(row=>row.onclick=async()=>{$('#taskDetail').textContent=JSON.stringify(await api(`/api/tasks/${row.dataset.task}`),null,2)})}
+const CODEX_MODES={
+  manual:'Every Codex review waits for your explicit approval.',
+  auto_read_only:'Codex may start read-only reviews automatically. File edits, installs and elevated commands are still blocked.',
+  disabled:'Codex review requests are blocked for this scope.'
+};
+function codexProjectMode(projectId){
+  const data=state.data?.codex||{};
+  return (projectId&&data.project_modes?.[projectId])||data.default_mode||'manual';
+}
+function refreshCodexPolicyDescription(){
+  const selected=$('#codexApprovalMode').value;
+  $('#codexPolicyDescription').textContent=CODEX_MODES[selected]||CODEX_MODES.manual;
+}
+function renderCodex(){
+  const codex=state.data?.codex;
+  if(!codex)return;
+  const projects=state.data?.workspaces?.projects||[];
+  const signature=JSON.stringify(projects.map(p=>[p.id,p.name]));
+  const policyScope=$('#codexPolicyProject');
+  const reviewScope=$('#codexReviewProject');
+  if(policyScope.dataset.signature!==signature){
+    const prev=policyScope.value;
+    policyScope.innerHTML='<option value="">All projects — default</option>'+
+      projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
+    policyScope.dataset.signature=signature;
+    policyScope.value=projects.some(p=>p.id===prev)?prev:'';
+  }
+  if(reviewScope.dataset.signature!==signature){
+    const prev=reviewScope.value||state.projectId;
+    reviewScope.innerHTML='<option value="">Select a registered project</option>'+
+      projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
+    reviewScope.dataset.signature=signature;
+    reviewScope.value=projects.some(p=>p.id===prev)?prev:'';
+  }
+  const scope=policyScope.value;
+  const modeField=$('#codexApprovalMode');
+  if(policyScope.dataset.activeScope!==scope){
+    policyScope.dataset.activeScope=scope;
+    modeField.value=codexProjectMode(scope);
+  }
+  refreshCodexPolicyDescription();
+  $('#codexAvailability').textContent=codex.cli_installed?
+    'Codex CLI detected on ASUS · Read-only pilot · Owner account':
+    'Codex CLI not detected. Install and sign in on ASUS to enable reviews; you may still configure approvals.';
+  $('#submitCodexReview').disabled=!codex.cli_installed||!projects.length;
+  const list=$('#codexJobList');
+  list.innerHTML=(codex.jobs||[]).map(job=>{
+    const status=esc(job.status);
+    const actions=job.status==='pending_approval'
+      ?'<div class="codex-actions"><button type="button" class="codex-decision" data-decision="approve" data-job="'+esc(job.id)+'">Approve read-only review</button>'+
+       '<button type="button" class="codex-decision" data-decision="reject" data-job="'+esc(job.id)+'">Reject</button></div>':'';
+    return '<article class="codex-job"><header><strong>'+esc(job.project_name)+'</strong><span class="codex-state">'+status+'</span></header>'+
+      '<small>'+esc(job.id)+' · '+esc(job.scope)+' · '+esc(job.mode_at_submission)+'</small>'+
+      '<details><summary>'+esc(job.prompt)+'</summary>'+
+      (job.answer?'<pre>'+esc(job.answer)+'</pre>':'')+
+      (job.error?'<p>'+esc(job.error)+'</p>':'')+'</details>'+actions+'</article>';
+  }).join('')||'<p>No Codex reviews yet.</p>';
+}
 async function refresh(){
   if(state.refreshing)return;
   state.refreshing=true;
@@ -352,7 +410,7 @@ async function refresh(){
       }
     }
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
-    renderModels();renderWorkspaces();renderMessages();renderActiveAgents();renderAgents();renderTasks();
+    renderModels();renderWorkspaces();renderMessages();renderActiveAgents();renderAgents();renderTasks();renderCodex();
   }finally{state.refreshing=false;}
 }
 async function submit(event){
@@ -541,6 +599,46 @@ mobileViewport.addEventListener('change',syncMobileLayout);
 window.visualViewport?.addEventListener('resize',syncMobileViewportHeight);
 window.addEventListener('orientationchange',syncMobileViewportHeight);
 syncMobileLayout();
+$('#codexPolicyProject').addEventListener('change',()=>{
+  $('#codexPolicyProject').dataset.activeScope='';
+  renderCodex();
+});
+$('#codexApprovalMode').addEventListener('change',refreshCodexPolicyDescription);
+$('#codexPolicyForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  try{
+    const scope=$('#codexPolicyProject').value||null;
+    await api('/api/codex/policy',{method:'POST',body:JSON.stringify({
+      project_id:scope,mode:$('#codexApprovalMode').value
+    })});
+    await refresh();
+    toast('Codex approval settings saved');
+  }catch(error){toast(error.message);}
+});
+$('#codexReviewForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  $('#submitCodexReview').disabled=true;
+  try{
+    const response=await api('/api/codex/submit',{method:'POST',body:JSON.stringify({
+      project_id:$('#codexReviewProject').value,prompt:$('#codexReviewPrompt').value.trim()
+    })});
+    $('#codexReviewPrompt').value='';
+    await refresh();
+    toast(response.status==='pending_approval'?'Review pending your approval':'Read-only review started');
+  }catch(error){toast(error.message);}
+  finally{renderCodex();}
+});
+$('#codexJobList').addEventListener('click',async event=>{
+  const button=event.target.closest('button[data-decision][data-job]');
+  if(!button)return;
+  button.disabled=true;
+  try{
+    await api('/api/codex/'+button.dataset.decision,{method:'POST',
+      body:JSON.stringify({job_id:button.dataset.job})});
+    await refresh();toast(button.dataset.decision==='approve'?'Codex review started':'Codex review rejected');
+  }catch(error){toast(error.message);button.disabled=false;}
+});
+
 $$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
 // Keep every task in this conversation observable, even after refresh or later messages.
 setInterval(()=>refresh().catch(()=>{$('#systemState').textContent='Ground Space disconnected'}),2500);
