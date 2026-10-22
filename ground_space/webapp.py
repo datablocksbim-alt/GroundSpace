@@ -158,13 +158,17 @@ class GroundSpaceApp:
         with self.lock:
             registered = list(self.registered_models)
         return {
-            "registered": [
+            "registered": ([
                 {"provider": "ollama", "model": model, "worker_id": self.worker_id(model),
                  "available": model in installed, "label": model,
                  "role": "proposal-only" if model == "qwen2.5-coder:3b" else "experimental proposal-only"}
                 for model in registered
-            ],
-            "discovered": [model for model in installed if model not in registered],
+            ] + ([{"provider":"openai_codex_cli", "model":"codex", "worker_id":"codex-cli",
+                   "available":self.codex.available(), "label":"Codex",
+                   "role":"workspace coding agent · create/edit/run/delete"}]
+                 if self.codex.is_registered() else [])),
+            "discovered": ([model for model in installed if model not in registered] +
+                            (["codex"] if self.codex.available() and not self.codex.is_registered() else [])),
             "presets": [{"id": key, "label": value["label"],
                          "max_output_tokens": value["num_predict"]}
                         for key, value in PERFORMANCE_PRESETS.items()],
@@ -175,6 +179,9 @@ class GroundSpaceApp:
         }
 
     def add_model(self, name: str) -> dict[str, Any]:
+        if name == "codex":
+            self.codex.set_registered(True)
+            return self.catalog()
         if not valid_model_name(name):
             raise ValueError("Invalid local model name")
         availability = probe_ollama(self.ollama_endpoint)
@@ -192,6 +199,12 @@ class GroundSpaceApp:
         return self.catalog()
 
     def remove_model(self, name: str) -> dict[str, Any]:
+        if name == "codex":
+            # Refuse removal while a writable job is in flight.
+            if any(job["status"]=="running" for job in self.codex.snapshot()["jobs"]):
+                raise ValueError("Wait for Codex to finish before removing it")
+            self.codex.set_registered(False)
+            return self.catalog()
         with self.lock:
             if name not in self.registered_models:
                 raise ValueError("Model is not registered")
@@ -224,14 +237,14 @@ class GroundSpaceApp:
         with self.lock:
             return self.workspaces.create_group(
                 body.get("name"), body.get("models"), body.get("project_id"),
-                list(self.registered_models), body.get("approval_modes"),
+                list(self.registered_models) + (["codex"] if self.codex.is_registered() else []), body.get("approval_modes"),
             )
 
     def update_group(self, body: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
             return self.workspaces.update_group(
                 str(body.get("group_id", "")), body.get("models"),
-                body.get("project_id"), list(self.registered_models), body.get("approval_modes"),
+                body.get("project_id"), list(self.registered_models) + (["codex"] if self.codex.is_registered() else []), body.get("approval_modes"),
             )
 
     def submit_group(self, body: dict[str, Any], *, annotation_entry: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -249,11 +262,15 @@ class GroundSpaceApp:
             raise ValueError("Unknown performance preset")
         models = list(group["models"])
         with self.lock:
-            if not set(models).issubset(set(self.registered_models)):
+            allowed = set(self.registered_models)
+            if self.codex.is_registered():
+                allowed.add("codex")
+            if not set(models).issubset(allowed):
                 raise ValueError("A group AI model is no longer registered; edit its members")
             availability = probe_ollama(self.ollama_endpoint)
             for model in models:
-                self._register_worker(model, availability)
+                if model != "codex":
+                    self._register_worker(model, availability)
             conversation_id = group["conversation_id"]
             context = self.conversation_context(conversation_id)
             project_context = self.project_context(group["project_id"])
@@ -265,9 +282,18 @@ class GroundSpaceApp:
                      for model in route.models}
             if any(mode == "disabled" for mode in modes.values()):
                 raise ValueError("An addressed group bot is disabled; edit Members → Approval settings")
+            if "codex" in route.models:
+                if not group["project_id"]:
+                    raise ValueError("Select a registered project before assigning Codex group work")
+                if not self.codex.is_registered():
+                    raise ValueError("Add Codex from Agents before mentioning it in a group")
+                if not (route.coordinator or annotation_entry) and not self.codex.writable_available():
+                    raise ValueError("Codex workspace editing is disabled on the ASUS; enable it explicitly")
+
             group_turn_id = "TURN-" + secrets.token_hex(8)
             task_ids = []
             automatic_task_ids = []
+            codex_job_ids = []
             timeout = PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
             for model in route.models:
                 routed_prompt = (
@@ -291,6 +317,19 @@ class GroundSpaceApp:
                            "group_turn_id": group_turn_id,
                            "project_id": group["project_id"]}
                 automatic = modes[model] == "approve_for_me"
+                if model == "codex":
+                    if not group["project_id"]:
+                        raise ValueError("Assign a local project before using Codex in a group")
+                    # Unaddressed Coordinator/planning turns are read-only;
+                    # writable execution requires an explicit @Codex specialist request.
+                    codex_scope = "read_only" if route.coordinator or annotation_entry else "workspace_write"
+                    item = self.codex.submit({
+                        "project_id": group["project_id"], "prompt": prompt,
+                        "scope": codex_scope, "conversation_id": conversation_id,
+                        "group_id": group["id"],
+                    }, group_auto_approval=automatic)
+                    codex_job_ids.append(item["id"])
+                    continue
                 task = self.administrator.submit(
                     payload, worker_id=self.worker_id(model),
                     required_permissions=["read", "propose"],
@@ -304,16 +343,16 @@ class GroundSpaceApp:
                 self.add_history(
                     conversation_id, "user", prompt, agent="group",
                     group_id=group["id"], group_turn_id=group_turn_id,
-                    task_ids=task_ids, project_id=group["project_id"],
+                    task_ids=task_ids, codex_job_ids=codex_job_ids, project_id=group["project_id"],
                 )
             else:
-                annotation_entry.update(task_ids=task_ids, group_turn_id=group_turn_id)
+                annotation_entry.update(task_ids=task_ids, codex_job_ids=codex_job_ids, group_turn_id=group_turn_id)
                 atomic_json(self.history_path, self.conversations)
         if automatic_task_ids:
             threading.Thread(
                 target=self._process_group, args=(automatic_task_ids,), daemon=True,
             ).start()
-        response = {"group": group, "task_ids": task_ids, "conversation_id": conversation_id}
+        response = {"group": group, "task_ids": task_ids, "codex_job_ids": codex_job_ids, "conversation_id": conversation_id}
         if annotation_entry is not None:
             response["entry"] = annotation_entry
         return response
@@ -408,8 +447,8 @@ class GroundSpaceApp:
         agent = str(body.get("agent", ""))
         prompt = str(body.get("prompt", "")).strip()
         conversation_id = str(body.get("conversation_id") or secrets.token_hex(12))
-        if agent not in {"administrator", "qwen", "group"}:
-            raise ValueError("Agent must be administrator, qwen, or group")
+        if agent not in {"administrator", "qwen", "group", "codex"}:
+            raise ValueError("Agent must be administrator, qwen, group, or codex")
         group = (self.workspaces.get_group(str(body.get("group_id", "")))
                  if agent == "group" else None)
         project_id = (group["project_id"] if group else
@@ -454,6 +493,21 @@ class GroundSpaceApp:
         if group:
             # Non-note group turns must go through /api/groups/send.
             raise ValueError("Group conversations use group send")
+        if agent == "codex":
+            if not self.codex.is_registered():
+                raise ValueError("Add Codex from Agents before sending it a task")
+            if not project_id:
+                raise ValueError("Select a registered project before requesting Codex")
+            item = self.codex.submit({"project_id":project_id, "prompt":prompt,
+                                      "scope":"read_only" if note else "workspace_write",
+                                      "conversation_id":conversation_id})
+            if note:
+                entry["codex_job_ids"] = [item["id"]]
+                atomic_json(self.history_path, self.conversations)
+            else:
+                entry = self.add_history(conversation_id, "user", prompt, agent="codex",
+                                         codex_job_ids=[item["id"]],project_id=project_id)
+            return {"entry":entry,"codex_job":item, "conversation_id":conversation_id}
         if agent == "qwen":
             request_type = str(body.get("request_type", "explanation"))
             model = str(body.get("model", "qwen2.5-coder:3b"))
@@ -557,6 +611,9 @@ class GroundSpaceApp:
         with self.lock:
             registered = list(self.registered_models)
         return [
+            *([{"agent_id":"codex-cli", "role":"workspace coding agent",
+                "active":self.codex.available(), "permissions":["read","propose","write","execute"],
+                "model":"codex"}] if self.codex.is_registered() else []),
             {"agent_id": "coordinator", "role": "group routing and proposal-only planning", "active": True,
              "permissions": ["read", "propose"]},
             {"agent_id": "administrator", "role": "queue, automatic dispatch, audit", "active": True,

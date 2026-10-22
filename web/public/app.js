@@ -49,13 +49,13 @@ function setAgent(agent){
   state.agent=agent;state.groupId=null;
   state.conversationId=conversationFor(agent,state.projectId);
   $$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));
-  $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':'Administrator channel';
+  $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':agent==='codex'?'Codex workspace agent':'Administrator channel';
   $('#editGroupButton').hidden=true;
   $('#projectSelect').disabled=false;
   $('#modelControls').hidden=agent!=='qwen';
-  $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':'TASK STATUS · READ';
+  $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
   $('#requestType').hidden=agent!=='qwen';
-  $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';
+  $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':agent==='codex'?'Ask Codex to create, edit, test or delete project files…':'Try “list tasks” or “status GS-…”';
   renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
   setMobileRail(false);
 }
@@ -114,6 +114,7 @@ function renderMessages(){
   const nearBottom=(root.scrollHeight-root.scrollTop-root.clientHeight)<100;
   const messages=(state.data?.conversations?.[state.conversationId]||[]).filter(x=>state.agent==='group'||!x.agent||x.agent===state.agent);
   const tasks=new Map((state.data?.tasks||[]).map(task=>[task.task_id,task]));
+  const codexJobs=new Map((state.data?.codex?.jobs||[]).map(job=>[job.id,job]));
   const replies=new Set(messages.filter(x=>x.role==='assistant').map(x=>x.task_id));
   if(!messages.length){
     root.innerHTML=`<div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>${state.agent==='qwen'?'Ask the selected local model for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.' :state.agent==='group'?'Coordinator answers by default. Use /goal to plan or @Qwen to ask a specialist.':'Use read-only Administrator commands: help, list tasks, or status &lt;task-id&gt;.'}</p></div>`;
@@ -123,6 +124,14 @@ function renderMessages(){
   for(const entry of messages){
     const task=tasks.get(entry.task_id);
     const groupTasks=Array.isArray(entry.task_ids)?entry.task_ids.map(id=>tasks.get(id)).filter(Boolean):[];
+    const jobs=Array.isArray(entry.codex_job_ids)?entry.codex_job_ids.map(id=>codexJobs.get(id)).filter(Boolean):[];
+    const codexProgress=jobs.map(job=>{
+      const actions=job.status==='pending_approval'?'<span class="group-approval-actions">'+
+        '<button type="button" data-codex-decision="approve" data-job-id="'+esc(job.id)+'">Approve workspace task</button>'+
+        '<button type="button" data-codex-decision="reject" data-job-id="'+esc(job.id)+'">Reject</button></span>':'';
+      return '<span class="group-task-status">Codex · '+esc(job.status)+' · '+
+        esc(job.scope==='workspace_write'?'Can change project files':'Read-only')+actions+'</span>';
+    }).join('');
     const groupProgress=groupTasks.map(t=>{
       const pending=t.status==='queued'&&t.approval?.status==='pending';
       const actions=pending?'<span class="group-approval-actions">'+
@@ -131,7 +140,7 @@ function renderMessages(){
       return '<span class="group-task-status">'+esc(t.payload?.speaker||t.payload?.model||t.requested_worker)+
         ' · '+taskStatus(t)+actions+'</span>';
     }).join('');
-    const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task)):'';
+    const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task))+codexProgress:'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
     const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
@@ -142,6 +151,15 @@ function renderMessages(){
     const fullTime=Number.isNaN(timestamp.getTime())?'':timestamp.toLocaleString();
     const meta='<small class="message-meta"><span class="message-id">'+esc(identity)+' · </span><span class="message-time" title="'+esc(fullTime)+'">'+esc(shortTime)+'</span></small>';
     html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span>${meta}${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
+    for(const job of jobs){
+      if(job.status==='completed'&&job.answer)
+        html.push('<div class="message assistant"><span class="member-label">Codex</span>'+
+          '<span class="message-content">'+esc(job.answer)+'</span>'+
+          '<small>'+esc(job.id)+' · '+esc(job.scope)+'</small></div>');
+      else if(job.status==='failed'&&job.error)
+        html.push('<div class="message system"><span class="member-label">Codex</span>'+
+          '<span class="message-content">'+esc(job.error)+'</span></div>');
+    }
     // Group replies may appear in task records before persistence in chat history.
     if(['user','note'].includes(entry.role)&&groupTasks.length){
       for(const groupTask of groupTasks){
@@ -209,6 +227,10 @@ function renderActiveAgents(){
       }));
       note=group.models.length+' group participant'+(group.models.length===1?'':'s')+' · Replies run sequentially.';
     }
+  }else if(state.agent==='codex'){
+    const item=registered.get('codex');
+    if(item)entries.push(activeAgentEntry('Codex',item.role,Boolean(item.available)));
+    note='Codex coding agent · Selected project · Explicit approval by default.';
   }else if(state.agent==='qwen'){
     const item=registered.get(state.selectedModel);
     if(item)entries.push(activeAgentEntry(item.label||item.model,item.role||'Proposal-only',Boolean(item.available)));
@@ -236,12 +258,12 @@ function openGroupEditor(groupId=''){
   $('#saveGroup').textContent=group?'Save changes':'Create group';
   $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
   $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>{
-    const mode=group?.approval_modes?.[item.model]||'approve_for_me';
+    const mode=group?.approval_modes?.[item.model]||(item.model==='codex'?'manual':'approve_for_me');
     const opts=[['manual','Ask me'],['approve_for_me','Approve for me'],['disabled','Off']]
       .map(([value,label])=>'<option value="'+value+'"'+(mode===value?' selected':'')+'>'+label+'</option>').join('');
     return '<div class="group-member-setting"><label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
       '"'+(group?.models.includes(item.model)?' checked':'')+'><span><b>'+esc(item.model)+
-      '</b><small>'+esc(item.available?'Available · read/propose only':'Offline · read/propose only')+
+      '</b><small>'+esc(item.available?(item.model==='codex'?'Available · workspace coding agent':'Available · read/propose only'):'Offline')+
       '</small></span></label><label class="group-member-policy-label">Bot approval'+
       '<select class="group-member-policy" data-model="'+esc(item.model)+'" aria-label="Approval for '+esc(item.model)+'">'+
       opts+'</select></label></div>';
@@ -286,11 +308,13 @@ async function browseFolders(path=null){
 function renderModels(){
   const data=state.data?.models||{};
   const registered=data.registered||[];
-  const online=registered.filter(item=>item.available);
+  const online=registered.filter(item=>item.available&&item.provider==='ollama');
+  const chatModels=registered.filter(item=>item.provider==='ollama');
+  $('#codexAgentChannel').hidden=!registered.some(item=>item.model==='codex');
   const choices=$('#modelSelect');
-  const choicesKey=JSON.stringify(registered.map(item=>[item.model,item.available]));
+  const choicesKey=JSON.stringify(chatModels.map(item=>[item.model,item.available]));
   if(choices.dataset.optionsKey!==choicesKey){
-    choices.innerHTML=registered.map(item=>'<option value="'+esc(item.model)+'" '+(!item.available?'disabled':'')+'>'+esc(item.model+(item.available?'':' (offline)'))+'</option>').join('');
+    choices.innerHTML=chatModels.map(item=>'<option value="'+esc(item.model)+'" '+(!item.available?'disabled':'')+'>'+esc(item.model+(item.available?'':' (offline)'))+'</option>').join('');
     choices.dataset.optionsKey=choicesKey;
   }
   if(!online.some(item=>item.model===state.selectedModel)){
@@ -311,14 +335,14 @@ function renderModels(){
   const keep=available.value;
   const availableKey=JSON.stringify(discovered);
   if(available.dataset.optionsKey!==availableKey){
-    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex — OpenAI coding agent (CLI)':name)+'</option>').join('');
     available.dataset.optionsKey=availableKey;
   }
   if(discovered.includes(keep))available.value=keep;
   if(!discovered.length)available.innerHTML='<option value="">No additional Ollama models</option>';
   $('#addModelButton').disabled=!discovered.length;
   $('#modelImportStatus').textContent=discovered.length
-    ? discovered.length+' installed model'+(discovered.length===1?'':'s')+' available to add on this ASUS.'
+    ? discovered.length+' AI agent'+(discovered.length===1?'':'s')+' available to add on this ASUS.'
     : data.registered?.some(item=>item.available)
       ? 'All detected Ollama models are already registered, or no additional model is installed. To add more, install them in Ollama on the ASUS first.'
       : 'No additional installed Ollama models detected. Check that Ollama is running on the ASUS. Online AI accounts require a separate integration.';
@@ -395,14 +419,15 @@ function renderCodex(){
   }
   refreshCodexPolicyDescription();
   $('#codexAvailability').textContent=codex.cli_installed?
-    'Codex CLI detected on ASUS · Read-only pilot · Owner account':
+    (codex.registered?'Codex agent registered · ':'Codex not added · ')+
+    (codex.write_enabled?'Writable workspace tasks enabled on ASUS':'Writable tasks disabled until ASUS enables the opt-in'):
     'Codex CLI not detected. Install and sign in on ASUS to enable reviews; you may still configure approvals.';
   $('#submitCodexReview').disabled=!codex.cli_installed||!projects.length;
   const list=$('#codexJobList');
   list.innerHTML=(codex.jobs||[]).map(job=>{
     const status=esc(job.status);
     const actions=job.status==='pending_approval'
-      ?'<div class="codex-actions"><button type="button" class="codex-decision" data-decision="approve" data-job="'+esc(job.id)+'">Approve read-only review</button>'+
+      ?'<div class="codex-actions"><button type="button" class="codex-decision" data-decision="approve" data-job="'+esc(job.id)+'">Approve task</button>'+
        '<button type="button" class="codex-decision" data-decision="reject" data-job="'+esc(job.id)+'">Reject</button></div>':'';
     return '<article class="codex-job"><header><strong>'+esc(job.project_name)+'</strong><span class="codex-state">'+status+'</span></header>'+
       '<small>'+esc(job.id)+' · '+esc(job.scope)+' · '+esc(job.mode_at_submission)+'</small>'+
@@ -447,11 +472,11 @@ async function submit(event){
       prompt,request_type:$('#requestType').value,model:state.selectedModel,
       performance:state.performance,conversation_id:state.conversationId
     })});
-    if(!isGroup)localStorage.setItem('gs_conversation_id',state.conversationId);
+    if(!isGroup&&state.agent==='qwen')localStorage.setItem('gs_conversation_id',state.conversationId);
     $('#prompt').value='';
     updateSlashMenu();
     await refresh();
-    toast(response.entry?(response.task||response.task_ids?'Planning note saved · Coordinator reply queued':'Planning note saved'):isGroup?'Message sent to Coordinator or mentioned specialist':'Task submitted');
+    toast(response.codex_job?.status==='pending_approval'?'Codex task waiting for approval':response.entry?(response.task||response.task_ids?'Planning note saved · Coordinator reply queued':'Planning note saved'):isGroup?'Message sent to Coordinator or mentioned specialist':'Task submitted');
   }catch(error){toast(error.message)}
   finally{updateComposerAvailability();}
 }
@@ -477,6 +502,7 @@ function groupMentionOptions(){
     let label=model;
     if(lower.startsWith('qwen2.5-coder')){token='@Qwen';label='Qwen';}
     else if(lower.startsWith('granite')){token='@Granite';label='Granite';}
+    else if(lower==='codex'){token='@Codex';label='Codex';}
     else if(lower.startsWith('ministral')){token='@Ministral';label='Ministral';}
     options.push({token,label,detail:model});
   }
@@ -567,6 +593,15 @@ $('#messages').addEventListener('click',event=>{
     }).then(()=>refresh()).then(()=>toast(decision.dataset.groupDecision==='approve'?
       'Read-only bot reply approved':'Bot reply rejected'))
       .catch(error=>{toast(error.message);decision.disabled=false;});
+    return;
+  }
+  const codexDecision=event.target.closest('button[data-codex-decision]');
+  if(codexDecision){
+    codexDecision.disabled=true;
+    api('/api/codex/'+codexDecision.dataset.codexDecision,{method:'POST',
+      body:JSON.stringify({job_id:codexDecision.dataset.jobId})})
+      .then(()=>refresh()).then(()=>toast('Codex job decision recorded'))
+      .catch(error=>{toast(error.message);codexDecision.disabled=false;});
     return;
   }
   const button=event.target.closest('button.copy-response');

@@ -121,7 +121,7 @@ class CodexPilotTests(unittest.TestCase):
 
     def test_provider_exposes_only_local_owner_pilot(self):
         status=self.pilot.snapshot()
-        self.assertEqual("read_only",status["max_permission"])
+        self.assertEqual("workspace_write_if_owner_approved",status["max_permission"])
         self.assertEqual("single_owner_pilot",status["scope"])
         self.assertFalse(status["per_user_accounts"])
 

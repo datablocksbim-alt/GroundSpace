@@ -58,6 +58,7 @@ class FunctionalControlsTests(unittest.TestCase):
             app.ollama_endpoint = "http://127.0.0.1:11434"
             app.registered_models = ["qwen2.5-coder:3b"]
             app.orchestrator = SimpleNamespace(register=Mock())
+            app.codex = SimpleNamespace(is_registered=Mock(return_value=False),available=Mock(return_value=False))
             availability = {"available": True, "models": ["qwen2.5-coder:3b", "granite4:3b"]}
             with patch("ground_space.webapp.probe_ollama", return_value=availability):
                 catalog = app.add_model("granite4:3b")

@@ -31,6 +31,10 @@ class CodexPilot:
         self.workspaces, self.run, self.which = workspaces, run, which
         self.policy_path = private_dir / "codex_approval.json"
         self.jobs_path = private_dir / "codex_jobs.json"
+        self.agent_path = private_dir / "codex_agent.json"
+        self.agent_settings = read(self.agent_path, {"registered":False})
+        if not isinstance(self.agent_settings, dict) or not isinstance(self.agent_settings.get("registered"), bool):
+            raise ValueError("Codex agent registry invalid")
         self.lock = threading.RLock()
         self.policy_data = read(self.policy_path, {"default":"manual", "projects":{}})
         self.jobs = read(self.jobs_path, [])
@@ -41,6 +45,25 @@ class CodexPilot:
                 item.update(status="interrupted", error="Ground Space restarted while Codex was reviewing")
         if self.jobs: persist(self.jobs_path,self.jobs)
 
+    def is_registered(self) -> bool:
+        with self.lock:
+            return self.agent_settings["registered"]
+
+    def set_registered(self, enabled: bool) -> dict[str, Any]:
+        with self.lock:
+            if enabled and not self.which("codex"):
+                raise ValueError("Codex CLI must be installed on the ASUS first")
+            persist(self.agent_path, {"registered": enabled})
+            self.agent_settings = {"registered": enabled}
+        return self.snapshot()
+
+    def available(self) -> bool:
+        return bool(self.which("codex"))
+
+    def writable_available(self) -> bool:
+        # Explicit opt-in; requires separate confirmation on the actual owner ASUS.
+        return os.environ.get("GROUND_SPACE_CODEX_WRITE_ENABLED") == "1"
+
     def mode(self, project_id: str | None) -> str:
         with self.lock:
             value = self.policy_data["projects"].get(project_id, self.policy_data["default"])
@@ -49,7 +72,8 @@ class CodexPilot:
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
             return {"scope":"single_owner_pilot", "per_user_accounts":False,
-                "cli_installed":bool(self.which("codex")), "max_permission":"read_only",
+                "cli_installed":bool(self.which("codex")), "registered":self.agent_settings["registered"],
+                "write_enabled":self.writable_available(), "max_permission":"workspace_write_if_owner_approved",
                 "default_mode":self.policy_data["default"],
                 "project_modes":dict(self.policy_data["projects"]),
                 "jobs":[dict(x) for x in reversed(self.jobs[-50:])]}
@@ -75,8 +99,15 @@ class CodexPilot:
             if job["id"] == job_id: return job
         raise ValueError("Unknown Codex job")
 
-    def submit(self, body: dict[str,Any]) -> dict[str,Any]:
+    def submit(self, body: dict[str,Any], *, group_auto_approval: bool = False) -> dict[str,Any]:
         project_id, prompt = body.get("project_id"), body.get("prompt")
+        scope = body.get("scope", "read_only")
+        if scope not in ("read_only", "workspace_write"):
+            raise ValueError("Invalid Codex operation scope")
+        if scope == "workspace_write" and not self.writable_available():
+            raise ValueError("Writable Codex agent is off. Explicitly enable the workspace-write pilot on the ASUS.")
+        if scope == "workspace_write" and not self.is_registered():
+            raise ValueError("Add Codex in Agents before assigning writable work")
         if not isinstance(project_id,str) or not project_id:
             raise ValueError("Choose a registered project for Codex")
         project = self.workspaces.get_project(project_id)
@@ -91,10 +122,21 @@ class CodexPilot:
             record = {"id":"CODEX-"+secrets.token_hex(7),"project_id":project_id,
                       "project_name":project["name"],"prompt":prompt.strip(),
                       "mode_at_submission":mode,"status":"pending_approval",
-                      "scope":"read_only","answer":"","error":""}
+                      "scope":scope,"answer":"","error":"",
+                      "group_id":body.get("group_id"), "conversation_id":body.get("conversation_id")}
             self.jobs = (self.jobs+[record])[-50:]
             persist(self.jobs_path,self.jobs)
-        if mode=="auto_read_only": self.approve({"job_id":record["id"]})
+        if mode=="auto_read_only" and scope=="read_only": self.approve({"job_id":record["id"]})
+        # Only the trusted group dispatcher may grant an auto-approval based
+        # on the persisted per-bot policy. Never use a browser-submitted flag.
+        if group_auto_approval:
+            group_id=record.get("group_id")
+            if not isinstance(group_id,str) or not group_id:
+                raise ValueError("Automatic writable permission requires a group")
+            group=self.workspaces.get_group(group_id)
+            if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex")!="approve_for_me":
+                raise ValueError("Codex is not automatically approved in this group")
+            self.approve({"job_id":record["id"]})
         return self.get(record["id"])
 
     def get(self, job_id: str) -> dict[str,Any]:
@@ -109,7 +151,13 @@ class CodexPilot:
             if any(other["status"]=="running" for other in self.jobs):
                 raise ValueError("Another Codex review is already running; wait for it to finish")
             if self.mode(job["project_id"])=="disabled": raise ValueError("Codex is disabled for this project")
+            if job["scope"]=="workspace_write" and (not self.writable_available() or not self.is_registered()):
+                raise ValueError("Writable Codex is not enabled and registered")
             self.workspaces.get_project(job["project_id"])
+            if job.get("group_id"):
+                group=self.workspaces.get_group(job["group_id"])
+                if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex","approve_for_me")=="disabled":
+                    raise ValueError("Codex approval has been disabled in this group")
             if not self.which("codex"): raise ValueError("Codex CLI is unavailable")
             job["status"]="running"
             persist(self.jobs_path,self.jobs)
@@ -131,13 +179,31 @@ class CodexPilot:
             job=self.get(job_id)
             project=self.workspaces.get_project(job["project_id"])
             cwd=Path(project["path"]).resolve(strict=True)
+            if job.get("scope") == "workspace_write" and (not cwd.is_dir() or not any(
+                    cwd != allowed and cwd.is_relative_to(allowed)
+                    for allowed in getattr(self.workspaces, "allowed_roots", []))):
+                raise RuntimeError("Selected project no longer lies within allowed roots")
             executable=self.which("codex")
             if not executable: raise RuntimeError("Codex CLI unavailable")
-            prompt=("READ-ONLY REVIEW: Inspect and explain code. Suggest changes in text. "
-                    "Do not edit files, install packages, execute untrusted code or request "
-                    "elevated permissions.\n\n"+job["prompt"])
-            args=[executable,"--ask-for-approval","never","exec","--sandbox",
-                  "read-only","--skip-git-repo-check","-"]
+            writable = job.get("scope")=="workspace_write"
+            if writable and (not self.writable_available() or not self.is_registered()):
+                raise RuntimeError("Writable Codex permission was revoked")
+            # This is a sandboxed workspace run, not OS-level user isolation.
+            # Only the configured Codex sandbox decides actual filesystem reach;
+            # do not claim all operating-system files are inaccessible.
+            prompt = (
+                ("WORKSPACE CODING TASK. You may create, edit, run tests and delete "
+                 "files inside the selected project as needed. Do not touch parent folders, "
+                 "unrelated projects, .git, credentials, secrets, or system configuration. "
+                 "Report exactly what you changed and tests run.\\n\\n")
+                if writable else
+                ("READ-ONLY REVIEW: Inspect and explain code. Suggest changes in text. "
+                 "Do not edit files, install packages, execute untrusted code or request "
+                 "elevated permissions.\\n\\n")
+            ) + job["prompt"]
+            args=[executable,"exec","--sandbox",
+                  "workspace-write" if writable else "read-only",
+                  "--ask-for-approval","never","--skip-git-repo-check","-"]
             completed=self.run(args,input=prompt,text=True,cwd=str(cwd),
                                capture_output=True,timeout=180,shell=False,check=False)
             if completed.returncode:

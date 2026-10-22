@@ -21,6 +21,7 @@ class PlanningTests(unittest.TestCase):
         self.app.ollama_endpoint = "http://127.0.0.1:11434"
         self.app.registered_models = ["qwen2.5-coder:3b", "qwen3.5:4b"]
         self.app._register_worker = Mock()
+        self.app.codex = SimpleNamespace(is_registered=Mock(return_value=False))
         self.app.administrator = SimpleNamespace(submit=Mock(side_effect=[
             {"task_id": "T-001"}, {"task_id": "T-002"}, {"task_id": "T-003"}
         ]))

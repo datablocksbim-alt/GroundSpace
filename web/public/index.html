@@ -18,7 +18,6 @@
         <button class="nav-button active" data-view="chat">Chat</button>
         <button class="nav-button" data-view="agents">Agents</button>
         <button class="nav-button" data-view="tasks">Tasks</button>
-        <button class="nav-button" data-view="codex">Codex</button>
       </nav>
     </header>
 
@@ -33,6 +32,9 @@
             </button>
             <button class="agent-choice" data-agent="administrator">
               <span class="agent-glyph amber">A</span><span><b>Administrator</b><small>Task operations</small></span><em></em>
+            </button>
+            <button class="agent-choice" data-agent="codex" id="codexAgentChannel" hidden>
+              <span class="agent-glyph violet">CX</span><span><b>Codex</b><small>Workspace coding agent</small></span><em></em>
             </button>
             <section class="group-rail" aria-label="Group chats">
               <div class="group-rail-heading"><span>GROUP CHATS</span><button type="button" id="newGroupButton" title="Create group chat">+ New</button></div>
@@ -104,29 +106,22 @@
       <section class="view" id="view-agents">
         <div class="page-head"><p class="eyebrow">Workforce registry</p><h1>Agents</h1><p>Live availability and enforced authority boundaries.</p></div>
         <section class="model-manager" aria-label="Model management">
-          <h2>My local models</h2>
-          <p>Choose from models already installed in Ollama. Adding a model does not download anything or make a paid API call.</p>
+          <h2>Add AI agents</h2>
+          <p>Add installed Ollama models or your signed-in Codex CLI. Codex can create, edit, run and delete files in its selected project when writable mode is explicitly enabled and the task is approved.</p>
           <div class="model-add">
             <select id="availableModel" aria-label="Installed models available to add"></select>
-            <button type="button" id="addModelButton">Add model</button>
+            <button type="button" id="addModelButton">Add AI</button>
           </div>
           <p id="modelImportStatus" class="model-import-status" role="status" aria-live="polite">Checking local Ollama models…</p>
           <div id="registeredModels" class="registered-models"></div>
-          <p class="provider-note">This adds only models already installed in Ollama on your ASUS. Online ChatGPT, Claude and Grok connections are not implemented yet; they cannot be imported with this button.</p>
+          <p class="provider-note">Codex uses the signed-in CLI on your ASUS, not Ollama. It may consume your ChatGPT allowance or API credits. Other cloud AI providers are not connected.</p>
         </section>
         <div class="agent-grid" id="agentGrid"></div>
-      </section>
-
-      <section class="view" id="view-tasks">
-        <div class="page-head"><p class="eyebrow">Administrator queue</p><h1>Tasks</h1><p>Real task state, approvals, progress, results, and errors.</p></div>
-        <div class="task-table-wrap"><table><thead><tr><th>Task</th><th>Worker</th><th>Approval</th><th>Status</th><th>Updated</th></tr></thead><tbody id="taskRows"></tbody></table></div>
-        <pre class="task-detail" id="taskDetail">Select a task to inspect its record.</pre>
-      </section>
-      <section class="view" id="view-codex" aria-label="Codex pilot and approvals">
+      <section class="codex-integrated" id="codexAgentSettings" aria-label="Codex agent settings and approvals">
         <div class="page-head codex-head">
           <p class="eyebrow">Owner-only integration pilot</p>
-          <h1>Codex worker</h1>
-          <p>Connect the Codex CLI already signed in on this ASUS. Review work is read-only; no project writes or elevated commands are enabled. Codex may consume your connected ChatGPT plan usage or API credits, depending on how the CLI is signed in.</p>
+          <h2>Codex agent settings</h2>
+          <p>Codex is available alongside other agents. It can create, edit, run and delete project files if you enable writable mode on the ASUS. Ask me remains the default; Codex may use plan allowance or API credits.</p>
         </div>
         <div class="codex-workspace">
           <section class="codex-card" aria-labelledby="codexPolicyTitle">
@@ -147,8 +142,8 @@
             </form>
           </section>
           <section class="codex-card" aria-labelledby="codexReviewTitle">
-            <h2 id="codexReviewTitle">Request code review</h2>
-            <p>Codex will inspect an existing project on the ASUS, prepare findings and recommend changes without editing any files.</p>
+            <h2 id="codexReviewTitle">Request a read-only review</h2>
+            <p>Use the Codex chat channel or @Codex in a group for approved coding tasks. This form remains available for read-only reviews.</p>
             <form id="codexReviewForm">
               <label for="codexReviewProject">Project</label>
               <select id="codexReviewProject" required><option value="">Select a registered project</option></select>
@@ -158,10 +153,17 @@
             </form>
           </section>
           <section class="codex-card codex-jobs" aria-labelledby="codexQueueTitle">
-            <h2 id="codexQueueTitle">Reviews &amp; approvals</h2>
+            <h2 id="codexQueueTitle">Agent jobs &amp; approvals</h2>
             <div id="codexJobList" aria-live="polite"><p>No Codex reviews yet.</p></div>
           </section>
         </div>
+      </section>
+      </section>
+
+      <section class="view" id="view-tasks">
+        <div class="page-head"><p class="eyebrow">Administrator queue</p><h1>Tasks</h1><p>Real task state, approvals, progress, results, and errors.</p></div>
+        <div class="task-table-wrap"><table><thead><tr><th>Task</th><th>Worker</th><th>Approval</th><th>Status</th><th>Updated</th></tr></thead><tbody id="taskRows"></tbody></table></div>
+        <pre class="task-detail" id="taskDetail">Select a task to inspect its record.</pre>
       </section>
 
     </main>
@@ -172,7 +174,7 @@
   <dialog id="groupDialog" class="workspace-dialog">
     <form id="groupForm">
       <h2 id="groupDialogTitle">New group chat</h2>
-      <p>Choose a project and the local AI models that should reply to the group.</p>
+      <p>Choose a project and the AI agents in this group. Codex can also take approved workspace coding tasks.</p>
       <label for="groupName">Group name</label>
       <input id="groupName" maxlength="70" placeholder="e.g. Pyrene Development" required>
       <label for="groupProject">Local project</label>
@@ -181,7 +183,7 @@
         <span>AI participants</span>
         <small>Up to 6 · Replies run sequentially</small>
       </div>
-      <p class="group-approval-intro">Choose each AI bot's approval behavior. This applies only to local read-only chat and proposals, never project file changes.</p>
+      <p class="group-approval-intro">Choose each AI bot's approval behavior. For Codex, Approve for me also permits workspace changes when writable mode is explicitly enabled; Ask me holds each task for approval.</p>
       <div id="groupMemberOptions" class="group-members"></div>
       <p id="groupDialogError" class="dialog-feedback" role="alert" hidden></p>
       <div class="dialog-actions">
@@ -193,7 +195,7 @@
   <dialog id="projectDialog" class="workspace-dialog">
     <form id="projectForm">
       <h2>Select local project folder</h2>
-      <p>Browse folders on your ASUS computer, not your iPhone. This only links an existing local folder; AI file access stays disabled.</p>
+      <p>Browse folders on your ASUS, not your iPhone. Local Ollama agents still receive metadata only; an authorized Codex workspace task can edit files in the selected project.</p>
       <label for="projectName">Project label (optional)</label>
       <input id="projectName" maxlength="80" placeholder="Project name">
       <label for="projectPath">Local folder path</label>
