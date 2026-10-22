@@ -49,13 +49,13 @@ function setAgent(agent){
   state.agent=agent;state.groupId=null;
   state.conversationId=conversationFor(agent,state.projectId);
   $$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));
-  $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':'Administrator channel';
+  $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':agent==='codex'?'Codex workspace agent':'Administrator channel';
   $('#editGroupButton').hidden=true;
   $('#projectSelect').disabled=false;
   $('#modelControls').hidden=agent!=='qwen';
-  $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':'TASK STATUS · READ';
+  $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
   $('#requestType').hidden=agent!=='qwen';
-  $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':'Try “list tasks” or “status GS-…”';
+  $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':agent==='codex'?'Ask Codex to create, edit, test or delete project files…':'Try “list tasks” or “status GS-…”';
   renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
   setMobileRail(false);
 }
@@ -209,6 +209,10 @@ function renderActiveAgents(){
       }));
       note=group.models.length+' group participant'+(group.models.length===1?'':'s')+' · Replies run sequentially.';
     }
+  }else if(state.agent==='codex'){
+    const item=registered.get('codex');
+    if(item)entries.push(activeAgentEntry('Codex',item.role,Boolean(item.available)));
+    note='Codex coding agent · Selected project · Explicit approval by default.';
   }else if(state.agent==='qwen'){
     const item=registered.get(state.selectedModel);
     if(item)entries.push(activeAgentEntry(item.label||item.model,item.role||'Proposal-only',Boolean(item.available)));
@@ -241,7 +245,7 @@ function openGroupEditor(groupId=''){
       .map(([value,label])=>'<option value="'+value+'"'+(mode===value?' selected':'')+'>'+label+'</option>').join('');
     return '<div class="group-member-setting"><label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
       '"'+(group?.models.includes(item.model)?' checked':'')+'><span><b>'+esc(item.model)+
-      '</b><small>'+esc(item.available?'Available · read/propose only':'Offline · read/propose only')+
+      '</b><small>'+esc(item.available?(item.model==='codex'?'Available · workspace coding agent':'Available · read/propose only'):'Offline')+
       '</small></span></label><label class="group-member-policy-label">Bot approval'+
       '<select class="group-member-policy" data-model="'+esc(item.model)+'" aria-label="Approval for '+esc(item.model)+'">'+
       opts+'</select></label></div>';
@@ -286,11 +290,13 @@ async function browseFolders(path=null){
 function renderModels(){
   const data=state.data?.models||{};
   const registered=data.registered||[];
-  const online=registered.filter(item=>item.available);
+  const online=registered.filter(item=>item.available&&item.provider==='ollama');
+  const chatModels=registered.filter(item=>item.provider==='ollama');
+  $('#codexAgentChannel').hidden=!registered.some(item=>item.model==='codex');
   const choices=$('#modelSelect');
-  const choicesKey=JSON.stringify(registered.map(item=>[item.model,item.available]));
+  const choicesKey=JSON.stringify(chatModels.map(item=>[item.model,item.available]));
   if(choices.dataset.optionsKey!==choicesKey){
-    choices.innerHTML=registered.map(item=>'<option value="'+esc(item.model)+'" '+(!item.available?'disabled':'')+'>'+esc(item.model+(item.available?'':' (offline)'))+'</option>').join('');
+    choices.innerHTML=chatModels.map(item=>'<option value="'+esc(item.model)+'" '+(!item.available?'disabled':'')+'>'+esc(item.model+(item.available?'':' (offline)'))+'</option>').join('');
     choices.dataset.optionsKey=choicesKey;
   }
   if(!online.some(item=>item.model===state.selectedModel)){
@@ -311,14 +317,14 @@ function renderModels(){
   const keep=available.value;
   const availableKey=JSON.stringify(discovered);
   if(available.dataset.optionsKey!==availableKey){
-    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name)+'</option>').join('');
+    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex — OpenAI coding agent (CLI)':name)+'</option>').join('');
     available.dataset.optionsKey=availableKey;
   }
   if(discovered.includes(keep))available.value=keep;
   if(!discovered.length)available.innerHTML='<option value="">No additional Ollama models</option>';
   $('#addModelButton').disabled=!discovered.length;
   $('#modelImportStatus').textContent=discovered.length
-    ? discovered.length+' installed model'+(discovered.length===1?'':'s')+' available to add on this ASUS.'
+    ? discovered.length+' AI agent'+(discovered.length===1?'':'s')+' available to add on this ASUS.'
     : data.registered?.some(item=>item.available)
       ? 'All detected Ollama models are already registered, or no additional model is installed. To add more, install them in Ollama on the ASUS first.'
       : 'No additional installed Ollama models detected. Check that Ollama is running on the ASUS. Online AI accounts require a separate integration.';
@@ -447,11 +453,11 @@ async function submit(event){
       prompt,request_type:$('#requestType').value,model:state.selectedModel,
       performance:state.performance,conversation_id:state.conversationId
     })});
-    if(!isGroup)localStorage.setItem('gs_conversation_id',state.conversationId);
+    if(!isGroup&&state.agent==='qwen')localStorage.setItem('gs_conversation_id',state.conversationId);
     $('#prompt').value='';
     updateSlashMenu();
     await refresh();
-    toast(response.entry?(response.task||response.task_ids?'Planning note saved · Coordinator reply queued':'Planning note saved'):isGroup?'Message sent to Coordinator or mentioned specialist':'Task submitted');
+    toast(response.codex_job?.status==='pending_approval'?'Codex task waiting for approval':response.entry?(response.task||response.task_ids?'Planning note saved · Coordinator reply queued':'Planning note saved'):isGroup?'Message sent to Coordinator or mentioned specialist':'Task submitted');
   }catch(error){toast(error.message)}
   finally{updateComposerAvailability();}
 }
@@ -477,6 +483,7 @@ function groupMentionOptions(){
     let label=model;
     if(lower.startsWith('qwen2.5-coder')){token='@Qwen';label='Qwen';}
     else if(lower.startsWith('granite')){token='@Granite';label='Granite';}
+    else if(lower==='codex'){token='@Codex';label='Codex';}
     else if(lower.startsWith('ministral')){token='@Ministral';label='Ministral';}
     options.push({token,label,detail:model});
   }
