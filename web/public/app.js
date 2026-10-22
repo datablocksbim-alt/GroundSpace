@@ -216,6 +216,7 @@ function projectOptions(selected){
       (p.id===selected?' selected':'')+'>'+esc(p.name)+'</option>').join('');
 }
 function openGroupEditor(groupId=''){
+  setMobileRail(false);
   clearDialogError('#groupDialogError');
   const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
   $('#groupForm').dataset.editGroup=group?.id||'';
@@ -499,6 +500,7 @@ $('#projectList').addEventListener('click',event=>{
   if(button){if(state.agent==='group')setAgent('qwen');chooseProject(button.dataset.project);}
 });
 $('#addProjectButton').addEventListener('click',()=>{
+  setMobileRail(false);
   clearDialogError('#projectDialogError');
   $('#projectName').value='';$('#projectPath').value='';$('#folderPicker').hidden=true;$('#projectDialog').showModal();
 });
