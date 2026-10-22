@@ -1,5 +1,6 @@
 """GS-016: owner Codex approval policy and strictly read-only subprocess behavior."""
 import json
+import os
 import threading
 import unittest
 from pathlib import Path
@@ -49,7 +50,7 @@ class CodexPilotTests(unittest.TestCase):
         self.assertIn("never",args[0])
         self.assertNotIn("workspace-write",args[0])
         self.assertEqual(False,kwargs["shell"])
-        self.assertEqual(str(self.workspace),kwargs["cwd"])
+        self.assertTrue(os.path.samefile(self.workspace, kwargs["cwd"]))
         self.assertEqual("Found 2 issues",self.pilot.get(job["id"])["answer"])
 
     def test_auto_read_only_runs_without_a_second_click(self):
