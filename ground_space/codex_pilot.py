@@ -179,8 +179,9 @@ class CodexPilot:
             job=self.get(job_id)
             project=self.workspaces.get_project(job["project_id"])
             cwd=Path(project["path"]).resolve(strict=True)
-            if not cwd.is_dir() or not any(cwd != allowed and cwd.is_relative_to(allowed)
-                                               for allowed in self.workspaces.allowed_roots):
+            if job.get("scope") == "workspace_write" and (not cwd.is_dir() or not any(
+                    cwd != allowed and cwd.is_relative_to(allowed)
+                    for allowed in getattr(self.workspaces, "allowed_roots", []))):
                 raise RuntimeError("Selected project no longer lies within allowed roots")
             executable=self.which("codex")
             if not executable: raise RuntimeError("Codex CLI unavailable")
