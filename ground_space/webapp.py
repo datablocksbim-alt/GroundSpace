@@ -312,9 +312,12 @@ class GroundSpaceApp:
                 if model == "codex":
                     if not group["project_id"]:
                         raise ValueError("Assign a local project before using Codex in a group")
+                    # Unaddressed Coordinator/planning turns are read-only;
+                    # writable execution requires an explicit @Codex specialist request.
+                    codex_scope = "read_only" if route.coordinator or annotation_entry else "workspace_write"
                     item = self.codex.submit({
                         "project_id": group["project_id"], "prompt": prompt,
-                        "scope": "workspace_write", "conversation_id": conversation_id,
+                        "scope": codex_scope, "conversation_id": conversation_id,
                         "group_id": group["id"],
                     }, group_auto_approval=automatic)
                     codex_job_ids.append(item["id"])
