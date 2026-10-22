@@ -1,0 +1,38 @@
+name: Codex CLI diagnostics and sign-in foundation
+on:
+  push:
+    branches:
+      - "feature/gs-019-codex-auth-ux-diagnostics"
+  pull_request:
+    branches:
+      - "feature/gs-018-codex-workspace-agent"
+permissions:
+  contents: read
+jobs:
+  safety:
+    name: Codex CLI syntax and regression (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Python
+        run: python -m compileall -q ground_space
+      - name: CLI command syntax and sanitized diagnostics, integration regression
+        run: python -m unittest tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Browser JavaScript syntax
+        run: node --check web/public/app.js
+      - name: Windows restart preflight syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('tools/restart_gs016_codex.ps1', [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { $errors | Format-List; exit 1 }
+
+# Live signed-in Codex execution and the mobile browser are separate owner tests.
