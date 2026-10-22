@@ -29,6 +29,13 @@ jobs:
         run: node --check web/public/app.js
       - name: Check browser test JavaScript
         run: node --check tools/test_gs015_browser.mjs
+      - name: Check ASUS PowerShell restart syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('tools/restart_gs016_codex.ps1', [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { $errors | Format-List; exit 1 }
   browser:
     name: Mobile + desktop Codex approval interactions
     runs-on: ubuntu-latest
