@@ -17,3 +17,5 @@ GS-006 softens chat bubbles and adds periwinkle `/goal` and `/milestone` plannin
 GS-007 adds private group chats with up to six registered local AI models, per-model sequential responses, and local project-folder selection through restricted roots. Folder association is metadata-only; AI file access is not enabled. See [docs/GS-007.md](docs/GS-007.md).
 
 GS-008 introduces a premium compact chat rail, low-contrast scrollbars, and AI-aware `/goal` and `/milestone` notes. Saved notes now trigger proposal-only model planning replies in direct and group chats, with no project execution rights. See [docs/GS-008.md](docs/GS-008.md).
+
+GS-011 adds a verified Python dependency scheduler benchmark and an **owner-invoked, fail-closed code validation CLI** for Qwen proposals. Candidate code runs only in a pre-existing, offline, read-only Docker container with fixed acceptance tests; no automatic execution or project writes. Docker unit tests are mocked in CI; actual container execution still requires owner verification. See [docs/GS-011.md](docs/GS-011.md).
