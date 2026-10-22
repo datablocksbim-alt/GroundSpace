@@ -1,0 +1,34 @@
+name: Ground Space mobile chat UX checks
+
+on:
+  push:
+    branches:
+      - "feature/gs-014-mobile-chat-first-ui"
+  pull_request:
+    branches:
+      - "feature/gs-013-coordinator-tailnet-mobile"
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-ui:
+    name: iPhone UX structural checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Ground Space backend
+        run: python -m compileall -q ground_space
+      - name: GS-014 mobile UX and earlier regression tests
+        run: python -m unittest tests.test_gs014_mobile_ui tests.test_gs007_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: JavaScript syntax
+        run: node --check web/public/app.js
+
+# Viewport interactions and keyboard focus must also be checked in live iPhone Safari.
