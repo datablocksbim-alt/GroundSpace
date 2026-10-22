@@ -59,6 +59,7 @@ class GroupApprovalTests(unittest.TestCase):
         self.app.group_dispatch_lock=threading.Lock()
         self.app.ollama_endpoint="http://127.0.0.1:1"
         self.app.registered_models=list(self.models)
+        self.app.codex=SimpleNamespace(is_registered=Mock(return_value=False))
         self.app.administrator=FakeAdministrator()
         self.app.conversations={}
         self.app.history_path=self.dir/"private"/"conversations.json"
