@@ -114,6 +114,7 @@ function renderMessages(){
   const nearBottom=(root.scrollHeight-root.scrollTop-root.clientHeight)<100;
   const messages=(state.data?.conversations?.[state.conversationId]||[]).filter(x=>state.agent==='group'||!x.agent||x.agent===state.agent);
   const tasks=new Map((state.data?.tasks||[]).map(task=>[task.task_id,task]));
+  const codexJobs=new Map((state.data?.codex?.jobs||[]).map(job=>[job.id,job]));
   const replies=new Set(messages.filter(x=>x.role==='assistant').map(x=>x.task_id));
   if(!messages.length){
     root.innerHTML=`<div class="empty-state"><span>GS / 003</span><h2>Communication, grounded.</h2><p>${state.agent==='qwen'?'Ask the selected local model for an explanation, assessment, or code proposal. Requests run automatically within the agent’s allowed permissions.' :state.agent==='group'?'Coordinator answers by default. Use /goal to plan or @Qwen to ask a specialist.':'Use read-only Administrator commands: help, list tasks, or status &lt;task-id&gt;.'}</p></div>`;
@@ -123,6 +124,14 @@ function renderMessages(){
   for(const entry of messages){
     const task=tasks.get(entry.task_id);
     const groupTasks=Array.isArray(entry.task_ids)?entry.task_ids.map(id=>tasks.get(id)).filter(Boolean):[];
+    const jobs=Array.isArray(entry.codex_job_ids)?entry.codex_job_ids.map(id=>codexJobs.get(id)).filter(Boolean):[];
+    const codexProgress=jobs.map(job=>{
+      const actions=job.status==='pending_approval'?'<span class="group-approval-actions">'+
+        '<button type="button" data-codex-decision="approve" data-job-id="'+esc(job.id)+'">Approve workspace task</button>'+
+        '<button type="button" data-codex-decision="reject" data-job-id="'+esc(job.id)+'">Reject</button></span>':'';
+      return '<span class="group-task-status">Codex · '+esc(job.status)+' · '+
+        esc(job.scope==='workspace_write'?'Can change project files':'Read-only')+actions+'</span>';
+    }).join('');
     const groupProgress=groupTasks.map(t=>{
       const pending=t.status==='queued'&&t.approval?.status==='pending';
       const actions=pending?'<span class="group-approval-actions">'+
@@ -131,7 +140,7 @@ function renderMessages(){
       return '<span class="group-task-status">'+esc(t.payload?.speaker||t.payload?.model||t.requested_worker)+
         ' · '+taskStatus(t)+actions+'</span>';
     }).join('');
-    const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task)):'';
+    const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task))+codexProgress:'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
     const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
@@ -142,6 +151,15 @@ function renderMessages(){
     const fullTime=Number.isNaN(timestamp.getTime())?'':timestamp.toLocaleString();
     const meta='<small class="message-meta"><span class="message-id">'+esc(identity)+' · </span><span class="message-time" title="'+esc(fullTime)+'">'+esc(shortTime)+'</span></small>';
     html.push(`<div class="message ${esc(entry.role)} ${noteKind}">${noteLabel}${memberLabel}<span class="message-content">${esc(entry.content)}</span>${meta}${progress}${entry.role==='assistant'?responseMeta(entry,task)+copyButton(entry.task_id):''}</div>`);
+    for(const job of jobs){
+      if(job.status==='completed'&&job.answer)
+        html.push('<div class="message assistant"><span class="member-label">Codex</span>'+
+          '<span class="message-content">'+esc(job.answer)+'</span>'+
+          '<small>'+esc(job.id)+' · '+esc(job.scope)+'</small></div>');
+      else if(job.status==='failed'&&job.error)
+        html.push('<div class="message system"><span class="member-label">Codex</span>'+
+          '<span class="message-content">'+esc(job.error)+'</span></div>');
+    }
     // Group replies may appear in task records before persistence in chat history.
     if(['user','note'].includes(entry.role)&&groupTasks.length){
       for(const groupTask of groupTasks){
@@ -401,14 +419,15 @@ function renderCodex(){
   }
   refreshCodexPolicyDescription();
   $('#codexAvailability').textContent=codex.cli_installed?
-    'Codex CLI detected on ASUS · Read-only pilot · Owner account':
+    (codex.registered?'Codex agent registered · ':'Codex not added · ')+
+    (codex.write_enabled?'Writable workspace tasks enabled on ASUS':'Writable tasks disabled until ASUS enables the opt-in'):
     'Codex CLI not detected. Install and sign in on ASUS to enable reviews; you may still configure approvals.';
   $('#submitCodexReview').disabled=!codex.cli_installed||!projects.length;
   const list=$('#codexJobList');
   list.innerHTML=(codex.jobs||[]).map(job=>{
     const status=esc(job.status);
     const actions=job.status==='pending_approval'
-      ?'<div class="codex-actions"><button type="button" class="codex-decision" data-decision="approve" data-job="'+esc(job.id)+'">Approve read-only review</button>'+
+      ?'<div class="codex-actions"><button type="button" class="codex-decision" data-decision="approve" data-job="'+esc(job.id)+'">Approve task</button>'+
        '<button type="button" class="codex-decision" data-decision="reject" data-job="'+esc(job.id)+'">Reject</button></div>':'';
     return '<article class="codex-job"><header><strong>'+esc(job.project_name)+'</strong><span class="codex-state">'+status+'</span></header>'+
       '<small>'+esc(job.id)+' · '+esc(job.scope)+' · '+esc(job.mode_at_submission)+'</small>'+
@@ -574,6 +593,15 @@ $('#messages').addEventListener('click',event=>{
     }).then(()=>refresh()).then(()=>toast(decision.dataset.groupDecision==='approve'?
       'Read-only bot reply approved':'Bot reply rejected'))
       .catch(error=>{toast(error.message);decision.disabled=false;});
+    return;
+  }
+  const codexDecision=event.target.closest('button[data-codex-decision]');
+  if(codexDecision){
+    codexDecision.disabled=true;
+    api('/api/codex/'+codexDecision.dataset.codexDecision,{method:'POST',
+      body:JSON.stringify({job_id:codexDecision.dataset.jobId})})
+      .then(()=>refresh()).then(()=>toast('Codex job decision recorded'))
+      .catch(error=>{toast(error.message);codexDecision.disabled=false;});
     return;
   }
   const button=event.target.closest('button.copy-response');
