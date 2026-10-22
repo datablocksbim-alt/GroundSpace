@@ -99,7 +99,7 @@ class CodexPilot:
             if job["id"] == job_id: return job
         raise ValueError("Unknown Codex job")
 
-    def submit(self, body: dict[str,Any]) -> dict[str,Any]:
+    def submit(self, body: dict[str,Any], *, group_auto_approval: bool = False) -> dict[str,Any]:
         project_id, prompt = body.get("project_id"), body.get("prompt")
         scope = body.get("scope", "read_only")
         if scope not in ("read_only", "workspace_write"):
@@ -127,7 +127,15 @@ class CodexPilot:
             self.jobs = (self.jobs+[record])[-50:]
             persist(self.jobs_path,self.jobs)
         if mode=="auto_read_only" and scope=="read_only": self.approve({"job_id":record["id"]})
-        if body.get("auto_approve_workspace_write") is True and scope=="workspace_write":
+        # Only the trusted group dispatcher may grant an auto-approval based
+        # on the persisted per-bot policy. Never use a browser-submitted flag.
+        if group_auto_approval and scope=="workspace_write":
+            group_id=record.get("group_id")
+            if not isinstance(group_id,str) or not group_id:
+                raise ValueError("Automatic writable permission requires a group")
+            group=self.workspaces.get_group(group_id)
+            if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex")!="approve_for_me":
+                raise ValueError("Codex is not automatically approved in this group")
             self.approve({"job_id":record["id"]})
         return self.get(record["id"])
 
@@ -146,6 +154,10 @@ class CodexPilot:
             if job["scope"]=="workspace_write" and (not self.writable_available() or not self.is_registered()):
                 raise ValueError("Writable Codex is not enabled and registered")
             self.workspaces.get_project(job["project_id"])
+            if job.get("group_id"):
+                group=self.workspaces.get_group(job["group_id"])
+                if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex","approve_for_me")=="disabled":
+                    raise ValueError("Codex approval has been disabled in this group")
             if not self.which("codex"): raise ValueError("Codex CLI is unavailable")
             job["status"]="running"
             persist(self.jobs_path,self.jobs)
@@ -167,6 +179,9 @@ class CodexPilot:
             job=self.get(job_id)
             project=self.workspaces.get_project(job["project_id"])
             cwd=Path(project["path"]).resolve(strict=True)
+            if not cwd.is_dir() or not any(cwd != allowed and cwd.is_relative_to(allowed)
+                                               for allowed in self.workspaces.allowed_roots):
+                raise RuntimeError("Selected project no longer lies within allowed roots")
             executable=self.which("codex")
             if not executable: raise RuntimeError("Codex CLI unavailable")
             writable = job.get("scope")=="workspace_write"
