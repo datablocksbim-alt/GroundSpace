@@ -2,7 +2,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$expected = 'feature/gs-018-codex-workspace-agent'
+$expected = 'feature/gs-019-codex-auth-ux-diagnostics'
 $branch = (& git -C $repo branch --show-current).Trim()
 if ($branch -ne $expected) { throw "Expected checkout $expected; current: $branch" }
 $dirty = & git -C $repo status --porcelain
