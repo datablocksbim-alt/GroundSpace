@@ -41,7 +41,8 @@ class MobileChatUITests(unittest.TestCase):
         self.assertIn("rail.inert=mobileViewport.matches&&!active", self.js)
 
     def test_mobile_chat_takes_screen_height_not_full_page_scroll(self):
-        self.assertIn("height:100dvh", self.css)
+        self.assertIn("height:var(--gs-mobile-viewport-height,100dvh)", self.css)
+        self.assertIn("visualViewport?.addEventListener('resize',syncMobileViewportHeight)", self.js)
         self.assertIn("grid-template-rows:auto minmax(0,1fr)", self.css)
         self.assertIn("grid-template-rows:auto minmax(0,1fr) auto", self.css)
         self.assertIn("min-height:0;overflow-y:auto", self.css)
