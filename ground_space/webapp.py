@@ -499,10 +499,14 @@ class GroundSpaceApp:
             if not project_id:
                 raise ValueError("Select a registered project before requesting Codex")
             item = self.codex.submit({"project_id":project_id, "prompt":prompt,
-                                      "scope":"workspace_write",
+                                      "scope":"read_only" if note else "workspace_write",
                                       "conversation_id":conversation_id})
-            entry = self.add_history(conversation_id, "user", prompt, agent="codex",
-                                     codex_job_ids=[item["id"]],project_id=project_id)
+            if note:
+                entry["codex_job_ids"] = [item["id"]]
+                atomic_json(self.history_path, self.conversations)
+            else:
+                entry = self.add_history(conversation_id, "user", prompt, agent="codex",
+                                         codex_job_ids=[item["id"]],project_id=project_id)
             return {"entry":entry,"codex_job":item, "conversation_id":conversation_id}
         if agent == "qwen":
             request_type = str(body.get("request_type", "explanation"))
