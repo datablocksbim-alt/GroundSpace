@@ -1,0 +1,47 @@
+name: Ground Space functional buttons
+on:
+  push:
+    branches:
+      - "feature/gs-015-functional-controls"
+  pull_request:
+    branches:
+      - "feature/gs-014-mobile-chat-first-ui"
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile Python backend
+        run: python -m compileall -q ground_space
+      - name: Regression checks including project and model API validation
+        run: python -m unittest tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs007_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Frontend script syntax
+        run: node --check web/public/app.js
+      - name: Browser smoke script syntax
+        run: node --check tools/test_gs015_browser.mjs
+  browser:
+    name: Mobile and desktop click-through smoke (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install test-only Playwright
+        run: npm install --no-save playwright
+      - name: Install Chromium and required browser libraries
+        run: npx playwright install --with-deps chromium
+      - name: Click through projects, AI model import, groups and mobile navigation
+        run: node tools/test_gs015_browser.mjs
+
+# Smoke uses a local mock of network APIs: it does not touch the owner's ASUS.
+# A real iPhone Safari check and linked Administrator queue remain separate gates.
