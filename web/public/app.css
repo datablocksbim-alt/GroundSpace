@@ -209,7 +209,7 @@
 @media (max-width:760px){
   html,body{height:100%;width:100%;overflow:hidden}
   body{background-size:auto,28px 28px,28px 28px}
-  .shell{height:100dvh;min-height:0;grid-template-rows:auto minmax(0,1fr)}
+  .shell{height:var(--gs-mobile-viewport-height,100dvh);min-height:0;grid-template-rows:auto minmax(0,1fr)}
   .shell>footer{display:none}
   .topbar{
     position:relative;z-index:10;
