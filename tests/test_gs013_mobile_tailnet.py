@@ -8,6 +8,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from types import SimpleNamespace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -37,7 +38,17 @@ class TailnetOriginTests(unittest.TestCase):
 
     def test_remote_chat_note_requires_allowlisted_origin_and_csrf(self):
         with TemporaryDirectory() as directory:
-            app = GroundSpaceApp(Path(directory), ollama_endpoint="http://127.0.0.1:1")
+            # A pure HTTP/CSRF contract test: do not depend on the owner-only
+            # Administrator queue under D:\\000_AI Project during CI.
+            app = GroundSpaceApp.__new__(GroundSpaceApp)
+            app.lock = threading.RLock()
+            app.conversations = {}
+            app.history_path = Path(directory) / "conversations.json"
+            app.workspaces = SimpleNamespace(validate_project=lambda _project: None)
+            app.bootstrap = lambda: {
+                "agents": [], "tasks": [], "conversations": {},
+                "models": [], "workspaces": {}, "paid_api_usage_aud": 0,
+            }
             remote_origin = "https://asus.example.ts.net:8443"
             with patch.dict(os.environ, {"GROUND_SPACE_TAILSCALE_ORIGIN": remote_origin}):
                 server = create_server(app, 0)
