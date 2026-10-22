@@ -124,6 +124,23 @@ class WorkspaceAgentTests(unittest.TestCase):
         self.assertEqual([result["codex_job"]["id"]],result["entry"]["codex_job_ids"])
         self.assertFalse(self.run.called)
 
+    def test_codex_goal_is_planning_only_without_duplicate_message(self):
+        self.codex.set_registered(True)
+        app=GroundSpaceApp.__new__(GroundSpaceApp)
+        app.codex=self.codex
+        app.lock=threading.RLock()
+        app.workspaces=self.workspaces
+        app.conversations={}
+        app.history_path=self.root/"state"/"history.json"
+        with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}):
+            response=app.submit_chat({"agent":"codex","project_id":self.project["id"],
+                                      "conversation_id":"direct-codex-goal",
+                                      "prompt":"/goal Build a test suite"})
+        self.assertEqual("read_only",response["codex_job"]["scope"])
+        self.assertEqual("note",response["entry"]["role"])
+        self.assertEqual(1,len(app.conversations["direct-codex-goal"]))
+        self.assertEqual("Build a test suite",response["entry"]["content"])
+
     def test_group_codex_mention_creates_writable_job_but_coordinator_is_read_only(self):
         self.codex.set_registered(True)
         app=GroundSpaceApp.__new__(GroundSpaceApp)
