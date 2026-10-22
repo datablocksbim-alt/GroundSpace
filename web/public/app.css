@@ -332,8 +332,8 @@
   .composer-foot #requestType,.composer-foot #modelSelect,
   .composer-foot #performanceSelect{width:auto;max-width:100%}
   .composer-foot .composer-safety{display:none}
-  .mobile-options-toggle{display:inline-flex;align-items:center;justify-content:center;gap:6px;
-    height:40px;padding:0 12px;border:1px solid #e0dbea;border-radius:11px;
+  .composer-foot .mobile-options-toggle{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    flex:0 0 auto;width:auto;margin:0;height:40px;padding:0 12px;border:1px solid #e0dbea;border-radius:11px;
     background:#faf9ff;color:#5d528d;font:600 13px Inter,"Segoe UI",sans-serif;cursor:pointer}
   .composer-foot #sendButton{
     height:40px;width:auto;min-width:106px;margin:0 0 0 auto;padding:0 14px;
