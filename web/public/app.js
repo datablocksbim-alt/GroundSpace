@@ -539,6 +539,6 @@ mobileViewport.addEventListener('change',syncMobileLayout);
 window.visualViewport?.addEventListener('resize',syncMobileViewportHeight);
 window.addEventListener('orientationchange',syncMobileViewportHeight);
 syncMobileLayout();
-$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
+$$('.nav-button').forEach(x=>x.onclick=()=>setView(x.dataset.view));$$('.agent-choice').forEach(x=>x.onclick=()=>setAgent(x.dataset.agent));$('#chatForm').addEventListener('submit',submit);refresh().catch(error=>toast(error.message));
 // Keep every task in this conversation observable, even after refresh or later messages.
 setInterval(()=>refresh().catch(()=>{$('#systemState').textContent='Ground Space disconnected'}),2500);
