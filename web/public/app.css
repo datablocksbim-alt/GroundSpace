@@ -814,3 +814,53 @@
   .agent-rail .new-project-chat{min-height:39px;font-size:12px}
   .agent-rail .project-chat-list{padding-left:11px}
 }
+
+
+/* GS-029 — mobile-first project folder picker, no typed path field. */
+.project-picker-dialog{width:min(440px,calc(100vw - 24px));max-height:min(85dvh,720px)}
+.project-picker-dialog form{padding:20px;display:grid;gap:9px}
+.project-picker-dialog h2{margin:0;font-size:19px;letter-spacing:-.025em}
+.project-picker-dialog form>p:first-of-type{margin:0 0 4px;color:#736c86;font-size:12px;line-height:1.45}
+.project-picker-dialog #projectPath{display:none!important}
+.project-picker-dialog .folder-picker{max-height:min(43dvh,340px);overflow-y:auto;
+  padding:10px;border-radius:12px;background:#fbfaff;border-color:#e7e2f0}
+.project-picker-dialog .folder-picker-head{display:flex;gap:7px;align-items:center;
+  flex-wrap:nowrap;margin-bottom:8px}
+.project-picker-dialog .folder-picker-head button{flex:none;min-height:33px;
+  padding:6px 9px;border-radius:8px;font-size:11px}
+.project-picker-dialog .folder-picker-head #folderCurrent{min-width:0;flex:1;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:#6c657d;font:10px Consolas,monospace}
+.project-picker-dialog .folder-entries{display:grid;gap:5px}
+.project-picker-dialog .folder-entries button{display:flex;align-items:center;
+  min-height:41px;width:100%;padding:8px 10px;gap:7px;border-radius:9px;
+  text-align:left;overflow-wrap:anywhere;word-break:break-word;font-size:12px}
+.project-picker-dialog .folder-entries .folder-use{background:#eeebfb;
+  border-color:#d7cdf6;color:#544795;font-weight:650}
+.project-picker-dialog button:focus-visible{outline:2px solid #755cd0;outline-offset:2px}
+.project-picker-dialog #saveProject:disabled{opacity:.48;cursor:default}
+.project-picker-dialog .selected-project-folder{display:flex;align-items:center;gap:10px;
+  min-width:0;background:#f2f0fb;border:1px solid #dcd6ef;border-radius:11px;padding:10px}
+.project-picker-dialog .selected-project-folder[hidden]{display:none!important}
+.selected-folder-icon{display:grid;place-items:center;flex:0 0 25px;
+  height:25px;background:#e3ddfa;border-radius:7px;color:#59499e;font-size:13px}
+.selected-folder-detail{display:grid;gap:3px;min-width:0;flex:1}
+.selected-folder-detail b{font-size:11px}
+.selected-folder-detail small{font:10px/1.4 Consolas,monospace;
+  color:#69647a;overflow-wrap:anywhere}
+.project-picker-dialog #changeProjectFolder{padding:7px 9px;flex:none;
+  border:1px solid #dcd5ec;border-radius:8px;background:#fff;color:#60538c;
+  font-size:11px;cursor:pointer}
+.project-picker-dialog .optional-label{font-weight:400;color:#8c849e}
+.project-picker-dialog #projectName{margin:0;font-size:14px}
+.project-picker-dialog .project-picker-note{font-size:10px;color:#827c90;margin:1px 0}
+.project-picker-dialog .project-picker-empty{font-size:11px;color:#827b91;margin:7px 0}
+.project-picker-dialog .dialog-actions{margin-top:2px}
+@media(max-width:760px){
+  .project-picker-dialog form{padding:17px;gap:10px}
+  .project-picker-dialog .folder-picker{max-height:min(42dvh,320px)}
+  .project-picker-dialog .folder-picker-head button{min-height:39px}
+  .project-picker-dialog .folder-entries button{min-height:44px;font-size:13px}
+  .project-picker-dialog #projectName{font-size:16px}
+  .project-picker-dialog #changeProjectFolder{min-height:38px}
+}
