@@ -463,6 +463,9 @@ function renderAgents(){
   // The built-in list represents platform roles, not duplicate model registrations.
   const builtins=(state.data?.agents||[]).filter(a=>a.agent_id!=='codex-cli' &&
     !(a.role==='proposal_only_chat'&&loaded.has(a.model)));
+  const signature=JSON.stringify(builtins.map(a=>[a.agent_id,a.active,a.role,a.model,a.permissions]));
+  if(root.dataset.signature===signature)return; // Keep an open built-in menu through live status polls.
+  root.dataset.signature=signature;
   root.innerHTML=builtins.map(a=>{
     const name=a.agent_id.replaceAll('-',' ');
     const permissions=(a.permissions||[]).map(p=>'<span class="agent-readonly-pill">'+esc(p)+'</span>').join('');
