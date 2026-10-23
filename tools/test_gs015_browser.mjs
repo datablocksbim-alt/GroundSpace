@@ -258,6 +258,33 @@ try{
     }
     assert.equal(exceptions.length,0,label+' startup errors: '+exceptions.join(', '));
 
+    // Regression: GS-026 originally reapplied a desktop two-column grid after
+    // the mobile breakpoint. This silently reduced iPhone chat to ~55% width.
+    const geometry = await page.evaluate(() => {
+      const width = window.innerWidth;
+      const rect = selector => {
+        const r = document.querySelector(selector).getBoundingClientRect();
+        return {width:r.width,left:r.left,right:r.right};
+      };
+      return {width,
+        chat:rect('.chat-layout'),conversation:rect('.conversation'),
+        head:rect('.conversation-head'),messages:rect('#messages'),
+        composer:rect('#chatForm'),
+        columns:getComputedStyle(document.querySelector('.chat-layout')).gridTemplateColumns};
+    });
+    if(viewport.mobile){
+      for(const [element,rect] of Object.entries({
+        chat:geometry.chat,conversation:geometry.conversation,
+        head:geometry.head,messages:geometry.messages,composer:geometry.composer
+      })){
+        assert.ok(rect.width >= geometry.width*0.92,
+          label+' '+element+' must use full viewport width: '+JSON.stringify(geometry));
+        assert.ok(rect.right <= geometry.width+2,
+          label+' '+element+' must not overflow viewport: '+JSON.stringify(geometry));
+      }
+    }
+
+
     // Primary workspace items must appear before compact private AI chats.
     assert.equal(await page.locator('#privateChannelMenu').evaluate(x=>x.open),false);
     assert.equal(await page.locator('#groupList').evaluate(x=>x.compareDocumentPosition(document.querySelector('#privateChannelMenu')) & Node.DOCUMENT_POSITION_FOLLOWING ? true:false),true);
