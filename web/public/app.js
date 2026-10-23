@@ -53,6 +53,7 @@ function setAgent(agent){
   $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':agent==='codex'?'Codex workspace agent':'Administrator channel';
   $('#editGroupButton').hidden=true;
   $('#startCollaborationButton').hidden=true;
+  $('#openModelSettings').hidden=agent!=='codex';
   $('#projectSelect').disabled=false;
   $('#modelControls').hidden=agent!=='qwen';
   $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
@@ -70,6 +71,8 @@ function selectGroup(groupId){
   $('#conversationTitle').textContent=group.name;
   $('#editGroupButton').hidden=false;
   $('#startCollaborationButton').hidden=false;
+  $('#openModelSettings').hidden=!group.models.includes('codex');
+  $('#privateChannelMenu').open=false;
   $('#projectSelect').disabled=true;
   $('#modelControls').hidden=true;
   $('#requestType').hidden=false;
@@ -133,7 +136,9 @@ function renderMessages(){
         '<button type="button" data-codex-decision="approve" data-job-id="'+esc(job.id)+'">Approve workspace task</button>'+
         '<button type="button" data-codex-decision="reject" data-job-id="'+esc(job.id)+'">Reject</button></span>':'';
       return '<span class="group-task-status">Codex · '+esc(job.status)+' · '+
-        esc(job.scope==='workspace_write'?'Can change project files':'Read-only')+actions+'</span>';
+        esc(job.scope==='workspace_write'?'Can change project files':'Read-only')+
+        (job.model_id?' · '+esc(job.model_id):' · CLI default')+
+        (job.reasoning_effort?' · '+esc(job.reasoning_effort):'')+actions+'</span>';
     }).join('');
     const groupProgress=groupTasks.map(t=>{
       const pending=t.status==='queued'&&t.approval?.status==='pending';
@@ -458,6 +463,50 @@ async function startChatGPTDeviceLogin(){
   }catch(error){toast(error.message);}
   finally{renderChatGPTConnection();}
 }
+function modelProfileKey(){
+  return state.agent==='group'&&state.groupId?'codex:group:'+state.groupId:'codex:direct';
+}
+function currentCodexProfile(){
+  return state.data?.model_profiles?.profiles?.[modelProfileKey()]||{model_id:'',reasoning_effort:''};
+}
+function updateCustomModelVisibility(){
+  const custom=$('#codexModelChoice').value==='_custom';
+  $('#codexCustomModel').hidden=!custom;
+  $('#codexCustomModelLabel').hidden=!custom;
+  $('#codexCustomModel').required=custom;
+}
+function openModelSettings(){
+  if($('#openModelSettings').hidden)return;
+  const profile=currentCodexProfile();
+  $('#modelSettingsScope').textContent=state.agent==='group'
+    ?'This group’s Codex model and effort will be used for @Codex and Co-work tasks.'
+    :'This private Codex chat uses these model and reasoning settings.';
+  const choice=$('#codexModelChoice');
+  const preset=[...choice.options].some(o=>o.value===profile.model_id&&o.value!=='_custom');
+  choice.value=preset?profile.model_id:'_custom';
+  $('#codexCustomModel').value=preset?'':profile.model_id;
+  $('#codexReasoningEffort').value=profile.reasoning_effort||'';
+  updateCustomModelVisibility();
+  clearDialogError('#modelSettingsError');
+  $('#modelSettingsDialog').showModal();
+}
+async function saveModelSettings(event){
+  event.preventDefault();
+  const button=$('#saveModelSettings');
+  button.disabled=true;
+  try{
+    const model_id=$('#codexModelChoice').value==='_custom'
+      ?$('#codexCustomModel').value.trim():$('#codexModelChoice').value;
+    await api('/api/model-profiles/set',{method:'POST',body:JSON.stringify({
+      provider:'codex',group_id:state.agent==='group'?state.groupId:null,
+      model_id,reasoning_effort:$('#codexReasoningEffort').value
+    })});
+    $('#modelSettingsDialog').close();
+    await refresh();
+    toast('Codex model settings saved for future tasks');
+  }catch(error){showDialogError('#modelSettingsError',error);}
+  finally{button.disabled=false;}
+}
 function renderCodex(){
   const codex=state.data?.codex;
   if(!codex)return;
@@ -524,6 +573,8 @@ async function refresh(){
     }
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
     renderModels();renderWorkspaces();renderMessages();renderActiveAgents();renderAgents();renderTasks();renderCodex();renderChatGPTConnection();
+    $('#openModelSettings').hidden=!(state.agent==='codex'||(state.agent==='group'&&
+      (data.workspaces?.groups||[]).some(g=>g.id===state.groupId&&g.models.includes('codex'))));
   }finally{state.refreshing=false;}
 }
 async function submit(event){
@@ -691,6 +742,10 @@ $('#messages').addEventListener('click',event=>{
 });
 
 
+$('#openModelSettings').addEventListener('click',openModelSettings);
+$('#cancelModelSettings').addEventListener('click',()=>$('#modelSettingsDialog').close());
+$('#codexModelChoice').addEventListener('change',updateCustomModelVisibility);
+$('#modelSettingsForm').addEventListener('submit',saveModelSettings);
 $('#newGroupButton').addEventListener('click',()=>openGroupEditor());
 $('#editGroupButton').addEventListener('click',()=>openGroupEditor(state.groupId));
 $('#startCollaborationButton').addEventListener('click',async()=>{
