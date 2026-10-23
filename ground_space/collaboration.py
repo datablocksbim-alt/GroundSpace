@@ -81,6 +81,17 @@ class CollaborationLedger:
             self._save()
             return dict(item)
 
+    def fail(self, flow_id: str, reason: str) -> dict[str,Any]:
+        with self.lock:
+            item=next((r for r in self.runs if r["id"]==flow_id),None)
+            if item is None:raise ValueError("Unknown collaboration")
+            if item["state"] in ("completed","failed"):return dict(item)
+            item["state"]="failed"
+            item["error"]=str(reason)[:200]
+            item["events"].append({"stage":"failed","reason":item["error"]})
+            self._save()
+            return dict(item)
+
     def finish(self, flow_id: str) -> dict[str,Any]:
         with self.lock:
             item=next((r for r in self.runs if r["id"]==flow_id),None)
