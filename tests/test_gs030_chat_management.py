@@ -54,7 +54,7 @@ class ChatManagementTests(unittest.TestCase):
         new = self.rename_project()
         self.assertEqual(new["name"], "New project")
         self.assertEqual(new["id"], self.project["id"])
-        self.assertEqual(new["path"], str(self.folder))
+        self.assertEqual(new["path"], self.project["path"])
         self.assertEqual((self.folder / "keep.txt").read_text(), "original file")
         registry = WorkspaceRegistry(self.dir / "private", [self.allowed])
         self.assertEqual(registry.get_project(self.project["id"])["name"], "New project")
