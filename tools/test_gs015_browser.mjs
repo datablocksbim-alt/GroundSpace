@@ -619,29 +619,32 @@ try{
     // Owner project removal must be subtle, explicitly confirmed and metadata-only.
     await page.locator('.nav-button[data-view="chat"]').click();
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
-    const existing=page.locator('[data-project-cluster="project-existing"]');
-    const preservedChatId=groups.find(g=>g.id==='group-existing').conversation_id;
-    const preservedApproval=groups.find(g=>g.id==='group-existing').approval_modes['qwen2.5-coder:3b'];
+    // The project created within each viewport's run can safely be unlinked
+    // without invalidating the original seeded fixture for the next viewport.
+    const existing=page.locator('[data-project-cluster="'+createdProject+'"]');
+    const groupToPreserve=groups.find(g=>g.project_id===createdProject);
+    const preservedChatId=groupToPreserve.conversation_id;
+    const preservedApproval=groupToPreserve.approval_modes['qwen2.5-coder:3b'];
     await existing.locator('[data-project-menu]').click();
     assert.equal(await page.locator('#removeProjectDialog').isVisible(),true);
     assert.match(await page.locator('#removeProjectDialog').innerText(),/will not be deleted/);
     assert.match(await page.locator('#removeProjectChatNotice').innerText(),/1 existing project chat/);
     await page.locator('#cancelRemoveProject').click();
-    assert.ok(projects.some(p=>p.id==='project-existing'),'Cancel must preserve the project');
+    assert.ok(projects.some(p=>p.id===createdProject),'Cancel must preserve the project');
     await existing.locator('[data-project-menu]').click();
     await page.locator('#confirmRemoveProject').click();
-    await page.waitForFunction(()=>!document.querySelector('[data-project-cluster="project-existing"]'));
-    assert.equal(projects.some(p=>p.id==='project-existing'),false,'project unregistered');
-    const preserved=groups.find(g=>g.id==='group-existing');
+    await page.waitForFunction(id=>!document.querySelector('[data-project-cluster="'+id+'"]'),createdProject);
+    assert.equal(projects.some(p=>p.id===createdProject),false,'project unregistered');
+    const preserved=groups.find(g=>g.id===groupToPreserve.id);
     assert.equal(preserved.project_id,null,'group moved to unassigned');
     assert.equal(preserved.conversation_id,preservedChatId,'conversation ID stays');
     assert.equal(preserved.approval_modes['qwen2.5-coder:3b'],preservedApproval);
-    assert.ok(conversations[preservedChatId].some(x=>x.content==='Preserved project reply'));
+    assert.ok(conversations[preservedChatId].length>0,'conversation history retained');
     const unassignedFolder=page.locator('[data-project-cluster="__unassigned__"]');
     if(await unassignedFolder.locator('.project-chat-list').isHidden()){
       await unassignedFolder.locator('[data-project-toggle]').click();
     }
-    assert.equal(await unassignedFolder.locator('[data-group="group-existing"]').isVisible(),true);
+    assert.equal(await unassignedFolder.locator('[data-group="'+preserved.id+'"]').isVisible(),true);
     assert.equal(exceptions.length,0,label+' project removal: '+exceptions.join(', '));
     console.log('PASS: '+label+' buttons, project add/remove, preserved chats, Codex and mobile layout');
     await context.close();
