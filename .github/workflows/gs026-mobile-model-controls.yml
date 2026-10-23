@@ -1,0 +1,48 @@
+name: GS-026 mobile layout and model routing
+on:
+  push:
+    branches: [feature/gs-026-mobile-agent-model-controls]
+  pull_request:
+    branches: [feature/gs-025-security-boundaries]
+permissions:
+  contents: read
+jobs:
+  python:
+    name: UI and Codex profile regressions (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Model profiles and existing portable regressions
+        run: python -m unittest tests.test_gs026_model_profiles tests.test_gs025_public_security tests.test_gs024_device_login tests.test_gs023_collaboration tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Compile Python
+        run: python -m compileall -q ground_space
+      - name: Parse JavaScript
+        run: node --check web/public/app.js
+      - name: Parse PowerShell restart guard
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('tools/restart_gs016_codex.ps1', [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+  browser:
+    name: iPhone viewport and desktop group/workspace click-through
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test-only Playwright
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run actual Chromium UI
+        run: node tools/test_gs015_browser.mjs
