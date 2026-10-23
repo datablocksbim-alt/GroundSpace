@@ -448,6 +448,7 @@ try{
     assert.ok(maxScroll<=2,label+' task table must not overflow horizontally: '+maxScroll);
     assert.equal(await page.locator('#taskRows .task-name').first().isVisible(),true);
     await page.locator('.nav-button[data-view="agents"]').click();
+    await page.locator('#codexAdvanced summary').click();
     assert.equal(await page.locator('#codexAgentSettings').isVisible(),true);
     assert.equal(await page.locator('#codexAgentChannel').isVisible(),false);
     const selectedProject=projects[projects.length-1].id;
