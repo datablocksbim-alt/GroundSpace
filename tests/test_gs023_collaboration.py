@@ -24,6 +24,9 @@ class HandoffTests(unittest.TestCase):
         self.tasks={}
         self.jobs={}
         self.app=GroundSpaceApp.__new__(GroundSpaceApp)
+        self.app.lock=threading.RLock()
+        self.app.conversations={}
+        self.app.history_path=self.path/"history.json"
         self.app.collaboration_lock=threading.RLock()
         self.app.collaborations=CollaborationLedger(self.path/"flows.json")
         self.app.workspaces=SimpleNamespace(get_group=Mock(side_effect=lambda _:self.group))
