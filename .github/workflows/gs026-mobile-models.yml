@@ -30,7 +30,7 @@ jobs:
       - name: Preview and guarded restart PowerShell syntax
         shell: pwsh
         run: |
-          foreach ($file in @('tools/prepare_gs026_preview.ps1', 'tools/restart_gs016_codex.ps1')) {
+          foreach ($file in @('tools/prepare_gs026_preview.ps1', 'tools/check_gs026_asus.ps1', 'tools/restart_gs016_codex.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
