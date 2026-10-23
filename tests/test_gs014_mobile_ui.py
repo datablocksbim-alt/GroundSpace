@@ -61,9 +61,15 @@ class MobileChatUITests(unittest.TestCase):
         self.assertIn("message-meta", self.js)
 
     def test_desktop_routes_and_project_selection_intact(self):
-        for key in ("newGroupButton", "projectSelect", "groupList", "projectList",
+        for key in ("projectSelect", "projectList", "privateChannelMenu",
                     "groupDialog", "projectDialog", "view-agents", "view-tasks"):
             self.assertIn(key, self.elements.elements)
+        self.assertNotIn("newGroupButton", self.elements.elements)
+        self.assertNotIn("groupList", self.elements.elements)
+        self.assertNotIn('aria-label="Group chats"', self.html)
+        self.assertIn('data-new-project-group', self.js)
+        self.assertIn('data-project-toggle', self.js)
+        self.assertIn('data-group', self.js)
         for api_path in ("/api/groups/send", "/api/projects/add", "/api/bootstrap"):
             self.assertIn(api_path, self.js)
         self.assertIn(".chat-layout{max-width:1600px;grid-template-columns:260px minmax(0,1fr) 250px}", self.css)
