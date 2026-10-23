@@ -65,7 +65,7 @@ jobs:
             }
             # The runner has no Ground Space process on port 8765. Without
             # -Restart this may only inspect and print "Preflight only".
-            $output = & (Join-Path $preview 'tools/restart_gs016_codex.ps1') 2>&1 | Out-String
+            $output = & (Join-Path $preview 'tools/restart_gs016_codex.ps1') 6>&1 2>&1 | Out-String
             if ($output -notmatch 'Preflight only') {
               throw ('Detached worktree preflight did not reach the no-restart gate: ' + $output)
             }
