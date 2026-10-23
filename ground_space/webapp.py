@@ -239,6 +239,70 @@ class GroundSpaceApp:
             str(body.get("path", "")), str(body.get("name", ""))
         )
 
+    def rename_project(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            project_id = body.get("project_id")
+            if not isinstance(project_id, str):
+                raise ValueError("Project ID required")
+            original = self.workspaces.get_project(project_id)
+            if body.get("confirm_name") != original["name"]:
+                raise ValueError("Project name changed. Reopen the menu.")
+            return self.workspaces.rename_project(project_id, body.get("name"))
+
+    def rename_group(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            group_id = body.get("group_id")
+            if not isinstance(group_id, str):
+                raise ValueError("Chat ID required")
+            original = self.workspaces.get_group(group_id)
+            if body.get("confirm_name") != original["name"]:
+                raise ValueError("Chat name changed. Reopen the menu.")
+            return self.workspaces.rename_group(group_id, body.get("name"))
+
+    def remove_group(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Owner removes a group chat from navigation, not its historical records."""
+        with self.lock:
+            group_id = body.get("group_id")
+            if not isinstance(group_id, str):
+                raise ValueError("Chat ID required")
+            group = self.workspaces.get_group(group_id)
+            if body.get("confirm_name") != group["name"]:
+                raise ValueError("Chat name changed. Reopen the menu.")
+            room = group["conversation_id"]
+            for path in self.queue_dir.glob("*.json"):
+                try:
+                    task = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError) as error:
+                    raise ValueError("Cannot verify task queue. Chat removal blocked.") from error
+                payload = task.get("payload") or {}
+                linked = (payload.get("group_id") == group_id or
+                          payload.get("conversation_id") == room)
+                status = task.get("status")
+                rejected_queued = (status == "queued" and
+                                   (task.get("approval") or {}).get("status") == "rejected")
+                if linked and not rejected_queued and status not in {
+                    "completed", "failed", "cancelled", "blocked"
+                }:
+                    raise ValueError("Chat has queued or active tasks. Finish or reject them first.")
+            codex_jobs = getattr(self.codex, "jobs", None)
+            if codex_jobs is None:
+                codex_jobs = self.codex.snapshot().get("jobs", [])
+            for job in codex_jobs:
+                if (job.get("group_id") == group_id or
+                    job.get("conversation_id") == room) and job.get("status") not in {
+                    "completed", "failed", "cancelled", "rejected"
+                }:
+                    raise ValueError("Chat has unfinished Codex jobs.")
+            flows = getattr(self.collaborations, "runs", None)
+            if flows is None:
+                flows = self.collaborations.snapshot()
+            for flow in flows:
+                if flow.get("group_id") == group_id and flow.get("state") not in {
+                    "completed", "failed"
+                }:
+                    raise ValueError("Chat has an active Co-work run.")
+            return self.workspaces.remove_group(group_id)
+
     def remove_project(self, body: dict[str, Any]) -> dict[str, Any]:
         """Remove a project link, never its local directory or chat history."""
         project_id = body.get("project_id")
@@ -1000,7 +1064,9 @@ class GroundSpaceApp:
                     "enabled":self.chatgpt_connection.enabled(),
                     "login_state":self.chatgpt_connection.login_state},
                 "backend_release": BACKEND_RELEASE,
-                "capabilities": {"project_remove": True, "project_folder_picker": True},
+                "capabilities": {"project_remove": True, "project_folder_picker": True,
+                                 "project_rename": True, "group_rename": True,
+                                 "group_remove": True},
                 "security": security_posture(),
                 "paid_api_usage_aud": 0}
 
@@ -1124,6 +1190,15 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/projects/remove":
                 self._json(HTTPStatus.OK, self.app.remove_project(body))
+                return
+            if path == "/api/projects/rename":
+                self._json(HTTPStatus.OK, self.app.rename_project(body))
+                return
+            if path == "/api/groups/rename":
+                self._json(HTTPStatus.OK, self.app.rename_group(body))
+                return
+            if path == "/api/groups/remove":
+                self._json(HTTPStatus.OK, self.app.remove_group(body))
                 return
             if path == "/api/groups/create":
                 self._json(HTTPStatus.CREATED, self.app.create_group(body))
