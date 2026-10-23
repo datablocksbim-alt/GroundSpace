@@ -8,8 +8,9 @@ $expected = 'feature/gs-026-mobile-agent-model-controls'
 if (-not (Test-Path -LiteralPath (Join-Path $repo '.git') -PathType Leaf)) {
     throw 'GS-026 production activation requires the isolated preview Git worktree; never switch the original GS-021 installation.'
 }
-$branch = (& git -C $repo branch --show-current).Trim()
+$branchLines = @(& git -C $repo branch --show-current)
 if ($LASTEXITCODE -ne 0) { throw 'Cannot determine GS-026 checkout branch.' }
+$branch = ($branchLines -join '').Trim()  # Empty on a correctly detached HEAD.
 if ($branch -and $branch -ne $expected) {
     throw "Unexpected GS-026 checkout branch: $branch"
 }
