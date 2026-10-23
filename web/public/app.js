@@ -835,6 +835,11 @@ $('#registeredModels').addEventListener('change',event=>{
   const save=root.querySelector('.save-agent-config');
   if(save)save.disabled=false;
   root.querySelector('.agent-config-feedback').textContent='Unsaved changes';
+  // Single-choice menus close as soon as the user selects a value.
+  // Keep Access open for multi-select until another button or outside tap.
+  if(event.target.matches('select[data-agent-field]')){
+    setAgentMenu(root,'loadable',null);
+  }
 });
 $('#agentGrid').addEventListener('click',event=>{
   const button=event.target.closest('button[data-builtin-menu]');
