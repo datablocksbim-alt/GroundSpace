@@ -261,10 +261,16 @@ class GroundSpaceApp:
                 payload = task.get("payload") or {}
                 related = (payload.get("project_id") == project_id or
                            payload.get("group_id") in related_groups)
-                if (related and task.get("status") in active_states and
-                    task.get("approval", {}).get("status") != "rejected"):
+                rejected_queued = (task.get("status") == "queued" and
+                                   task.get("approval", {}).get("status") == "rejected")
+                if related and task.get("status") in active_states and not rejected_queued:
                     raise ValueError("This project has pending or active tasks. Finish or reject them first.")
-            for job in self.codex.snapshot().get("jobs", []):
+            # Codex snapshots show only the newest 50 jobs; inspect the complete
+            # retained job ledger before unlinking a workspace.
+            all_codex_jobs = getattr(self.codex, "jobs", None)
+            if all_codex_jobs is None:
+                all_codex_jobs = self.codex.snapshot().get("jobs", [])
+            for job in all_codex_jobs:
                 if job.get("project_id") == project_id and job.get("status") in {
                     "running", "queued", "pending_approval", "retrying"
                 }:
