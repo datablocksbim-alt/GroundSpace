@@ -302,11 +302,25 @@ class GroundSpaceApp:
                 "model_id": body.get("model_id"), "level": body.get("level"),
                 "access": body.get("access"), "approval": body.get("approval"),
             }, registered)
-            if agent_id == "codex":
-                # Existing Codex policy is the authoritative owner default.
-                # Project-specific policies remain independently restricted.
-                self.codex.set_policy({"mode": cleaned["approval"], "project_id": None})
-            return self.agent_configs.save(agent_id, cleaned, registered)
+            if agent_id != "codex":
+                return self.agent_configs.save(agent_id, cleaned, registered)
+            # The Codex approval policy and GS-027 agent profile live in
+            # separate files. If the profile write fails after the policy
+            # update, restore the previous default instead of reporting a
+            # failed Save that silently changed execution authority.
+            old_approval = self.codex.mode(None)
+            self.codex.set_policy({"mode": cleaned["approval"], "project_id": None})
+            try:
+                return self.agent_configs.save(agent_id, cleaned, registered)
+            except Exception as exc:
+                try:
+                    self.codex.set_policy({"mode": old_approval, "project_id": None})
+                except Exception as rollback_exc:
+                    raise RuntimeError(
+                        "Codex agent Save failed and previous approval could not be restored. "
+                        "Stop sending tasks and inspect both policy and agent profile."
+                    ) from rollback_exc
+                raise
 
     def codex_selection(self, *, group_id: str | None = None) -> dict[str, str]:
         profiles = getattr(self, "model_profiles", None)
