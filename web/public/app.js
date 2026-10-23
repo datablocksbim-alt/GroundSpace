@@ -54,7 +54,7 @@ function setAgent(agent){
   $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':agent==='codex'?'Codex workspace agent':'Administrator channel';
   $('#editGroupButton').hidden=true;
   $('#startCollaborationButton').hidden=true;
-  $('#openModelSettings').hidden=agent!=='codex';
+  $('#openModelSettings').hidden=true; // Direct agent models are saved under Agents.
   $('#projectSelect').disabled=false;
   $('#modelControls').hidden=true;
   $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
@@ -73,6 +73,7 @@ function selectGroup(groupId){
   $('#editGroupButton').hidden=false;
   $('#startCollaborationButton').hidden=false;
   $('#openModelSettings').hidden=!group.models.includes('codex');
+  $('#openModelSettings').textContent='Group override ⚙';
   $('#privateChannelMenu').open=false;
   $('#projectSelect').disabled=true;
   $('#modelControls').hidden=true;
@@ -518,7 +519,11 @@ function modelProfileKey(){
   return state.agent==='group'&&state.groupId?'codex:group:'+state.groupId:'codex:direct';
 }
 function currentCodexProfile(){
-  return state.data?.model_profiles?.profiles?.[modelProfileKey()]||{model_id:'',reasoning_effort:''};
+  const legacy=state.data?.model_profiles?.profiles?.[modelProfileKey()];
+  if(state.agent==='group'&&legacy)return legacy;
+  const saved=state.data?.agent_configs?.profiles?.codex;
+  if(saved)return {model_id:saved.model_id,reasoning_effort:saved.level};
+  return legacy||{model_id:'',reasoning_effort:''};
 }
 function updateCustomModelVisibility(){
   const custom=$('#codexModelChoice').value==='_custom';
@@ -624,8 +629,8 @@ async function refresh(){
     }
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
     renderModels();renderWorkspaces();renderMessages();renderActiveAgents();renderAgents();renderTasks();renderCodex();renderChatGPTConnection();
-    $('#openModelSettings').hidden=!(state.agent==='codex'||(state.agent==='group'&&
-      (data.workspaces?.groups||[]).some(g=>g.id===state.groupId&&g.models.includes('codex'))));
+    $('#openModelSettings').hidden=!(state.agent==='group'&&
+      (data.workspaces?.groups||[]).some(g=>g.id===state.groupId&&g.models.includes('codex')));
   }finally{state.refreshing=false;}
 }
 async function submit(event){
