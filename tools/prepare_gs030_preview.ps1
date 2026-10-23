@@ -1,4 +1,4 @@
-# GS-030 ASUS project folder-picker preview only: never restart production.
+# GS-030 compact project/chat rename/delete preview only: never restart production.
 [CmdletBinding()]
 param([switch]$StartPreview, [ValidateRange(1025,65535)][int]$Port = 8783)
 Set-StrictMode -Version Latest
@@ -14,7 +14,7 @@ if ($LASTEXITCODE -ne 0 -or $head -ne $remote) {
 }
 $dirty = @(& git -C $repo status --porcelain | Where-Object { $_ })
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) { throw 'Uncommitted changes detected; stop.' }
-if ($Port -in @(8765,8766,8767,8768,8779,8780)) { throw 'This port is reserved for production or an earlier isolated test.' }
+if ($Port -in @(8765,8766,8767,8768,8779,8780,8781,8782)) { throw 'This port is reserved for production or an earlier isolated test.' }
 Push-Location $repo
 try {
   & py -3 -m unittest tests.test_gs030_chat_management tests.test_gs029_folder_picker tests.test_gs014_mobile_ui tests.test_gs027_agent_configs tests.test_gs026_model_controls tests.test_gs025_public_security tests.test_gs017_group_approvals -v
