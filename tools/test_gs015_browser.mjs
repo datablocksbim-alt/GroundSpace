@@ -189,6 +189,18 @@ const server=createServer(async(req,res)=>{
         const item={id:'project-'+(projects.length+1),name:body.name||'Demo',path:body.path};
         projects.push(item);return json(res,201,item);
       }
+      if(path==='/api/projects/remove'){
+        const index=projects.findIndex(x=>x.id===body.project_id);
+        if(index<0||body.confirm_name!==projects[index].name)
+          return json(res,400,{error:'Project confirmation mismatch'});
+        const item=projects[index];
+        const linked=groups.filter(x=>x.project_id===item.id);
+        const result={removed:item.id,name:item.name,unassigned_chats:linked.length,folder_deleted:false};
+        projects.splice(index,1);
+        for(const group of linked)group.project_id=null;
+        return json(res,200,result);
+      }
+
       if(path==='/api/models/add'){
         const i=discovered.indexOf(body.model);
         if(i<0)return json(res,400,{error:'Model must already be installed in local Ollama'});
@@ -604,7 +616,34 @@ try{
     await page.waitForFunction(()=>document.querySelector('#codexJobList')?.textContent.includes('running'));
     assert.equal(codex.jobs[codex.jobs.length-1].status,'running');
     assert.equal(exceptions.length,0,label+' Codex settings and approvals: '+exceptions.join(', '));
-    console.log('PASS: '+label+' buttons, project add, Codex added in Agents, Codex approvals, group chat and layout');
+    // Owner project removal must be subtle, explicitly confirmed and metadata-only.
+    await page.locator('.nav-button[data-view="chat"]').click();
+    if(viewport.mobile)await page.locator('#mobileRailToggle').click();
+    const existing=page.locator('[data-project-cluster="project-existing"]');
+    const preservedChatId=groups.find(g=>g.id==='group-existing').conversation_id;
+    const preservedApproval=groups.find(g=>g.id==='group-existing').approval_modes['qwen2.5-coder:3b'];
+    await existing.locator('[data-project-menu]').click();
+    assert.equal(await page.locator('#removeProjectDialog').isVisible(),true);
+    assert.match(await page.locator('#removeProjectDialog').innerText(),/will not be deleted/);
+    assert.match(await page.locator('#removeProjectChatNotice').innerText(),/1 existing project chat/);
+    await page.locator('#cancelRemoveProject').click();
+    assert.ok(projects.some(p=>p.id==='project-existing'),'Cancel must preserve the project');
+    await existing.locator('[data-project-menu]').click();
+    await page.locator('#confirmRemoveProject').click();
+    await page.waitForFunction(()=>!document.querySelector('[data-project-cluster="project-existing"]'));
+    assert.equal(projects.some(p=>p.id==='project-existing'),false,'project unregistered');
+    const preserved=groups.find(g=>g.id==='group-existing');
+    assert.equal(preserved.project_id,null,'group moved to unassigned');
+    assert.equal(preserved.conversation_id,preservedChatId,'conversation ID stays');
+    assert.equal(preserved.approval_modes['qwen2.5-coder:3b'],preservedApproval);
+    assert.ok(conversations[preservedChatId].some(x=>x.content==='Preserved project reply'));
+    const unassignedFolder=page.locator('[data-project-cluster="__unassigned__"]');
+    if(await unassignedFolder.locator('.project-chat-list').isHidden()){
+      await unassignedFolder.locator('[data-project-toggle]').click();
+    }
+    assert.equal(await unassignedFolder.locator('[data-group="group-existing"]').isVisible(),true);
+    assert.equal(exceptions.length,0,label+' project removal: '+exceptions.join(', '));
+    console.log('PASS: '+label+' buttons, project add/remove, preserved chats, Codex and mobile layout');
     await context.close();
   }
 } finally{
