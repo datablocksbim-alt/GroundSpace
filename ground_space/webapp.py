@@ -24,6 +24,7 @@ from .codex_pilot import CodexPilot
 from .collaboration import CollaborationLedger
 from .chatgpt_connection import CodexAppServerClient
 from .security import assert_private_owner_mode, security_posture, RequestRateLimit
+from .model_profiles import ModelProfiles
 from .messages import utc_timestamp
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
@@ -37,7 +38,7 @@ MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
-BACKEND_RELEASE = "GS-025"
+BACKEND_RELEASE = "GS-026"
 
 # A single explicit private HTTPS Origin is opt-in for the owner-only Tailscale
 # Serve pilot. Never derive trusted origins from untrusted Host/forwarded headers.
@@ -125,6 +126,7 @@ class GroundSpaceApp:
             self._register_worker(model, availability)
         self.conversations = self._load_history()
         self.codex = CodexPilot(self.state_dir / "private", self.workspaces)
+        self.model_profiles = ModelProfiles(self.state_dir / "private" / "agent_model_profiles.json")
         self.collaborations = CollaborationLedger(self.state_dir / "private" / "collaborations.json")
         self.chatgpt_connection = CodexAppServerClient()
         self.collaboration_lock = threading.RLock()
@@ -240,6 +242,24 @@ class GroundSpaceApp:
             "claim to have inspected, changed, or executed files in this folder.\n"
         )
 
+    def codex_selection(self, *, group_id: str | None = None) -> dict[str, str]:
+        profiles=getattr(self,"model_profiles",None)
+        return profiles.get(group_id=group_id) if profiles else {"model_id":"","reasoning_effort":""}
+
+    def set_model_profile(self, body: dict[str, Any]) -> dict[str,str]:
+        if body.get("provider")!="codex":
+            raise ValueError("This provider is not connected. Only Codex CLI supports model settings in the owner pilot")
+        if not self.codex.is_registered():
+            raise ValueError("Add Codex in Agents before changing its model settings")
+        group_id=body.get("group_id")
+        if group_id is not None:
+            group=self.workspaces.get_group(group_id)
+            if "codex" not in group["models"]:
+                raise ValueError("Codex is not a member of this group")
+        return self.model_profiles.set(group_id=group_id,
+            model_id=body.get("model_id",""),
+            reasoning_effort=body.get("reasoning_effort",""))
+
     def start_collaboration(self, body: dict[str, Any]) -> dict[str, Any]:
         """Dispatch only a Qwen text proposal. No Codex job is created here."""
         group_id=body.get("group_id")
@@ -302,7 +322,8 @@ class GroundSpaceApp:
                 auto=group.get("approval_modes",{}).get("codex")=="approve_for_me"
                 job=self.codex.submit({"project_id":run["project_id"],"prompt":prompt,
                    "scope":"workspace_write","group_id":run["group_id"],
-                   "conversation_id":group["conversation_id"]},group_auto_approval=auto)
+                   "conversation_id":group["conversation_id"],
+                   **self.codex_selection(group_id=run["group_id"])},group_auto_approval=auto)
                 flow=self.collaborations.attach(flow_id,expected_state="proposal_pending",
                     state="codex_pending",link_name="codex_job_id",link_id=job["id"])
                 # Reuse the existing group conversation approval controls.
@@ -434,6 +455,7 @@ class GroundSpaceApp:
                         "project_id": group["project_id"], "prompt": prompt,
                         "scope": codex_scope, "conversation_id": conversation_id,
                         "group_id": group["id"],
+                        **self.codex_selection(group_id=group["id"]),
                     }, group_auto_approval=automatic)
                     codex_job_ids.append(item["id"])
                     continue
@@ -607,7 +629,8 @@ class GroundSpaceApp:
                 raise ValueError("Select a registered project before requesting Codex")
             item = self.codex.submit({"project_id":project_id, "prompt":prompt,
                                       "scope":"read_only" if note else "workspace_write",
-                                      "conversation_id":conversation_id})
+                                      "conversation_id":conversation_id,
+                                      **self.codex_selection()})
             if note:
                 entry["codex_job_ids"] = [item["id"]]
                 atomic_json(self.history_path, self.conversations)
@@ -750,6 +773,7 @@ class GroundSpaceApp:
                 "models": self.catalog(availability=availability),
                 "workspaces": self.workspaces.snapshot(), "codex": self.codex.snapshot(),
                 "collaborations": self.collaborations.snapshot(),
+                "model_profiles": self.model_profiles.snapshot(),
                 "chatgpt_connection": {"scope":"single_owner_codex_cli",
                     "enabled":self.chatgpt_connection.enabled(),
                     "login_state":self.chatgpt_connection.login_state},
@@ -898,6 +922,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/collaboration/advance":
                 self._json(HTTPStatus.OK, self.app.advance_collaboration(body))
+                return
+            if path == "/api/model-profiles/set":
+                self._json(HTTPStatus.OK, self.app.set_model_profile(body))
                 return
             if path == "/api/codex/policy":
                 self._json(HTTPStatus.OK, self.app.codex.set_policy(body))
