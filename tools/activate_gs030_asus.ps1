@@ -75,24 +75,62 @@ if (-not (Test-Path -LiteralPath $oldApp -PathType Leaf) -or
 }
 
 function Bootstrap([int]$port) { Invoke-RestMethod "http://127.0.0.1:$port/api/bootstrap" -TimeoutSec 8 }
+# Stable data comparison: preserve every array element and its order, but sort
+# object keys recursively. A loaded Python process and a disk-reloaded canary
+# can enumerate conversation IDs in different orders even when all messages match.
+function CanonicalValue($value) {
+  if ($null -eq $value) { return $null }
+  if ($value -is [pscustomobject] -or $value -is [System.Collections.IDictionary]) {
+    $map=[System.Collections.Generic.SortedDictionary[string,object]]::new(
+      [System.StringComparer]::Ordinal)
+    if ($value -is [System.Collections.IDictionary]) {
+      foreach($key in $value.Keys) {
+        $map.Add([string]$key, (CanonicalValue $value[$key]))
+      }
+    } else {
+      foreach($property in $value.PSObject.Properties) {
+        $map.Add([string]$property.Name, (CanonicalValue $property.Value))
+      }
+    }
+    return ,$map
+  }
+  if ($value -is [System.Collections.IEnumerable] -and $value -isnot [string]) {
+    $elements=[System.Collections.Generic.List[object]]::new()
+    foreach($element in $value) { $elements.Add((CanonicalValue $element)) }
+    return ,$elements.ToArray()
+  }
+  return $value
+}
+function StableJson($value) {
+  ConvertTo-Json -InputObject (CanonicalValue $value) -Depth 70 -Compress
+}
 function Verify($item,$baseline,[string]$release) {
-  if ([string]$item.backend_release -ne $release) { throw "Expected $release, found $($item.backend_release)" }
-  foreach ($name in @('projects','groups')) {
-    $before=@($baseline.workspaces.$name) | ConvertTo-Json -Depth 60 -Compress
-    $after=@($item.workspaces.$name) | ConvertTo-Json -Depth 60 -Compress
-    if ($before -cne $after) { throw "$release $name IDs/metadata changed" }
+  if ([string]$item.backend_release -ne $release) {
+    throw "Expected $release, found $($item.backend_release)"
   }
-  foreach ($name in @('conversations','tasks','collaborations','agent_configs')) {
-    $before=$baseline.$name | ConvertTo-Json -Depth 60 -Compress
-    $after=$item.$name | ConvertTo-Json -Depth 60 -Compress
-    if ($before -cne $after) { throw "$release $name data changed" }
+  foreach($name in @('projects','groups')) {
+    $before=StableJson @($baseline.workspaces.$name)
+    $after=StableJson @($item.workspaces.$name)
+    if ($before -cne $after) {
+      throw "$release $name IDs/metadata changed (canonical values differ)"
+    }
   }
-  foreach ($name in @('jobs','project_modes')) {
-    $before=$baseline.codex.$name | ConvertTo-Json -Depth 60 -Compress
-    $after=$item.codex.$name | ConvertTo-Json -Depth 60 -Compress
-    if ($before -cne $after) { throw "$release Codex $name changed" }
+  foreach($name in @('conversations','tasks','collaborations','agent_configs')) {
+    $before=StableJson $baseline.$name
+    $after=StableJson $item.$name
+    if ($before -cne $after) {
+      throw "$release $name data changed (canonical values differ)"
+    }
+  }
+  foreach($name in @('jobs','project_modes')) {
+    $before=StableJson $baseline.codex.$name
+    $after=StableJson $item.codex.$name
+    if ($before -cne $after) {
+      throw "$release Codex $name changed (canonical values differ)"
+    }
   }
 }
+
 function SafeJobs($item) {
   if (-not $item.PSObject.Properties['codex'] -or -not $item.codex.PSObject.Properties['jobs']) {
     throw 'Codex job state unavailable'
