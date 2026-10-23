@@ -10,6 +10,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .security import assert_private_owner_mode
+
 MODES = ("manual", "auto_read_only", "disabled")
 
 def persist(path: Path, obj: Any) -> None:
@@ -64,6 +66,7 @@ class CodexPilot:
 
     def writable_available(self) -> bool:
         # Explicit opt-in; requires separate confirmation on the actual owner ASUS.
+        assert_private_owner_mode()
         return os.environ.get("GROUND_SPACE_CODEX_WRITE_ENABLED") == "1"
 
     def mode(self, project_id: str | None) -> str:
