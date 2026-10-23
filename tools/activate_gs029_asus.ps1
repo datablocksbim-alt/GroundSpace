@@ -55,8 +55,13 @@ function SafeJobs($item) {
     throw 'Codex job state unavailable'
   }
   foreach ($task in @($item.tasks)) {
+    # Group rejections remain stored as status=queued with approval=rejected.
+    # They are non-executable (OrchestratorAdapter.process requires approved).
+    # Never treat an explicit owner rejection as pending work.
+    if ([string]$task.status -eq 'queued' -and
+        [string]$task.approval.status -eq 'rejected') { continue }
     if ([string]$task.status -in @('queued','claimed','running','in_progress','retrying','pending','pending_approval','processing','leased')) {
-      throw 'Active/queued task detected. Finish the queue before cutover.'
+      throw 'Active/queued task detected. Review group approvals and finish the queue before cutover.'
     }
   }
   foreach ($job in @($item.codex.jobs)) {
