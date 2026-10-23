@@ -254,12 +254,25 @@ class GroundSpaceApp:
 
     def agent_config(self, agent_id: str) -> dict[str, Any]:
         configs = getattr(self, "agent_configs", None)
-        return configs.get(agent_id) if configs else (
+        cfg = configs.get(agent_id) if configs else (
             {"model_id": "", "level": "", "access": ["read", "review", "workspace_write"], "approval": "manual"}
             if agent_id == "codex" else
             {"model_id": agent_id, "level": "balanced",
              "access": ["chat", "read", "propose", "review"], "approval": "auto_read_only"}
         )
+        if agent_id == "codex" and not (configs and "codex" in configs.entries):
+            # The installed GS-026 Codex policy remains authoritative until
+            # the owner explicitly saves a GS-027 agent profile.
+            policy = getattr(getattr(self, "codex", None), "policy_data", None)
+            if isinstance(policy, dict) and policy.get("default") in ("manual", "auto_read_only", "disabled"):
+                cfg["approval"] = policy["default"]
+        return cfg
+
+    def agent_config_snapshot(self) -> dict[str, Any]:
+        snapshot = self.agent_configs.snapshot(self.registered_models, self.codex.is_registered())
+        if "codex" in snapshot["profiles"]:
+            snapshot["profiles"]["codex"] = self.agent_config("codex")
+        return snapshot
 
     def require_agent_access(self, agent_id: str, *, write: bool = False,
                              request_type: str = "explanation") -> dict[str, Any]:
@@ -867,8 +880,7 @@ class GroundSpaceApp:
                 "workspaces": self.workspaces.snapshot(), "codex": self.codex.snapshot(),
                 "collaborations": self.collaborations.snapshot(),
                 "model_profiles": self.model_profiles.snapshot(),
-                 "agent_configs": (self.agent_configs.snapshot(self.registered_models, self.codex.is_registered())
-                    if hasattr(self, "agent_configs") else
+                 "agent_configs": (self.agent_config_snapshot() if hasattr(self, "agent_configs") else
                     {"schema_version": 1, "profiles": {}, "providers": []}),
                 "chatgpt_connection": {"scope":"single_owner_codex_cli",
                     "enabled":self.chatgpt_connection.enabled(),
