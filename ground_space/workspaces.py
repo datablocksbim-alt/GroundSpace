@@ -157,6 +157,18 @@ class WorkspaceRegistry:
             self.projects = updated
             return dict(project)
 
+    def rename_project(self, project_id: str, name: str) -> dict[str, Any]:
+        """Rename only the project label. The selected ASUS path never changes."""
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
+            raise ValueError("Project name must be 1–80 characters")
+        with self.lock:
+            original = self.get_project(project_id)
+            replacement = {**original, "name": name.strip()}
+            updated = [replacement if p["id"] == project_id else p for p in self.projects]
+            _save(self.projects_file, {"schema_version": 1, "projects": updated})
+            self.projects = updated
+            return dict(replacement)
+
     def remove_project(self, project_id: str) -> dict[str, Any]:
         """Unregister metadata only; preserve chat groups and their conversation IDs.
 
@@ -196,6 +208,28 @@ class WorkspaceRegistry:
                 if group["id"] == group_id:
                     return dict(group)
         raise ValueError("Unknown group chat")
+
+    def rename_group(self, group_id: str, name: str) -> dict[str, Any]:
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 70:
+            raise ValueError("Chat name must be 1–70 characters")
+        with self.lock:
+            original = self.get_group(group_id)
+            replacement = {**original, "name": name.strip()}
+            updated = [replacement if g["id"] == group_id else g for g in self.groups]
+            _save(self.groups_file, {"schema_version": 1, "groups": updated})
+            self.groups = updated
+            return dict(replacement)
+
+    def remove_group(self, group_id: str) -> dict[str, Any]:
+        """Remove a chat from navigation. History and audit are retained for recovery."""
+        with self.lock:
+            group = self.get_group(group_id)
+            updated = [g for g in self.groups if g["id"] != group_id]
+            _save(self.groups_file, {"schema_version": 1, "groups": updated})
+            self.groups = updated
+            return {"removed": group["id"], "name": group["name"],
+                    "conversation_id": group["conversation_id"],
+                    "transcript_retained": True}
 
     @staticmethod
     def _validate_members(models: Any, registered: list[str]) -> list[str]:
