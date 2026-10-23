@@ -246,26 +246,31 @@
       </div>
     </form>
   </dialog>
-  <dialog id="projectDialog" class="workspace-dialog">
+  <dialog id="projectDialog" class="workspace-dialog project-picker-dialog">
     <form id="projectForm">
-      <h2>Select local project folder</h2>
-      <p>Browse folders on your ASUS, not your iPhone. Local Ollama agents still receive metadata only; an authorized Codex workspace task can edit files in the selected project.</p>
-      <label for="projectName">Project label (optional)</label>
-      <input id="projectName" maxlength="80" placeholder="Project name">
-      <label for="projectPath">Local folder path</label>
-      <input id="projectPath" placeholder="D:\\000_AI Project\\Pyrene Mini" required>
-      <div class="workspace-dialog-row">
-        <span>Browse allowed local folders</span>
-        <button type="button" id="browseRoots">Browse…</button>
+      <h2>Add project</h2>
+      <p>Choose a folder on your ASUS. Browse from your phone without typing a Windows path.</p>
+      <input type="hidden" id="projectPath" value="">
+      <div id="folderPicker" class="folder-picker" aria-label="Browse ASUS project folders">
+        <div class="folder-picker-head">
+          <button type="button" id="folderUp" aria-label="Go to parent folder">← Back</button>
+          <small id="folderCurrent" aria-live="polite">Allowed folders</small>
+          <button type="button" id="browseRoots" title="Allowed project folders">Roots</button>
+        </div>
+        <div id="folderEntries" class="folder-entries" aria-label="Folders">Loading folders…</div>
       </div>
-      <div id="folderPicker" class="folder-picker" hidden>
-        <div class="folder-picker-head"><button type="button" id="folderUp">↑ Up</button><small id="folderCurrent">Allowed folders</small></div>
-        <div id="folderEntries" class="folder-entries"></div>
+      <div id="selectedProjectFolder" class="selected-project-folder" hidden>
+        <span class="selected-folder-icon" aria-hidden="true">✓</span>
+        <div class="selected-folder-detail"><b>Selected folder</b><small id="selectedFolderPath"></small></div>
+        <button type="button" id="changeProjectFolder">Change</button>
       </div>
+      <label for="projectName">Project name <span class="optional-label">(optional)</span></label>
+      <input id="projectName" maxlength="80" placeholder="Use folder name">
+      <p class="project-picker-note">Only permitted ASUS folders appear. Choosing a folder does not grant AI file access.</p>
       <p id="projectDialogError" class="dialog-feedback" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="button" id="cancelProject">Cancel</button>
-        <button type="submit" id="saveProject">Add project</button>
+        <button type="submit" id="saveProject" disabled>Add project</button>
       </div>
     </form>
   </dialog>
