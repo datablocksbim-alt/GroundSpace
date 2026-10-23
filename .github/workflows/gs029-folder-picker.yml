@@ -37,7 +37,7 @@ jobs:
           [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
           $source = Get-Content $script -Raw
-          foreach ($check in @('Assert-UnchangedFiles', 'backup_ground_space_state.ps1',
+          foreach ($check in @('Assert-LiveUnchanged', 'backup_ground_space_state.ps1',
               'GS-029', 'GS-028', 'GS-027', 'GS-026', 'SafeJobs',
               'StartApp $repo $canaryPort', 'Stop-Process -Id $oldPid')) {
             if (-not $source.Contains($check)) { throw "Missing GS-029 release safeguard: $check" }
