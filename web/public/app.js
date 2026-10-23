@@ -233,6 +233,7 @@ function renderWorkspaces(){
     const children=legacy?unassigned:groups.filter(g=>g.project_id===id);
     const childRows=groupRows(children);
     return '<section class="project-cluster" data-project-cluster="'+esc(id)+'">'+
+      '<div class="project-folder-row">'+
       '<button type="button" class="project-room project-folder '+
       ((id===state.projectId&&state.agent!=='group')||(state.agent==='group'&&
         children.some(g=>g.id===state.groupId))?'active':'')+
@@ -242,6 +243,9 @@ function renderWorkspaces(){
       '<span class="project-folder-name">'+esc(p.name)+'</span>'+
       '<span class="project-folder-count" aria-label="'+children.length+' project chats">'+children.length+'</span>'+
       '<span class="project-folder-chevron" aria-hidden="true">'+(expanded?'⌄':'›')+'</span></button>'+
+      (legacy?'':'<button type="button" class="project-more" data-project-menu="'+esc(id)+'"'+
+        ' aria-label="Options for '+esc(p.name)+'" title="Project options">···</button>')+
+      '</div>'+
       '<div class="project-chat-list"'+(expanded?'':' hidden')+'>'+
       (childRows||'<p class="rail-empty">No chats in this project</p>')+
       (legacy?'':'<button type="button" class="new-project-chat" data-new-project-group="'+esc(id)+'">'+
@@ -1066,6 +1070,8 @@ $('#groupForm').addEventListener('submit',saveGroup);
 $('#cancelGroup').addEventListener('click',()=>$('#groupDialog').close());
 $('#projectSelect').addEventListener('change',()=>chooseProject($('#projectSelect').value));
 $('#projectList').addEventListener('click',event=>{
+  const more=event.target.closest('button[data-project-menu]');
+  if(more){openRemoveProject(more.dataset.projectMenu);return;}
   const group=event.target.closest('button[data-group]');
   if(group){selectGroup(group.dataset.group);return;}
   const create=event.target.closest('button[data-new-project-group]');
@@ -1076,6 +1082,48 @@ $('#projectList').addEventListener('click',event=>{
   state.expandedProjectId=state.expandedProjectId===id?'':id;
   localStorage.setItem('gs_expanded_project',state.expandedProjectId);
   renderWorkspaces();
+});
+let removeProjectTarget=null;
+function openRemoveProject(projectId){
+  const project=(state.data?.workspaces?.projects||[]).find(p=>p.id===projectId);
+  if(!project){toast('Project not found');return;}
+  removeProjectTarget={id:project.id,name:project.name};
+  const count=(state.data?.workspaces?.groups||[]).filter(g=>g.project_id===projectId).length;
+  $('#removeProjectName').textContent=project.name;
+  $('#removeProjectChatNotice').textContent=count?
+    count+' existing project chat'+(count===1?'':'s')+' will move to General · unassigned.':
+    'No project chats need to be moved.';
+  $('#removeProjectError').hidden=true;
+  $('#confirmRemoveProject').disabled=false;
+  $('#removeProjectDialog').showModal();
+}
+$('#cancelRemoveProject').addEventListener('click',()=>$('#removeProjectDialog').close());
+$('#removeProjectDialog').addEventListener('close',()=>{removeProjectTarget=null;});
+$('#confirmRemoveProject').addEventListener('click',async()=>{
+  if(!removeProjectTarget)return;
+  const item=removeProjectTarget;
+  const button=$('#confirmRemoveProject');
+  button.disabled=true;
+  try{
+    const response=await api('/api/projects/remove',{method:'POST',
+      body:JSON.stringify({project_id:item.id,confirm_name:item.name})});
+    $('#removeProjectDialog').close();
+    if(state.projectId===item.id){
+      state.projectId='';
+      localStorage.setItem('gs_project_id','');
+      if(state.agent!=='group')state.conversationId=conversationFor(state.agent,'');
+    }
+    if(state.expandedProjectId===item.id){
+      state.expandedProjectId=response.unassigned_chats?'__unassigned__':'';
+      localStorage.setItem('gs_expanded_project',state.expandedProjectId);
+    }
+    await refresh();
+    toast('Project removed from Ground Space · ASUS folder preserved');
+  }catch(error){
+    const el=$('#removeProjectError');
+    el.textContent=error.message;
+    el.hidden=false;
+  }finally{if($('#removeProjectDialog').open)button.disabled=false;}
 });
 function resetProjectFolderSelection(){
   $('#projectPath').value='';
