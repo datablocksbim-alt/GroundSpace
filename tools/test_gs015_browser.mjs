@@ -19,6 +19,7 @@ const tasks = [];
 const collaborations = [];
 const chatgptStatus={connected:false,login_state:"not_started",auth_mode:null,plan_type:null};
 const modelProfiles={};
+const agentConfigs={};
 const conversations = {};
 const codex = {default_mode:'manual',project_modes:{},jobs:[]};
 const state = {csrf:'functional-test-token'};
@@ -52,6 +53,12 @@ const bootstrap = () => ({
   collaborations:collaborations.map(x=>({...x})),
   model_profiles:{provider:'codex_cli',supported_efforts:['low','medium','high'],
     other_cloud_providers_connected:false,profiles:{...modelProfiles}},
+  agent_configs:{schema_version:1,profiles:Object.fromEntries(registered.map(x=>[x.model,
+    agentConfigs[x.model]||(x.model==='codex'?
+      {model_id:'',level:'',access:['read','review','workspace_write'],approval:'manual'}:
+      {model_id:x.model,level:'balanced',access:['chat','read','propose','review'],approval:'auto_read_only'})])),
+    providers:[{id:'ollama',connected:true},{id:'openai_codex_cli',connected:true},
+      {id:'anthropic',connected:false},{id:'grok',connected:false}]},
   chatgpt_connection:{scope:'single_owner_codex_cli',enabled:true,login_state:chatgptStatus.login_state},
   security:{deployment:'owner_private',public_ready:false,multi_user_accounts:false},
   paid_api_usage_aud:0,
@@ -83,6 +90,17 @@ const server=createServer(async(req,res)=>{
     if(req.method==='POST'){
       assert.equal(req.headers['x-ground-space-csrf'],state.csrf,'CSRF token missing');
       const body=await reqBody(req);
+      if(path==='/api/agents/configure'){
+        const ids=registered.map(x=>x.model);
+        if(!ids.includes(body.agent_id))return json(res,400,{error:'Agent not registered'});
+        if(!Array.isArray(body.access)||!body.access.length)return json(res,400,{error:'Access is required'});
+        const connected=body.agent_id==='codex';
+        if(!connected&&!ids.includes(body.model_id))return json(res,400,{error:'Model not registered'});
+        if(!connected&&body.access.includes('workspace_write'))return json(res,400,{error:'No local filesystem permissions'});
+        agentConfigs[body.agent_id]={model_id:body.model_id,level:body.level,
+          access:body.access,approval:body.approval};
+        return json(res,200,agentConfigs[body.agent_id]);
+      }
       if(path==='/api/model-profiles/set'){
         if(body.provider!=='codex')return json(res,400,{error:'Provider not connected'});
         if(!['','low','medium','high'].includes(body.reasoning_effort))return json(res,400,{error:'Invalid effort'});
@@ -257,6 +275,23 @@ try{
       throw error;
     }
     assert.equal(exceptions.length,0,label+' startup errors: '+exceptions.join(', '));
+
+    // Inline agent controls stay compact and persist across refresh.
+    await page.locator('.nav-button[data-view="agents"]').click();
+    const localAgent=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"]');
+    await localAgent.locator('summary').click();
+    await localAgent.locator('[data-agent-field="level"]').selectOption('detailed');
+    await localAgent.locator('.save-agent-config').click();
+    await page.waitForFunction(()=>document.querySelector('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .agent-summary-value')?.textContent.includes('detailed'));
+    assert.equal(agentConfigs['qwen2.5-coder:3b'].level,'detailed');
+    await page.reload({waitUntil:'domcontentloaded'});
+    await page.waitForFunction(()=>document.querySelector('#registeredModels .agent-config-card'));
+    await page.locator('.nav-button[data-view="agents"]').click();
+    const afterReload=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"]');
+    await afterReload.locator('summary').click();
+    assert.equal(await afterReload.locator('[data-agent-field="level"]').inputValue(),'detailed');
+    await page.locator('.nav-button[data-view="chat"]').click();
+
 
     // Regression: GS-026 originally reapplied a desktop two-column grid after
     // the mobile breakpoint. This silently reduced iPhone chat to ~55% width.
