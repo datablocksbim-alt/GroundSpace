@@ -286,10 +286,12 @@ try{
     assert.equal(await tinySave.getAttribute('aria-label'),
       'Save configuration for qwen2.5-coder:3b');
     assert.equal((await tinySave.textContent()).trim(),'✓');
+    const originalLevel=await localAgent.locator('[data-agent-field="level"]').inputValue();
+    const nextLevel=originalLevel==='detailed'?'fast':'detailed';
     await localAgent.locator('[data-agent-menu="level"]').click();
     assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),true);
     assert.equal(await localAgent.locator('[data-agent-pane="model_id"]').isVisible(),false);
-    await localAgent.locator('[data-agent-field="level"]').selectOption('detailed');
+    await localAgent.locator('[data-agent-field="level"]').selectOption(nextLevel);
     assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),false,
       'Single-choice Level menu should close automatically');
     assert.equal(await localAgent.locator('.save-agent-config').isEnabled(),true);
@@ -302,21 +304,21 @@ try{
     }
     // Returning to the current saved value cancels the pending Save.
     await localAgent.locator('[data-agent-menu="level"]').click();
-    await localAgent.locator('[data-agent-field="level"]').selectOption('balanced');
+    await localAgent.locator('[data-agent-field="level"]').selectOption(originalLevel);
     assert.equal(await tinySave.isDisabled(),true,'no changes means no Save');
     await localAgent.locator('[data-agent-menu="level"]').click();
-    await localAgent.locator('[data-agent-field="level"]').selectOption('detailed');
+    await localAgent.locator('[data-agent-field="level"]').selectOption(nextLevel);
     assert.equal(await tinySave.isEnabled(),true);
     await localAgent.locator('[data-agent-menu="access"]').click();
     assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),false);
     assert.equal(await localAgent.locator('[data-agent-pane="access"]').isVisible(),true);
     assert.equal(await localAgent.locator('input[data-agent-access]').count(),4);
     await tinySave.click();
-    await page.waitForFunction(()=>document.querySelector('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .agent-summary-value')?.textContent.includes('detailed'));
+    await page.waitForFunction(level=>document.querySelector('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .agent-summary-value')?.textContent.includes(level), nextLevel);
     const refreshedSave=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .save-agent-config');
     assert.equal(await refreshedSave.isDisabled(),true,'successful Save returns to disabled state');
     await page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .agent-config-feedback').getByText('Saved').waitFor({state:'visible'});
-    assert.equal(agentConfigs['qwen2.5-coder:3b'].level,'detailed');
+    assert.equal(agentConfigs['qwen2.5-coder:3b'].level,nextLevel);
     // Built-in agents use matching compact rows, not the former technical grid.
     assert.equal(await page.locator('#agentGrid.agent-grid').count(),0);
     const builtIn=page.locator('#agentGrid .builtin-agent-card[data-builtin-agent="administrator"]');
@@ -329,7 +331,7 @@ try{
     await page.locator('.nav-button[data-view="agents"]').click();
     const afterReload=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"]');
     await afterReload.locator('[data-agent-menu="level"]').click();
-    assert.equal(await afterReload.locator('[data-agent-field="level"]').inputValue(),'detailed');
+    assert.equal(await afterReload.locator('[data-agent-field="level"]').inputValue(),nextLevel);
     await page.locator('.nav-button[data-view="chat"]').click();
 
 
