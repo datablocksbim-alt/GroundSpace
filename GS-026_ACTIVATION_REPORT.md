@@ -147,6 +147,12 @@ Authenticated CLI evidence:
 - This remains a single-owner, private-Tailscale service. Public hosting and
   independent user accounts remain blocked.
 
+### Post-validation activation guard correction
+
+During independent release review, the activation helper was found to reject the intentionally detached GS-026 preview worktree. This was a release-blocking mismatch in the *procedure*, not a regression in the running GS-021 server. The helper now requires a separate Git worktree, accepts detached HEAD only when it matches the fetched remote feature branch, and validates that an existing server reports a recognised Ground Space release before attempting any stop.
+
+**The new helper revision has not been live-tested on the ASUS.** Re-run the updated CI and a **non-restarting preflight** on the ASUS before a production cutover. The prior 147-pass and live CLI results apply to the earlier reviewed commit; they do not certify the revised restart helper.
+
 ## 9. Owner-approved production activation commands
 
 Run these only in an agreed maintenance window. The final restart command is the
@@ -154,9 +160,12 @@ production activation gate and requires explicit owner approval.
 
 ```powershell
 Set-Location -LiteralPath 'D:\000_AI Project\GroundSpace-GS026-Preview'
-git status --short
-git fetch origin feature/gs-026-mobile-agent-model-controls
-git pull --ff-only origin feature/gs-026-mobile-agent-model-controls
+$dirty = @(git status --porcelain)
+if ($LASTEXITCODE -ne 0 -or ($dirty | Where-Object { $_ })) { throw 'Preview worktree has uncommitted files or Git status failed' }
+git fetch origin
+if ($LASTEXITCODE -ne 0) { throw 'Git fetch failed' }
+git switch --detach origin/feature/gs-026-mobile-agent-model-controls
+if ($LASTEXITCODE -ne 0) { throw 'Cannot check out the verified release commit' }
 
 # Non-disruptive release gate. Must pass while GS-021 remains live.
 .\tools\check_gs026_asus.ps1 -AllowLegacyGS021 -Browser
@@ -206,7 +215,7 @@ private Tailscale URL. Never restore files over a running process.
 
 ## 10. Recommendation
 
-**CONDITIONAL GO for a supervised, owner-approved application cutover.**
+**CONDITIONAL GO pending revalidation of the corrected detached-worktree activation guard and explicit owner approval.**
 
 The candidate passes the complete Python suite, security/model tests, real
 Chromium mobile/desktop workflows, live authenticated model checks, consistent
