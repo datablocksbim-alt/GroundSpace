@@ -65,6 +65,7 @@
                   <select id="projectSelect" aria-label="Select local project"><option value="">No project</option></select>
                   <button type="button" id="editGroupButton" hidden>Members</button>
                    <button type="button" id="startCollaborationButton" hidden title="Start supervised Qwen → Codex → Granite workflow">Co-work</button>
+                   <button type="button" id="openModelSettings" hidden title="Choose coding model and reasoning effort">Model ⚙</button>
                 </div>
               </div>
               <span class="permission-pill" id="permissionPill">READ · PROPOSE</span>
@@ -194,6 +195,40 @@
     <footer><span>DATA BLOCKS GROUND SPACE</span><span>LOCALHOST · AUD $0</span></footer>
   </div>
 
+  <dialog id="modelSettingsDialog" class="workspace-dialog">
+    <form id="modelSettingsForm">
+      <h2>AI model settings</h2>
+      <p id="modelSettingsScope">Set the model and reasoning effort used for this Codex conversation.</p>
+      <label for="modelProviderChoice">Connected AI</label>
+      <select id="modelProviderChoice" aria-label="AI provider">
+        <option value="codex">Codex · OpenAI CLI</option>
+        <option value="claude" disabled>Claude · not connected yet</option>
+      </select>
+      <label for="codexModelChoice">Model</label>
+      <select id="codexModelChoice" aria-label="Codex model">
+        <option value="">Codex CLI default</option>
+        <option value="gpt-5.6-sol">GPT-5.6 Sol (if supported by CLI)</option>
+        <option value="gpt-5.6-terra">GPT-5.6 Terra (if supported by CLI)</option>
+        <option value="gpt-6.1-sol">GPT-6.1 Sol (if supported by CLI)</option>
+        <option value="_custom">Custom model ID…</option>
+      </select>
+      <label for="codexCustomModel" id="codexCustomModelLabel" hidden>Exact CLI model ID</label>
+      <input type="text" id="codexCustomModel" maxlength="80" autocomplete="off" spellcheck="false" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}" placeholder="e.g. gpt-5.6-sol" hidden>
+      <label for="codexReasoningEffort">Reasoning effort</label>
+      <select id="codexReasoningEffort">
+        <option value="">CLI default</option>
+        <option value="low">Low · faster</option>
+        <option value="medium">Medium · balanced</option>
+        <option value="high">High · more thorough</option>
+      </select>
+      <p class="model-settings-hint">Settings apply to future Codex tasks, including @Codex and Co-work in this group. The CLI verifies model access when a job runs. Claude needs a separate supported connection before these controls can affect it.</p>
+      <p id="modelSettingsError" class="dialog-feedback" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancelModelSettings">Cancel</button>
+        <button type="submit" id="saveModelSettings">Save settings</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="groupDialog" class="workspace-dialog">
     <form id="groupForm">
       <h2 id="groupDialogTitle">New group chat</h2>
