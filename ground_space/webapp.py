@@ -23,6 +23,7 @@ from .coordinator import coordinator_instructions, route_group_message, speciali
 from .codex_pilot import CodexPilot
 from .collaboration import CollaborationLedger
 from .chatgpt_connection import CodexAppServerClient
+from .security import assert_private_owner_mode, security_posture, RequestRateLimit
 from .messages import utc_timestamp
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
@@ -36,7 +37,7 @@ MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
-BACKEND_RELEASE = "GS-021"
+BACKEND_RELEASE = "GS-025"
 
 # A single explicit private HTTPS Origin is opt-in for the owner-only Tailscale
 # Serve pilot. Never derive trusted origins from untrusted Host/forwarded headers.
@@ -285,6 +286,8 @@ class GroundSpaceApp:
                 raise ValueError("Group project changed; workflow requires review")
             if run["state"]=="proposal_pending":
                 task=self.administrator.status(run["proposal_task_id"])
+                if task.get("status") in ("failed","blocked","cancelled"):
+                    return self.collaborations.fail(flow_id,"Qwen proposal did not complete")
                 if task.get("status")!="completed":
                     return dict(run,waiting_for="Qwen proposal: "+str(task.get("status")))
                 if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex")=="disabled":
@@ -300,10 +303,17 @@ class GroundSpaceApp:
                 job=self.codex.submit({"project_id":run["project_id"],"prompt":prompt,
                    "scope":"workspace_write","group_id":run["group_id"],
                    "conversation_id":group["conversation_id"]},group_auto_approval=auto)
-                return self.collaborations.attach(flow_id,expected_state="proposal_pending",
+                flow=self.collaborations.attach(flow_id,expected_state="proposal_pending",
                     state="codex_pending",link_name="codex_job_id",link_id=job["id"])
+                # Reuse the existing group conversation approval controls.
+                self.add_history(group["conversation_id"],"note","Co-work: Codex implementation",
+                    agent="group",source="collaboration",codex_job_ids=[job["id"]],
+                    group_id=run["group_id"],project_id=run["project_id"])
+                return flow
             if run["state"]=="codex_pending":
                 job=self.codex.get(run["codex_job_id"])
+                if job["status"] in ("failed","rejected","interrupted"):
+                    return self.collaborations.fail(flow_id,"Codex implementation did not complete")
                 if job["status"]!="completed":
                     return dict(run,waiting_for="Codex: "+str(job["status"]))
                 if run["granite_model"] not in group["models"] or group.get("approval_modes",{}).get(run["granite_model"])=="disabled":
@@ -323,6 +333,8 @@ class GroundSpaceApp:
                     state="review_pending",link_name="review_task_id",link_id=tasks[0])
             if run["state"]=="review_pending":
                 review=self.administrator.status(run["review_task_id"])
+                if review.get("status") in ("failed","blocked","cancelled"):
+                    return self.collaborations.fail(flow_id,"Granite review did not complete")
                 if review.get("status")!="completed":
                     return dict(run,waiting_for="Granite report review: "+str(review.get("status")))
                 return self.collaborations.finish(flow_id)
@@ -742,6 +754,7 @@ class GroundSpaceApp:
                     "enabled":self.chatgpt_connection.enabled(),
                     "login_state":self.chatgpt_connection.login_state},
                 "backend_release": BACKEND_RELEASE,
+                "security": security_posture(),
                 "paid_api_usage_aud": 0}
 
 
@@ -771,6 +784,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'")
         if cookie:
             self.send_header("Set-Cookie", cookie)
@@ -835,6 +851,10 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(body)
@@ -842,6 +862,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._csrf_valid():
             self._error(HTTPStatus.FORBIDDEN, "Cross-site request protection failed")
+            return
+        if not self.server.post_limiter.allow(self.client_address[0]):  # type: ignore[attr-defined]
+            self._error(HTTPStatus.TOO_MANY_REQUESTS, "Slow down: owner action limit reached")
             return
         path = urllib.parse.urlparse(self.path).path
         try:
@@ -900,9 +923,11 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
 
 
 def create_server(app: GroundSpaceApp, port: int) -> ThreadingHTTPServer:
+    assert_private_owner_mode()  # Refuse public or multi-user service before listening.
     remote_origin = configured_tailscale_origin()  # Validate before opening a listener.
     server = ThreadingHTTPServer(("127.0.0.1", port), GroundSpaceHandler)
     server.app = app  # type: ignore[attr-defined]
+    server.post_limiter = RequestRateLimit()  # type: ignore[attr-defined]
     local_origin = f"http://127.0.0.1:{server.server_port}"
     server.allowed_origins = frozenset(  # type: ignore[attr-defined]
         {local_origin, remote_origin} if remote_origin else {local_origin}
