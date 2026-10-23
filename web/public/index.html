@@ -113,15 +113,15 @@
       <section class="view" id="view-agents">
         <div class="page-head"><p class="eyebrow">Workforce registry</p><h1>Agents</h1><p>Live availability and enforced authority boundaries.</p></div>
         <section class="model-manager" aria-label="Model management">
-          <h2>Add AI agents</h2>
-          <p>Add installed Ollama models or your signed-in Codex CLI. Codex can create, edit, run and delete files in its selected project when writable mode is explicitly enabled and the task is approved.</p>
+          <h2>AI workforce</h2>
+          <p>Choose a local model or an authenticated agent, then configure that agent below. Model, access, level and approvals are saved together.</p>
           <div class="model-add">
             <select id="availableModel" aria-label="Installed models available to add"></select>
-            <button type="button" id="addModelButton">Add AI</button>
+            <button type="button" id="addModelButton">+ Add Agent</button>
           </div>
           <p id="modelImportStatus" class="model-import-status" role="status" aria-live="polite">Checking local Ollama models…</p>
           <div id="registeredModels" class="registered-models"></div>
-          <p class="provider-note">Codex uses the signed-in CLI on your ASUS, not Ollama. It may consume your ChatGPT allowance or API credits. Other cloud AI providers are not connected.</p>
+          <p class="provider-note">Codex runs through the authenticated ASUS CLI. Claude and Grok are not connected. Saved access never overrides server safety rules or existing group-specific policies.</p>
         </section>
         <div class="agent-grid" id="agentGrid"></div>
       <section class="chatgpt-connect-card" aria-label="ChatGPT account connection" id="chatgptConnection">
