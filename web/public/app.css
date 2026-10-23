@@ -559,3 +559,25 @@
   .task-short-id{font-size:9px}
   #taskDetail{margin:12px 10px 20px;max-width:calc(100vw - 20px);font-size:10px}
 }
+
+/* GS-026 model choices — small on-screen control, full tap targets in settings. */
+#openModelSettings[hidden]{display:none!important}
+#openModelSettings{border:1px solid #d4cbed;background:#f3efff;border-radius:9px;
+  color:#57438f;padding:7px 10px;min-height:36px;font:650 12px Inter,"Segoe UI",sans-serif;
+  cursor:pointer;white-space:nowrap}
+#modelSettingsDialog{width:min(430px,calc(100vw - 24px));max-width:calc(100vw - 24px);
+  border-radius:17px;max-height:88dvh;overflow:auto}
+#modelSettingsForm{padding:22px}
+#modelSettingsForm h2{font-size:22px}
+#modelSettingsForm select,#modelSettingsForm input{display:block;width:100%;max-width:100%;
+  border:1px solid #ddd8eb;border-radius:9px;min-height:44px;padding:8px 12px;
+  background:#fff;color:#23202c;font-size:14px}
+#modelSettingsForm label{margin:16px 0 7px}
+#modelSettingsForm .model-settings-hint{font-size:12px;line-height:1.6;color:#736d82;
+  margin:16px 0 0}
+#modelSettingsForm .dialog-actions button{border-radius:9px;min-height:43px}
+@media(max-width:760px){
+  #openModelSettings{padding:6px 8px;min-height:34px;font-size:11px}
+  #modelSettingsDialog{max-height:calc(var(--gs-mobile-viewport-height,100dvh) - 26px)}
+  #modelSettingsForm select,#modelSettingsForm input{font-size:16px}
+}
