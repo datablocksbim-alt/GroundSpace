@@ -1,0 +1,45 @@
+name: GS-027 compact agent settings
+on:
+  push:
+    branches: [feature/gs-027-unified-agent-configuration]
+  pull_request:
+    branches: [feature/gs-026-mobile-agent-model-controls]
+permissions:
+  contents: read
+jobs:
+  regression:
+    name: GS-027 agent config and earlier protections (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Portable agent and prior release regressions
+        run: python -m unittest tests.test_gs027_agent_configs tests.test_gs026_model_controls tests.test_gs025_public_security tests.test_gs024_device_login tests.test_gs023_collaboration tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Python syntax
+        run: python -m compileall -q ground_space
+      - name: JavaScript syntax
+        run: node --check web/public/app.js
+      - name: Browser test syntax
+        run: node --check tools/test_gs015_browser.mjs
+  browser:
+    name: Compact iPhone and desktop agent settings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test-only Playwright install
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Regression including Save and reload
+        run: node tools/test_gs015_browser.mjs
+
+# Production remains GS-026. No automatic deployment or merge.
