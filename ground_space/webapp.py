@@ -313,6 +313,9 @@ class GroundSpaceApp:
         if not self.codex.is_registered():
             raise ValueError("Add Codex in Agents before changing its model settings")
         group_id=body.get("group_id")
+        if (group_id is None and getattr(self,"agent_configs",None) is not None and
+                "codex" in self.agent_configs.entries):
+            raise ValueError("Direct Codex settings are saved under Agents; use Model, Access, Level and Approval there")
         if group_id is not None:
             group=self.workspaces.get_group(group_id)
             if "codex" not in group["models"]:
