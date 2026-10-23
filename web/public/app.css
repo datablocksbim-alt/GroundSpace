@@ -711,3 +711,32 @@
   .agent-mini-button{padding:6px 7px}
   .agent-small-actions .save-agent-config{padding:7px 9px}
 }
+
+/* GS-027c — micro controls: a single, low-profile row without tiny tap targets. */
+#view-agents .registered-models{gap:6px}
+#view-agents .agent-compact-row{border-radius:11px}
+#view-agents .agent-config-top{padding:9px 11px 4px}
+#view-agents .agent-config-top .agent-config-heading b{font-size:12px}
+#view-agents .agent-config-top .agent-config-heading small{margin-top:1px;font-size:10px}
+#view-agents .agent-config-top .agent-summary-value{margin-top:3px;font-size:10px}
+#view-agents .agent-small-actions{gap:4px;padding:3px 10px 7px}
+#view-agents .agent-mini-button{min-height:29px;padding:5px 8px;font-size:10px;
+  font-weight:600;border-radius:7px;background:transparent}
+#view-agents .agent-mini-button[aria-expanded="true"]{background:#eeeafb}
+#view-agents .agent-small-actions .save-agent-config{min-height:29px;padding:5px 10px;
+  font-size:10px;border-radius:7px}
+#view-agents .agent-menu-panel{padding:9px 10px;margin:0 10px 7px;border-radius:9px}
+#view-agents .agent-config-footer{padding:0 10px 5px}
+#view-agents .builtin-agent-card .agent-small-actions{padding-bottom:8px}
+#view-agents .builtin-agent-card .agent-config-top{padding-bottom:4px}
+@media(max-width:760px){
+  #view-agents .agent-config-top{padding:9px 11px 4px}
+  #view-agents .agent-small-actions{gap:4px;padding:3px 10px 8px}
+  #view-agents .agent-mini-button{min-height:36px;padding:7px 9px;font-size:11px}
+  #view-agents .agent-small-actions .save-agent-config{min-height:36px;padding:7px 10px;font-size:11px}
+  #view-agents .agent-menu-panel{margin:0 10px 8px;padding:10px}
+}
+@media(max-width:365px){
+  #view-agents .agent-mini-button{padding:7px 7px;font-size:10.5px}
+  #view-agents .agent-small-actions .save-agent-config{padding:7px 8px;font-size:10.5px}
+}
