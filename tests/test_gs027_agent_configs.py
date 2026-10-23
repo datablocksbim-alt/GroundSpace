@@ -109,6 +109,30 @@ class AppAgentRoutingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "disabled"):
             self.app.require_agent_access("codex")
 
+    def test_codex_save_failure_restores_previous_approval(self):
+        self.app.codex.mode.return_value = "manual"
+        with unittest.mock.patch.object(self.app.agent_configs, "save",
+                                         side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                self.app.save_agent_config({
+                    "agent_id": "codex", "model_id": "gpt-6.1-sol",
+                    "level": "high", "access": ["read", "review"],
+                    "approval": "disabled"})
+        self.assertEqual(
+            [unittest.mock.call({"mode": "disabled", "project_id": None}),
+             unittest.mock.call({"mode": "manual", "project_id": None})],
+            self.app.codex.set_policy.call_args_list)
+        self.assertNotIn("codex", self.app.agent_configs.entries)
+
+    def test_failed_policy_save_does_not_touch_agent_profile(self):
+        self.app.codex.set_policy.side_effect = OSError("policy is read-only")
+        with self.assertRaisesRegex(OSError, "policy is read-only"):
+            self.app.save_agent_config({
+                "agent_id": "codex", "model_id": "gpt-6.1-sol",
+                "level": "medium", "access": ["read", "review"],
+                "approval": "manual"})
+        self.assertNotIn("codex", self.app.agent_configs.entries)
+
     def test_model_selection_cannot_register_new_ollama_worker(self):
         with self.assertRaisesRegex(ValueError, "registered Ollama"):
             self.app.save_agent_config({"agent_id": LOCAL[0], "model_id": "unknown:7b",
