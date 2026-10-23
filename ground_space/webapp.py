@@ -219,6 +219,14 @@ class GroundSpaceApp:
         with self.lock:
             if name not in self.registered_models:
                 raise ValueError("Model is not registered")
+            configs=getattr(self,"agent_configs",None)
+            if configs:
+                users=[key for key,profile in configs.entries.items()
+                       if key!=name and profile.get("model_id")==name
+                       and key in self.registered_models]
+                if users:
+                    raise ValueError("Model is selected by another agent; reconfigure "
+                                     +", ".join(users)+" before removing it")
             updated = [model for model in self.registered_models if model != name]
             atomic_json(self.models_path, {"schema_version": 1, "models": updated})
             self.registered_models = updated
@@ -290,7 +298,11 @@ class GroundSpaceApp:
     def codex_selection(self, *, group_id: str | None = None) -> dict[str, str]:
         profiles = getattr(self, "model_profiles", None)
         key = "codex:" + ("group:" + group_id if group_id else "direct")
-        if profiles and key in profiles.entries:
+        # A newly saved agent default supersedes the legacy direct-chat
+        # model selection. Explicit group overrides remain independent.
+        has_saved_agent=(getattr(self,"agent_configs",None) is not None and
+                         "codex" in self.agent_configs.entries)
+        if profiles and key in profiles.entries and (group_id is not None or not has_saved_agent):
             return profiles.get(group_id=group_id)
         cfg = self.agent_config("codex")
         return {"model_id": cfg["model_id"], "reasoning_effort": cfg["level"]}
