@@ -354,7 +354,7 @@ function renderAgentCard(item, all){
   const selectedApproval=approvals.some(x=>x[0]===profile.approval)?profile.approval:approvals[0][0];
   return '<details class="registered-model agent-config-card" data-agent-item="'+esc(item.model)+'">'+
     '<summary><span class="agent-config-heading"><b>'+esc(item.model)+'</b>'+
-    '<small>'+esc(item.available?'Ready · '+(codex?'Connected CLI':'Local Ollama'):'Unavailable')+'</small>'+
+    '<small>'+esc(item.available?'Ready · '+(codex?'Codex CLI installed':'Local Ollama'):'Unavailable')+'</small>'+
     '<span class="agent-summary-value">'+esc((codex?(profile.model_id||'CLI default'):profile.model_id))+
     ' · '+esc(profile.level||'Default')+' · '+esc(profile.approval)+'</span></span>'+
     '<span class="agent-settings-chevron" aria-hidden="true">⌄</span></summary>'+
@@ -401,7 +401,7 @@ function renderModels(){
   const keep=available.value;
   const availableKey=JSON.stringify(discovered);
   if(available.dataset.optionsKey!==availableKey){
-    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Connected · Codex CLI':'Local · '+name)+'</option>').join('')+
+    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex CLI · check sign-in on first job':'Local · '+name)+'</option>').join('')+
       '<option value="" disabled>Claude · Not connected</option><option value="" disabled>Grok · Not connected</option>';
     available.dataset.optionsKey=availableKey;
   }
