@@ -89,6 +89,22 @@ class ProjectRemovalTests(unittest.TestCase):
             self.remove()
         self.assertEqual(len(self.registry.snapshot()["projects"]), 1)
 
+    def test_full_codex_ledger_blocks_unlink_even_if_snapshot_is_truncated(self):
+        older = [{"project_id": self.project["id"], "status": "pending_approval"}]
+        older.extend({"project_id": "other", "status": "completed"} for _ in range(60))
+        self.app.codex = SimpleNamespace(
+            jobs=older, snapshot=lambda: {"jobs": older[-50:]})
+        with self.assertRaisesRegex(ValueError, "Codex"):
+            self.remove()
+        self.assertEqual(len(self.registry.snapshot()["projects"]), 1)
+
+    def test_running_task_remains_blocked_even_with_inconsistent_rejection(self):
+        task = {"status": "running", "approval": {"status": "rejected"},
+                "payload": {"group_id": self.group["id"]}}
+        (self.app.queue_dir / "running.json").write_text(json.dumps(task), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "pending or active"):
+            self.remove()
+
     def test_unreadable_queue_file_blocks_removal(self):
         (self.app.queue_dir / "bad.json").write_text("{", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Cannot verify"):
