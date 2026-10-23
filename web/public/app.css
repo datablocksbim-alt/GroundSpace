@@ -762,3 +762,55 @@
     font-size:17px;
   }
 }
+
+
+/* GS-028: one project-first navigation. Group chat buttons are nested under their project. */
+.agent-rail .project-rail{order:1;margin-top:4px;padding-top:8px;min-width:0}
+.agent-rail .private-channel-menu{order:2;margin-top:12px}
+.agent-rail .project-list{display:grid;gap:5px;overflow-y:auto;max-height:min(61vh,640px)}
+.agent-rail .project-cluster{display:block;min-width:0}
+.agent-rail .project-folder{
+  display:flex;align-items:center;gap:8px;min-height:38px;
+  padding:8px 9px;border-radius:11px;border:1px solid #e5e0ee;background:#faf9fe;
+  width:100%;min-width:0;text-align:left
+}
+.agent-rail .project-folder.active{background:#f1edfc;border-color:#dcd4f0}
+.agent-rail .project-folder:focus-visible,.agent-rail .project-chat-room:focus-visible,
+.agent-rail .new-project-chat:focus-visible{
+  outline:2px solid #7155d9;outline-offset:-2px
+}
+.project-folder-icon{flex:0 0 17px;font-size:17px;line-height:1;color:#7666ae;text-align:center}
+.project-folder-name{min-width:0;flex:1;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;font-weight:600;font-size:12px}
+.project-folder-count{color:#817a96;font:600 10px Consolas,monospace}
+.project-folder-chevron{flex:0 0 11px;font-size:18px;line-height:1;color:#887daa;text-align:center}
+.agent-rail .project-chat-list{display:grid;gap:3px;padding:4px 0 5px 12px;min-width:0}
+.agent-rail .project-chat-list[hidden]{display:none!important}
+.agent-rail .project-chat-room{min-height:36px;display:flex;max-width:100%;width:100%;
+  border-radius:9px;padding:6px 8px;gap:8px}
+.agent-rail .project-chat-room .room-avatar{width:25px;height:25px;flex:0 0 25px;
+  border-radius:7px;font-size:12px}
+.agent-rail .project-chat-copy{min-width:0;flex:1}
+.agent-rail .project-chat-room b{font-size:11px;font-weight:650;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.agent-rail .project-chat-room small{font-size:10px;margin-top:2px}
+.agent-rail .new-project-chat{
+  display:flex;gap:7px;align-items:center;min-height:32px;
+  width:100%;padding:5px 10px;border:1px dashed #dcd5ef;background:transparent;
+  border-radius:9px;color:#7664a8;font:600 11px Inter,"Segoe UI",sans-serif;
+  text-align:left;cursor:pointer
+}
+.agent-rail .new-project-chat:hover{background:#f1edfc}
+.agent-rail .project-chat-list .rail-empty{padding:6px 10px;margin:0;font-size:11px}
+@media(max-width:760px){
+  .chat-layout .agent-rail{width:min(80vw,320px)}
+  .agent-rail .project-rail{order:1;margin-top:3px;padding-top:5px}
+  .agent-rail .private-channel-menu{order:2;margin-top:12px}
+  .agent-rail .project-list{max-height:none;overflow-y:visible;gap:6px}
+  .agent-rail .project-folder{min-height:43px;padding:8px 10px}
+  .agent-rail .project-folder-name{font-size:13px}
+  .agent-rail .project-chat-room{min-height:42px;padding:7px 8px}
+  .agent-rail .project-chat-room b{font-size:12px}
+  .agent-rail .new-project-chat{min-height:39px;font-size:12px}
+  .agent-rail .project-chat-list{padding-left:11px}
+}

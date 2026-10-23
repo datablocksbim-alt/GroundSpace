@@ -27,12 +27,8 @@
           <aside class="agent-rail" id="agentRail" aria-label="Chats and projects">
             <div class="mobile-rail-heading"><strong>Chats &amp; projects</strong><button type="button" id="closeMobileRail" aria-label="Close chats and projects">✕</button></div>
 
-            <section class="group-rail" aria-label="Group chats">
-              <div class="group-rail-heading"><span>GROUP CHATS</span><button type="button" id="newGroupButton" title="Create group chat">+ New</button></div>
-              <div id="groupList" class="group-list"></div>
-            </section>
-            <section class="project-rail" aria-label="Local projects">
-              <div class="group-rail-heading"><span>PROJECTS</span><button type="button" id="addProjectButton" title="Choose a local project folder">+ Folder</button></div>
+            <section class="project-rail" aria-label="Projects and project chats">
+              <div class="group-rail-heading"><span>PROJECTS</span><button type="button" id="addProjectButton" title="Add local project folder">+ Project</button></div>
               <div id="projectList" class="project-list"></div>
             </section>
             <details class="private-channel-menu" id="privateChannelMenu">
@@ -49,10 +45,7 @@
                 </button>
               </div>
             </details>
-            <div class="rail-note">
-              <span>BOUNDARY 01</span>
-              <p>Group bots can be set to Ask me, Approve for me or Off. All AI chat is read/propose only; code execution is separately restricted.</p>
-            </div>
+
           </aside>
           <button type="button" id="mobileRailBackdrop" class="mobile-rail-backdrop" aria-label="Close chats and projects" hidden></button>
 
@@ -234,8 +227,8 @@
   </dialog>
   <dialog id="groupDialog" class="workspace-dialog">
     <form id="groupForm">
-      <h2 id="groupDialogTitle">New group chat</h2>
-      <p>Choose a project and the AI agents in this group. Codex can also take approved workspace coding tasks.</p>
+      <h2 id="groupDialogTitle">New project chat</h2>
+      <p>Add AI participants to this project conversation. Existing messages and approvals stay with each chat.</p>
       <label for="groupName">Group name</label>
       <input id="groupName" maxlength="70" placeholder="e.g. Pyrene Development" required>
       <label for="groupProject">Local project</label>
@@ -249,7 +242,7 @@
       <p id="groupDialogError" class="dialog-feedback" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="button" id="cancelGroup">Cancel</button>
-        <button type="submit" id="saveGroup">Create group</button>
+        <button type="submit" id="saveGroup">Create chat</button>
       </div>
     </form>
   </dialog>
