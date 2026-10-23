@@ -23,6 +23,19 @@ const agentConfigs={};
 const conversations = {};
 const codex = {default_mode:'manual',project_modes:{},jobs:[]};
 const state = {csrf:'functional-test-token'};
+// Migration-free navigation fixture: stored group IDs, messages and approvals must survive.
+projects.push({id:'project-existing',name:'Existing Ground Space',
+  path:'D:\\000_AI Project\\Existing Ground Space'});
+groups.push({id:'group-existing',name:'Existing team chat',project_id:'project-existing',
+  models:['qwen2.5-coder:3b'],approval_modes:{'qwen2.5-coder:3b':'manual'},
+  conversation_id:'room-existing'});
+groups.push({id:'group-unassigned',name:'Older general chat',project_id:null,
+  models:['qwen2.5-coder:3b'],approval_modes:{'qwen2.5-coder:3b':'approve_for_me'},
+  conversation_id:'room-unassigned'});
+conversations['room-existing']=[{role:'assistant',agent:'group',content:'Preserved project reply',
+  timestamp:new Date().toISOString()}];
+conversations['room-unassigned']=[{role:'assistant',agent:'group',content:'Preserved legacy reply',
+  timestamp:new Date().toISOString()}];
 const json = (res,status,value) => {
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
   res.end(JSON.stringify(value));
@@ -362,10 +375,35 @@ try{
     }
 
 
-    // Primary workspace items must appear before compact private AI chats.
+    // GS-028: only Projects and Private AI chats, no separate Group Chats rail.
+    assert.equal(await page.locator('.group-rail').count(),0,'remove standalone Group Chats');
+    assert.equal(await page.locator('#groupList').count(),0,'no duplicate group listing');
     assert.equal(await page.locator('#privateChannelMenu').evaluate(x=>x.open),false);
-    assert.equal(await page.locator('#groupList').evaluate(x=>x.compareDocumentPosition(document.querySelector('#privateChannelMenu')) & Node.DOCUMENT_POSITION_FOLLOWING ? true:false),true);
-    assert.equal(await page.locator('#projectList').evaluate(x=>x.compareDocumentPosition(document.querySelector('#privateChannelMenu')) & Node.DOCUMENT_POSITION_FOLLOWING ? true:false),true);
+    assert.equal(await page.locator('#projectList').evaluate(x=>
+      Boolean(x.compareDocumentPosition(document.querySelector('#privateChannelMenu')) &
+        Node.DOCUMENT_POSITION_FOLLOWING)),true);
+    const preservedProject=page.locator('[data-project-cluster="project-existing"]');
+    assert.equal(await preservedProject.count(),1,'existing project appears');
+    await preservedProject.locator('[data-project-toggle]').click();
+    if(await preservedProject.locator('.project-chat-list').isHidden()){
+      await preservedProject.locator('[data-project-toggle]').click();
+    }
+    assert.equal(await preservedProject.locator('[data-group="group-existing"]').isVisible(),true);
+    await preservedProject.locator('[data-group="group-existing"]').click();
+    await page.waitForFunction(()=>
+      document.querySelector('#messages')?.textContent.includes('Preserved project reply'));
+    assert.equal(groups[0].conversation_id,'room-existing');
+    assert.equal(groups[0].approval_modes['qwen2.5-coder:3b'],'manual');
+    if(viewport.mobile)await page.locator('#mobileRailToggle').click();
+    const olderChats=page.locator('[data-project-cluster="__unassigned__"]');
+    assert.equal(await olderChats.count(),1,'legacy chats remain under Projects');
+    if(await olderChats.locator('.project-chat-list').isHidden()){
+      await olderChats.locator('[data-project-toggle]').click();
+    }
+    await olderChats.locator('[data-group="group-unassigned"]').click();
+    await page.waitForFunction(()=>
+      document.querySelector('#messages')?.textContent.includes('Preserved legacy reply'));
+    assert.equal(groups[1].conversation_id,'room-unassigned');
     // Navigation is the previously broken startup handler.
     await page.locator('.nav-button[data-view="agents"]').click();
     assert.equal(await page.locator('#view-agents').evaluate(el=>el.classList.contains('active')),true,label+' Agents click');
@@ -413,7 +451,14 @@ try{
     assert.match(await page.locator('#projectDialogError').innerText(),/allowed project root/);
     await page.locator('#cancelProject').click();
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
-    await page.locator('#newGroupButton').click();
+    const createdProject=projects[projects.length-1].id;
+    const cluster=page.locator('[data-project-cluster="'+createdProject+'"]');
+    if(await cluster.locator('.project-chat-list').isHidden()){
+      await cluster.locator('[data-project-toggle]').click();
+    }
+    await cluster.locator('[data-new-project-group]').click();
+    assert.equal(await page.locator('#groupProject').inputValue(),createdProject,
+      'new project chat defaults to owning project');
     await page.locator('#groupName').fill(label+' Review');
     await page.locator('#groupMemberOptions input[name="group-member"]').first().check();
     await page.locator('#groupMemberOptions .group-member-policy').first().selectOption('manual');
@@ -424,6 +469,12 @@ try{
       label+' Review');
     assert.equal(exceptions.length,0,label+' group error: '+exceptions.join(', '));
     assert.equal(groups[groups.length-1].approval_modes['qwen2.5-coder:3b'],'manual');
+    assert.equal(groups[groups.length-1].project_id,createdProject);
+    if(viewport.mobile)await page.locator('#mobileRailToggle').click();
+    const createdCluster=page.locator('[data-project-cluster="'+createdProject+'"]');
+    assert.equal(await createdCluster.locator('[data-group="'+groups[groups.length-1].id+'"]').isVisible(),true,
+      'new chat nested under the original project');
+    if(viewport.mobile)await page.locator('#closeMobileRail').click();
     // A manual-approval bot must not respond until its queued reply is approved.
     await page.locator('#prompt').fill('How is our project doing?');
     await page.locator('#sendButton').click();
