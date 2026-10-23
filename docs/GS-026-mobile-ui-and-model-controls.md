@@ -1,6 +1,6 @@
 # GS-026 — iPhone-first collaboration navigation and model controls
 
-**Status:** Code complete on rollback-safe feature branch. Windows/Linux portable CI plus headless Chromium iPhone-size/desktop button tests passed. Actual iPhone Safari and ASUS Codex CLI model availability remain manual gates. No merge or live restart has occurred.
+**Status:** GS-026 code remains a draft, unmerged feature branch. GitHub portable CI covers Windows/Linux and headless mobile-sized Chromium; iPhone Safari and ASUS Codex CLI are manual gates. The ASUS was observed running **GS-021**, not GS-025, on port 8765. No upgrade or live restart has occurred.
 
 ## UI changes
 
@@ -19,10 +19,10 @@
 - **Claude:** marked **Not connected** rather than a fake working model control. An authenticated Claude integration, provider discovery and capability/effort mapping must be implemented and verified before users can apply these controls to Claude. Same principle for separate ChatGPT cloud-chat routing (distinct from the current Codex CLI agent).
 - These settings do not change approval boundaries, tool privileges, project root validation or token budget reporting.
 
-## Non-destructive ASUS preview (GS-025 stays running)
+## Non-destructive ASUS preview (the existing GS-021 stays running)
 
-**Never switch the existing GS-025 working checkout just to try GS-026.**
-The approved GS-025 installation and Tailscale Serve mapping on port 8765 stay unchanged. Do not run `restart_gs016_codex.ps1 -Restart` until the owner explicitly approves cutover.
+**Never switch the existing GS-021 working checkout just to try GS-026.**
+The observed ASUS server is GS-021 on port 8765. Keep its checkout, private state and Tailscale Serve mapping unchanged. Do not run `restart_gs016_codex.ps1 -Restart`; that script expects the GS-026 branch and would not be an appropriate unattended migration procedure.
 
 Open a PowerShell window **in the existing Ground Space repository**, then create a separate Git worktree at a new path. Stop if the proposed preview folder already exists; don't delete any existing directory.
 
@@ -39,7 +39,7 @@ Set-Location -LiteralPath $preview
 git rev-parse --short HEAD
 ```
 
-Run the guarded verification script in the isolated preview worktree. It checks GS-026 model controls and prior security/approval regressions, and validates frontend JavaScript. It refuses the primary GS-025 checkout.
+Run the guarded verification script in the isolated preview worktree. It checks GS-026 model controls and prior security/approval regressions, and validates frontend JavaScript. It refuses the primary installation checkout.
 
 ```powershell
 .\tools\prepare_gs026_preview.ps1
@@ -51,7 +51,7 @@ After **PRECHECK PASS**, launch a separate, desktop-only UI preview on `http://1
 .\tools\prepare_gs026_preview.ps1 -StartPreview
 ```
 
-Stop the preview with Ctrl+C. The preview uses `%LOCALAPPDATA%\DataBlocks\GroundSpace-GS026-Preview` as private state and deliberately does **not** import the existing GS-025 chats, projects, linked accounts or agent settings. It cannot be accessed from the iPhone through the existing Tailscale route, because Tailscale Serve remains pointed at port 8765. This preview is **not** a live Codex account or iPhone Safari acceptance test.
+Stop the preview with Ctrl+C. The preview uses `%LOCALAPPDATA%\DataBlocks\GroundSpace-GS026-Preview` as private state and deliberately does **not** import the existing GS-021 chats, projects, linked accounts or agent settings. It cannot be accessed from the iPhone through the existing Tailscale route, because Tailscale Serve remains pointed at port 8765. This preview is **not** a live Codex account or iPhone Safari acceptance test.
 
 #### Optional Windows reboot after owner approval
 
@@ -65,19 +65,19 @@ Cancel the pending reboot within 60 seconds with `shutdown.exe /a`. A reboot sto
 
 ### Full ASUS automated gate (no restart)
 
-After the isolated preview check, run this **from the GS-026 preview worktree** to validate the existing GS-025 server and the external ASUS-only Administrator integration before discussing a live cutover:
+After the isolated preview check, run this **from the GS-026 preview worktree** to inspect the existing GS-021 server and the external ASUS-only Administrator integration before discussing a live cutover. GS-021 must be explicitly authorized as the observed legacy version:
 
 ```powershell
-.\tools\check_gs026_asus.ps1
+.\tools\check_gs026_asus.ps1 -AllowLegacyGS021
 ```
 
-It verifies the existing port-8765 server reports `GS-025`, refuses if Codex jobs are running, checks private Tailscale Serve status **without modifying it**, replays the focused GS-026 checks, and runs the entire local Ground Space/Administrator suite. Add `-Browser` only when Playwright and its Chromium browser are already installed on that machine. The script **does not** invoke Codex with live model credentials and **does not** start or stop any production process. A clean result is an automated **preflight**, not completion of owner-only Codex entitlement, physical Safari or rollback checks.
+It checks the existing port-8765 server reports exactly `GS-021` (or `GS-025`), refuses if Codex jobs are running, checks private Tailscale Serve status **without modifying it**, replays the focused GS-026 checks, and runs the entire local Ground Space/Administrator suite. It explicitly warns that GS-025 protections are **not** currently active on the GS-021 server. Add `-Browser` only when Playwright and its Chromium browser are already installed on that machine. The script **does not** invoke Codex with live model credentials and **does not** start or stop any production process. A clean result is an automated **preflight**, not completion of owner-only Codex entitlement, physical Safari or rollback checks.
 
 A Windows reboot is **not required** for GS-026. Keep it deferred unless the owner separately wants a maintenance reboot; a reboot may stop Ground Space until its startup behavior is verified.
 
 ### Owner-gated cutover, not yet authorised
 
-A final release decision still requires the owner to run the full ASUS-local integration suite and live Codex model/effort tests against a disposable project, then physically check iPhone Safari. In particular, mocked subprocess tests prove the `--model` and reasoning `-c` flags are constructed, **not** that the signed-in account accepts a named model ID. Before any live rollout, back up owner-local GS-025 state, confirm no running Codex jobs, agree a rollback method and approve the guarded restart explicitly. A separate worktree alone does not keep two servers' shared state safe unless `--state-dir` is isolated as above.
+A final release decision still requires the owner to run the full ASUS-local integration suite and live Codex model/effort tests against a disposable project, then physically check iPhone Safari. In particular, mocked subprocess tests prove the `--model` and reasoning `-c` flags are constructed, **not** that the signed-in account accepts a named model ID. Before any live rollout, positively identify the port-8765 process, make a consistent offline backup of owner-local GS-021 state, confirm no running Codex jobs, validate GS-021 data compatibility in an isolated copy, agree a tested rollback method and approve the guarded restart explicitly. A separate worktree alone does not keep two servers' shared state safe unless `--state-dir` is isolated as above.
 
 ## Release boundaries
 
