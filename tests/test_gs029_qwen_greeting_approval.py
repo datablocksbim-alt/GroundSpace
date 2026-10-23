@@ -36,6 +36,15 @@ class ApprovedGreetingsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exactly 2"):
             target_pair([self.left, self.right, extra])
 
+    def test_refuse_other_running_or_approved_work(self):
+        for state, approval in [("running", "approved"), ("queued", "approved"),
+                                ("retry_pending", "approved")]:
+            unrelated = task("anything", "GS-" + "c" * 32)
+            unrelated["status"] = state
+            unrelated["approval"]["status"] = approval
+            with self.assertRaisesRegex(ValueError, "Another task"):
+                target_pair([self.left, self.right, unrelated])
+
     def test_refuse_any_different_prompt(self):
         other = deepcopy(self.right)
         other["payload"]["prompt"] = "delete files"
