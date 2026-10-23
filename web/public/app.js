@@ -35,6 +35,7 @@ function syncMobileLayout(){
   syncMobileViewportHeight();
 }
 function setView(name){
+  if(name==='agents')checkChatGPTConnection().catch(()=>{});
   setMobileRail(false);$$('.nav-button').forEach(x=>x.classList.toggle('active',x.dataset.view===name));$$('.view').forEach(x=>x.classList.toggle('active',x.id===`view-${name}`));if(name!=='chat')refresh()}
 function conversationFor(agent,projectId){
   const key='gs_room_'+agent+'_'+(projectId||'general');
@@ -402,6 +403,40 @@ function refreshCodexPolicyDescription(){
   const selected=$('#codexApprovalMode').value;
   $('#codexPolicyDescription').textContent=CODEX_MODES[selected]||CODEX_MODES.manual;
 }
+let chatgptStatus=null;
+async function checkChatGPTConnection(){
+  const status=await api('/api/auth/chatgpt/status');
+  chatgptStatus=status;
+  renderChatGPTConnection();
+  return status;
+}
+function renderChatGPTConnection(){
+  const enabled=Boolean(state.data?.chatgpt_connection?.enabled);
+  const status=chatgptStatus;
+  const connected=Boolean(status?.connected);
+  $('#chatgptConnectButton').disabled=!enabled||connected;
+  $('#chatgptConnectionStatus').textContent=connected
+    ? 'Connected to Codex '+(status.auth_mode==='chatgpt'?'with ChatGPT':'using local credentials')+
+      (status.plan_type?' · '+status.plan_type:'')
+    : !enabled?'Private owner sign-in is disabled on ASUS until deliberately enabled at startup.'
+    : status?.login_state==='pending'?'Waiting for you to approve the device code on OpenAI.'
+    : status?.login_state==='unavailable'?'Codex app-server is unavailable; check CLI version/login on ASUS.'
+    : 'Not connected yet. Continue with ChatGPT to begin.';
+}
+async function startChatGPTDeviceLogin(){
+  const button=$('#chatgptConnectButton');
+  button.disabled=true;
+  try{
+    const details=await api('/api/auth/chatgpt/device/start',{method:'POST',body:'{}'});
+    $('#chatgptVerifyLink').href=details.verification_url;
+    $('#chatgptDeviceCode').textContent=details.user_code;
+    $('#chatgptDevicePanel').hidden=false;
+    toast('Device code ready. Approve sign-in at the official OpenAI page.');
+    chatgptStatus={login_state:'pending'};
+    renderChatGPTConnection();
+  }catch(error){toast(error.message);}
+  finally{renderChatGPTConnection();}
+}
 function renderCodex(){
   const codex=state.data?.codex;
   if(!codex)return;
@@ -467,7 +502,7 @@ async function refresh(){
       }
     }
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
-    renderModels();renderWorkspaces();renderMessages();renderActiveAgents();renderAgents();renderTasks();renderCodex();
+    renderModels();renderWorkspaces();renderMessages();renderActiveAgents();renderAgents();renderTasks();renderCodex();renderChatGPTConnection();
   }finally{state.refreshing=false;}
 }
 async function submit(event){
@@ -584,6 +619,12 @@ $('#slashMenu').addEventListener('click',event=>{
 
 $('#modelSelect').addEventListener('change',()=>{state.selectedModel=$('#modelSelect').value;localStorage.setItem('gs_model',state.selectedModel);renderActiveAgents();});
 $('#performanceSelect').addEventListener('change',()=>{state.performance=$('#performanceSelect').value;localStorage.setItem('gs_performance',state.performance);});
+$('#chatgptConnectButton').addEventListener('click',startChatGPTDeviceLogin);
+$('#chatgptCheckButton').addEventListener('click',()=>checkChatGPTConnection().catch(error=>toast(error.message)));
+$('#chatgptCopyCode').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText($('#chatgptDeviceCode').textContent);toast('Device code copied');}
+  catch(error){toast('Copy unavailable; select the code manually');}
+});
 $('#addModelButton').addEventListener('click',async()=>{
   const model=$('#availableModel').value;
   if(!model)return;
