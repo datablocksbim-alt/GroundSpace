@@ -866,3 +866,30 @@
   .project-picker-dialog #projectName{font-size:16px}
   .project-picker-dialog #changeProjectFolder{min-height:38px}
 }
+
+
+/* GS-029 project removal: quiet row menu, explicit owner-only unlink confirmation. */
+.agent-rail .project-folder-row{display:flex;align-items:center;gap:3px;min-width:0}
+.agent-rail .project-folder-row .project-folder{flex:1 1 auto;width:auto;min-width:0}
+.agent-rail .project-more{border:1px solid transparent;background:transparent;
+  border-radius:8px;flex:0 0 30px;height:32px;min-width:30px;
+  font:700 17px/1 Inter,"Segoe UI",sans-serif;color:#8a809e;
+  cursor:pointer;letter-spacing:1px}
+.agent-rail .project-more:hover,.agent-rail .project-more:focus-visible{
+  background:#f0ecfb;border-color:#e2dcf3;color:#6d5aa9}
+.agent-rail .project-more:focus-visible{outline:2px solid #7155d9;outline-offset:2px}
+.remove-project-dialog{width:min(390px,calc(100vw - 24px));border-radius:15px}
+.remove-project-content{display:grid;gap:10px;padding:20px}
+.remove-project-content h2{font-size:19px;letter-spacing:-.02em;margin:0}
+.remove-project-content p{margin:0;font-size:12px;line-height:1.5;color:#655c78;overflow-wrap:anywhere}
+.remove-project-content p strong{color:#292435}
+.remove-project-content .remove-project-safety{font-size:11px;color:#766e81}
+.remove-project-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.remove-project-dialog .destructive-action{border-radius:9px;border:1px solid #c85e68;
+  background:#a94153;color:#fff;padding:8px 12px;font:650 12px Inter,"Segoe UI",sans-serif}
+.remove-project-dialog .destructive-action:disabled{opacity:.5;cursor:default}
+@media(max-width:760px){
+  .agent-rail .project-more{height:40px;flex-basis:35px;min-width:35px;font-size:18px}
+  .remove-project-content{padding:17px}
+  .remove-project-dialog .dialog-actions button{min-height:40px}
+}
