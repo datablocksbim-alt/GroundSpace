@@ -338,7 +338,7 @@ function renderAgentCard(item, all){
     approval:codex?'manual':'auto_read_only'};
   const available=all.filter(x=>x.provider==='ollama');
   const models=codex
-    ?[['','CLI default'],['gpt-6.1-sol','GPT-6.1 Sol (verified on ASUS)'],['gpt-5.6-sol','GPT-5.6 Sol (requires CLI support)']]
+    ?[['','CLI default'],['gpt-6.1-sol','GPT-6.1 Sol'],['gpt-5.6-sol','GPT-5.6 Sol (check CLI)']]
     :available.map(x=>[x.model,x.model+(x.available?'':' (offline)')]);
   if(!models.some(x=>x[0]===profile.model_id))models.push([profile.model_id,profile.model_id+' (saved custom)']);
   const opts=(entries,value)=>entries.map(([id,label])=>'<option value="'+esc(id)+'"'+(id===value?' selected':'')+'>'+esc(label)+'</option>').join('');
@@ -353,22 +353,33 @@ function renderAgentCard(item, all){
     ?[['manual','Ask me'],['auto_read_only','Auto · read-only'],['disabled','Off']]
     :[['auto_read_only','Auto · read-only'],['disabled','Off']];
   const selectedApproval=approvals.some(x=>x[0]===profile.approval)?profile.approval:approvals[0][0];
-  return '<details class="registered-model agent-config-card" data-agent-item="'+esc(item.model)+'">'+
-    '<summary><span class="agent-config-heading"><b>'+esc(item.model)+'</b>'+
-    '<small>'+esc(item.available?'Ready · '+(codex?'Codex CLI installed':'Local Ollama'):'Unavailable')+'</small>'+
-    '<span class="agent-summary-value">'+esc((codex?(profile.model_id||'CLI default'):profile.model_id))+
-    ' · '+esc(profile.level||'Default')+' · '+esc(profile.approval)+'</span></span>'+
-    '<span class="agent-settings-chevron" aria-hidden="true">⌄</span></summary>'+
-    '<div class="agent-config-fields">'+
-    '<label class="agent-config-field"><span>Model</span><select data-agent-field="model_id" aria-label="'+esc(item.model)+' model">'+opts(models,profile.model_id)+'</select></label>'+
-    '<fieldset class="agent-config-field agent-config-access"><legend>Access · multi-select</legend><div class="agent-access-grid">'+checks+'</div></fieldset>'+
-    '<label class="agent-config-field"><span>Level</span><select data-agent-field="level" aria-label="'+esc(item.model)+' level">'+opts(level,profile.level)+'</select></label>'+
-    '<label class="agent-config-field"><span>Approval</span><select data-agent-field="approval" aria-label="'+esc(item.model)+' approval">'+opts(approvals,selectedApproval)+'</select></label>'+
-    '<p class="agent-config-note">'+(codex?'Workspace coding bundles write, run and delete; it still requires ASUS server opt-in and task approval.':'Local models never receive filesystem write access.')+
-    ' Existing group overrides stay in place; saved defaults apply to new tasks.</p>'+
-    '<div class="agent-config-actions"><button type="button" class="remove-model" data-model="'+esc(item.model)+'">Remove</button>'+
-    '<button type="button" class="save-agent-config" data-agent="'+esc(item.model)+'">Save configuration</button></div>'+
-    '<p class="agent-config-feedback" role="status" aria-live="polite"></p></div></details>';
+  const menu=(id,label,inner)=>
+    '<section class="agent-menu-panel" data-agent-pane="'+id+'" hidden>'+
+      '<div class="agent-menu-title">'+esc(label)+'</div>'+inner+'</section>';
+  const field=(name,label,options,value)=>'<label class="agent-config-field"><span>'+esc(label)+
+    '</span><select data-agent-field="'+name+'" aria-label="'+esc(item.model)+' '+esc(label)+'">'+
+    opts(options,value)+'</select></label>';
+  return '<article class="registered-model agent-config-card agent-compact-row" data-agent-item="'+esc(item.model)+'">'+
+    '<div class="agent-config-top"><div class="agent-config-heading"><b>'+esc(item.model)+'</b>'+
+    '<small>'+esc(item.available?'Ready · '+(codex?'Codex CLI':'Local Ollama'):'Unavailable')+'</small>'+
+    '<span class="agent-summary-value">'+esc(codex?(profile.model_id||'CLI default'):profile.model_id)+
+    ' · '+esc(profile.level||'default')+' · '+esc(selectedApproval)+'</span></div>'+
+    '<span class="agent-presence'+(item.available?'':' offline')+'" aria-label="'+(item.available?'Available':'Unavailable')+'"></span></div>'+
+    '<div class="agent-small-actions" role="group" aria-label="'+esc(item.model)+' settings">'+
+    [['model_id','Model'],['access','Access'],['level','Level'],['approval','Approval']].map(([key,label])=>
+      '<button class="agent-mini-button" type="button" data-agent-menu="'+key+'" aria-expanded="false">'+label+'</button>').join('')+
+    '<button type="button" class="save-agent-config" data-agent="'+esc(item.model)+'" disabled>Save</button></div>'+
+    '<div class="agent-menu-content">'+
+      menu('model_id','Model',field('model_id','Execution model',models,profile.model_id))+
+      menu('access','Access', '<div class="agent-access-grid">'+checks+'</div>'+
+        '<p class="agent-config-note">Skills are restricted by provider and server permissions.</p>')+
+      menu('level','Level',field('level',codex?'Reasoning effort':'Response detail',level,profile.level))+
+      menu('approval','Approval',field('approval','Default approval',approvals,selectedApproval)+
+        '<p class="agent-config-note">Existing group overrides remain. Write actions still need server approval.</p>')+
+    '</div><div class="agent-config-footer">'+
+    '<span class="agent-config-feedback" role="status" aria-live="polite"></span>'+
+    '<button type="button" class="remove-model agent-remove-link" data-model="'+esc(item.model)+'">Remove agent</button>'+
+    '</div></article>';
 }
 
 function renderModels(){
@@ -445,7 +456,35 @@ async function copyReply(taskId){
   try{await copyText(answer);toast('Response copied');}catch(error){toast(error.message);}
 }
 
-function renderAgents(){const root=$('#agentGrid');root.innerHTML=(state.data?.agents||[]).map(a=>`<article class="agent-card"><header><h2>${esc(a.agent_id.replaceAll('-',' '))}</h2><span class="${a.active?'live':'live offline'}">${a.active?'● ONLINE':'○ INACTIVE'}</span></header><p>${esc(a.role)}${a.model?` · ${esc(a.model)}`:''}</p><div class="chips">${a.permissions.map(p=>`<span>${esc(p)}</span>`).join('')}</div></article>`).join('')}
+function renderAgents(){
+  const root=$('#agentGrid');
+  const loaded=new Set((state.data?.models?.registered||[]).map(x=>x.model));
+  // Registry-backed model workers and Codex are already shown above.
+  // The built-in list represents platform roles, not duplicate model registrations.
+  const builtins=(state.data?.agents||[]).filter(a=>a.agent_id!=='codex-cli' &&
+    !(a.role==='proposal_only_chat'&&loaded.has(a.model)));
+  root.innerHTML=builtins.map(a=>{
+    const name=a.agent_id.replaceAll('-',' ');
+    const permissions=(a.permissions||[]).map(p=>'<span class="agent-readonly-pill">'+esc(p)+'</span>').join('');
+    const panel=(id,title,body)=>'<section class="agent-menu-panel" data-builtin-pane="'+id+'" hidden>'+
+      '<div class="agent-menu-title">'+title+'</div>'+body+'</section>';
+    return '<article class="registered-model agent-config-card agent-compact-row builtin-agent-card" data-builtin-agent="'+esc(a.agent_id)+'">'+
+      '<div class="agent-config-top"><div class="agent-config-heading"><b>'+esc(name)+'</b>'+
+      '<small>Built-in · '+(a.active?'Ready':'Inactive')+'</small></div>'+
+      '<span class="agent-presence'+(a.active?'':' offline')+'" aria-label="'+(a.active?'Available':'Inactive')+'"></span></div>'+
+      '<div class="agent-small-actions" role="group" aria-label="'+esc(name)+' information">'+
+      '<button type="button" class="agent-mini-button" data-builtin-menu="role" aria-expanded="false">Role</button>'+
+      '<button type="button" class="agent-mini-button" data-builtin-menu="access" aria-expanded="false">Access</button>'+
+      '<span class="builtin-status">'+(a.active?'Active':'Inactive')+'</span></div>'+
+      '<div class="agent-menu-content">'+
+      panel('role','Built-in role','<p class="agent-config-note">'+esc(a.role)+
+        (a.model?' · '+esc(a.model):'')+'</p>')+
+      panel('access','Enforced permissions','<div class="agent-access-grid">'+(permissions||
+        '<span class="agent-config-note">No permissions reported</span>')+'</div>'+
+        '<p class="agent-config-note">Managed by Ground Space. Not editable here.</p>')+
+      '</div></article>';
+  }).join('')||'<p class="model-import-status">No built-in agents reported.</p>';
+}
 function taskLabel(task){
   const source=task.payload?.prompt||task.payload?.operation||task.payload?.request_type||task.requested_worker||'Task';
   return String(source).replace(/\s+/g,' ').trim().slice(0,160);
@@ -758,6 +797,55 @@ $('#addModelButton').addEventListener('click',async()=>{
   if(!model)return;
   try{await api('/api/models/add',{method:'POST',body:JSON.stringify({model})});await refresh();toast('Model added');}
   catch(error){toast(error.message);}
+});
+
+function setAgentMenu(root, type, choice){
+  const isBuiltin=type==='builtin';
+  const buttonKey=isBuiltin?'data-builtin-menu':'data-agent-menu';
+  const paneKey=isBuiltin?'data-builtin-pane':'data-agent-pane';
+  root.querySelectorAll('button['+buttonKey+']').forEach(button=>{
+    const open=button.dataset[isBuiltin?'builtinMenu':'agentMenu']===choice;
+    button.setAttribute('aria-expanded',String(open));
+    button.classList.toggle('active',open);
+  });
+  root.querySelectorAll('['+paneKey+']').forEach(pane=>{
+    pane.hidden=pane.dataset[isBuiltin?'builtinPane':'agentPane']!==choice;
+  });
+}
+function closeAgentMenus(except=null){
+  document.querySelectorAll('.agent-config-card').forEach(row=>{
+    if(row===except)return;
+    setAgentMenu(row,row.hasAttribute('data-builtin-agent')?'builtin':'loadable',null);
+  });
+}
+$('#registeredModels').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-agent-menu]');
+  if(!button)return;
+  const root=button.closest('[data-agent-item]');
+  const next=button.getAttribute('aria-expanded')==='true'?null:button.dataset.agentMenu;
+  closeAgentMenus(root);
+  setAgentMenu(root,'loadable',next);
+});
+$('#registeredModels').addEventListener('change',event=>{
+  const root=event.target.closest('[data-agent-item]');
+  if(!root)return;
+  const save=root.querySelector('.save-agent-config');
+  if(save)save.disabled=false;
+  root.querySelector('.agent-config-feedback').textContent='Unsaved changes';
+});
+$('#agentGrid').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-builtin-menu]');
+  if(!button)return;
+  const root=button.closest('[data-builtin-agent]');
+  const next=button.getAttribute('aria-expanded')==='true'?null:button.dataset.builtinMenu;
+  closeAgentMenus(root);
+  setAgentMenu(root,'builtin',next);
+});
+document.addEventListener('click',event=>{
+  if(!event.target.closest('.agent-config-card'))closeAgentMenus();
+});
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape')closeAgentMenus();
 });
 
 $('#registeredModels').addEventListener('click',async event=>{
