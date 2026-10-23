@@ -39,7 +39,7 @@ MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
-BACKEND_RELEASE = "GS-026"
+BACKEND_RELEASE = "GS-027"
 
 # A single explicit private HTTPS Origin is opt-in for the owner-only Tailscale
 # Serve pilot. Never derive trusted origins from untrusted Host/forwarded headers.
@@ -262,6 +262,13 @@ class GroundSpaceApp:
                    "propose" if request_type == "code_proposal" else "read")
         if required not in cfg["access"]:
             raise ValueError("This agent does not have " + required + " access. Edit Agents settings.")
+        if agent_id == "codex":
+            if not write and "review" not in cfg["access"]:
+                raise ValueError("Codex review access is disabled in Agents")
+        elif not {"chat", "read", "propose"}.issubset(cfg["access"]):
+            # Every Ollama queue item is a read/propose chat operation. Never
+            # advertise a narrower permission while dispatching a broader task.
+            raise ValueError("Local agent chat requires Chat, Read and Propose access")
         return cfg
 
     def save_agent_config(self, body: dict[str, Any]) -> dict[str, Any]:
