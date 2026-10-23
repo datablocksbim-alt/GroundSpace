@@ -276,19 +276,36 @@ try{
     }
     assert.equal(exceptions.length,0,label+' startup errors: '+exceptions.join(', '));
 
-    // Inline agent controls stay compact and persist across refresh.
+    // Compact per-field buttons, Save and reload, and unified built-in cards.
     await page.locator('.nav-button[data-view="agents"]').click();
     const localAgent=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"]');
-    await localAgent.locator('summary').click();
+    assert.equal(await localAgent.locator('[data-agent-menu]').count(),4);
+    assert.equal(await localAgent.locator('details').count(),0,'no whole-card dropdown');
+    assert.equal(await localAgent.locator('.save-agent-config').isDisabled(),true);
+    await localAgent.locator('[data-agent-menu="level"]').click();
+    assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),true);
+    assert.equal(await localAgent.locator('[data-agent-pane="model_id"]').isVisible(),false);
     await localAgent.locator('[data-agent-field="level"]').selectOption('detailed');
+    assert.equal(await localAgent.locator('.save-agent-config').isEnabled(),true);
+    await localAgent.locator('[data-agent-menu="access"]').click();
+    assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),false);
+    assert.equal(await localAgent.locator('[data-agent-pane="access"]').isVisible(),true);
+    assert.equal(await localAgent.locator('input[data-agent-access]').count(),4);
     await localAgent.locator('.save-agent-config').click();
     await page.waitForFunction(()=>document.querySelector('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .agent-summary-value')?.textContent.includes('detailed'));
     assert.equal(agentConfigs['qwen2.5-coder:3b'].level,'detailed');
+    // Built-in agents use matching compact rows, not the former technical grid.
+    assert.equal(await page.locator('#agentGrid.agent-grid').count(),0);
+    const builtIn=page.locator('#agentGrid .builtin-agent-card[data-builtin-agent="administrator"]');
+    assert.equal(await builtIn.count(),1);
+    await builtIn.locator('[data-builtin-menu="access"]').click();
+    assert.equal(await builtIn.locator('[data-builtin-pane="access"]').isVisible(),true);
+    assert.match(await builtIn.locator('[data-builtin-pane="access"]').innerText(),/Managed by Ground Space/);
     await page.reload({waitUntil:'domcontentloaded'});
     await page.waitForFunction(()=>document.querySelector('#registeredModels .agent-config-card'));
     await page.locator('.nav-button[data-view="agents"]').click();
     const afterReload=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"]');
-    await afterReload.locator('summary').click();
+    await afterReload.locator('[data-agent-menu="level"]').click();
     assert.equal(await afterReload.locator('[data-agent-field="level"]').inputValue(),'detailed');
     await page.locator('.nav-button[data-view="chat"]').click();
 
