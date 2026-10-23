@@ -48,6 +48,7 @@ function conversationFor(agent,projectId){
 }
 function setAgent(agent){
   state.agent=agent;state.groupId=null;
+  $('#privateChannelMenu').open=false;
   state.conversationId=conversationFor(agent,state.projectId);
   $$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));
   $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':agent==='codex'?'Codex workspace agent':'Administrator channel';
@@ -329,6 +330,7 @@ function renderModels(){
   const online=registered.filter(item=>item.available&&item.provider==='ollama');
   const chatModels=registered.filter(item=>item.provider==='ollama');
   $('#codexAgentChannel').hidden=!registered.some(item=>item.model==='codex');
+  $('#privateChannelMenu .private-channel-count').textContent=String(2+(registered.some(item=>item.model==='codex')?1:0));
   const choices=$('#modelSelect');
   const choicesKey=JSON.stringify(chatModels.map(item=>[item.model,item.available]));
   if(choices.dataset.optionsKey!==choicesKey){
