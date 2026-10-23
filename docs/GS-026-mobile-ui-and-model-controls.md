@@ -39,27 +39,29 @@ Set-Location -LiteralPath $preview
 git rev-parse --short HEAD
 ```
 
-Run the cross-platform portable regression tests and syntax checks from that **preview** directory (no service restart):
+Run the guarded verification script in the isolated preview worktree. It checks GS-026 model controls and prior security/approval regressions, and validates frontend JavaScript. It refuses the primary GS-025 checkout.
 
 ```powershell
-py -3 -m unittest tests.test_gs026_model_profiles tests.test_gs026_model_controls tests.test_gs025_public_security tests.test_gs024_device_login tests.test_gs023_collaboration tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex -v
-if ($LASTEXITCODE -ne 0) { throw 'GS-026 regression failed; leave GS-025 running' }
-node --check web/public/app.js
-if ($LASTEXITCODE -ne 0) { throw 'GS-026 JavaScript parsing failed' }
+.\tools\prepare_gs026_preview.ps1
 ```
 
-For a local-only **UI preview**, start a second server on 127.0.0.1:8766 with isolated disposable state. It won't show the existing user's chats, projects or linked agents because no GS-025 state is copied. It must not be routed through Tailscale Serve.
+After **PRECHECK PASS**, launch a separate, desktop-only UI preview on `http://127.0.0.1:8766`:
 
 ```powershell
-$previewState = Join-Path $env:LOCALAPPDATA 'DataBlocks\GroundSpace-GS026-Preview'
-$env:GROUND_SPACE_DEPLOYMENT_MODE = 'owner_private'
-$env:GROUND_SPACE_CODEX_WRITE_ENABLED = '0'
-$env:GROUND_SPACE_OWNER_CHATGPT_LINK_ENABLED = '0'
-Remove-Item Env:GROUND_SPACE_TAILSCALE_ORIGIN -ErrorAction SilentlyContinue
-py -3 -m ground_space.webapp --port 8766 --state-dir $previewState --no-browser
+.\tools\prepare_gs026_preview.ps1 -StartPreview
 ```
 
-Open `http://127.0.0.1:8766` **on the ASUS only** and verify the compact navigation and Tasks layout. Stop the preview with Ctrl+C. Existing port 8765 and its Tailscale URL remain untouched. Do not test project writes in the preview.
+Stop the preview with Ctrl+C. The preview uses `%LOCALAPPDATA%\DataBlocks\GroundSpace-GS026-Preview` as private state and deliberately does **not** import the existing GS-025 chats, projects, linked accounts or agent settings. It cannot be accessed from the iPhone through the existing Tailscale route, because Tailscale Serve remains pointed at port 8765. This preview is **not** a live Codex account or iPhone Safari acceptance test.
+
+#### Optional Windows reboot after owner approval
+
+Rebooting the ASUS is separate from restarting the Ground Space application. First save work, verify no active Codex tasks, and make sure you can sign back in. **Only when deliberately ready**, run from PowerShell:
+
+```powershell
+shutdown.exe /r /t 60 /c "Ground Space maintenance reboot"
+```
+
+Cancel the pending reboot within 60 seconds with `shutdown.exe /a`. A reboot stops the running Ground Space server; do not assume it will automatically start again unless a verified Windows startup task/service exists. Recheck the app and private Tailscale access after sign-in. These commands are instructions only; nothing in GS-026 runs them automatically.
 
 ### Owner-gated cutover, not yet authorised
 
