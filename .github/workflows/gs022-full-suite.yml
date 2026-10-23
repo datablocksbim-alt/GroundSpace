@@ -1,0 +1,50 @@
+name: GS-022 full release stability
+on:
+  push:
+    branches: [feature/gs-022-release-stability]
+  pull_request:
+    branches: [feature/gs-021-codex-execution]
+permissions:
+  contents: read
+jobs:
+  full-python:
+    name: Entire suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run all GS tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Python compile
+        run: python -m compileall -q ground_space
+      - name: JavaScript syntax
+        run: node --check web/public/app.js
+      - name: Browser test syntax
+        run: node --check tools/test_gs015_browser.mjs
+      - name: Windows restart syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('tools/restart_gs016_codex.ps1', [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+  browser:
+    name: Mobile + desktop Chromium interactions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright test harness
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test critical buttons and approvals
+        run: node tools/test_gs015_browser.mjs
