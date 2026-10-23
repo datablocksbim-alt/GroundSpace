@@ -500,7 +500,10 @@
 
 /* GS-026 — mobile-first groups/projects and small private-agent entry point. */
 [hidden]{display:none!important}
-.chat-layout{grid-template-columns:242px minmax(0,1fr)}
+/* Never restore desktop columns after the GS-014 mobile single-column rule. */
+@media (min-width:761px){
+  .chat-layout{grid-template-columns:242px minmax(0,1fr)}
+}
 .chat-layout .active-agent-panel{display:none!important}
 .agent-rail{padding:24px 16px}
 .group-rail,.project-rail{margin-top:10px;padding:13px 0;border-top:0}
