@@ -908,8 +908,6 @@
 .compact-manage-actions button{min-height:34px;padding:7px 10px;border-radius:8px;
   border:1px solid #ddd7e9;background:#fff;color:#423b53;
   font:600 12px Inter,"Segoe UI",sans-serif;cursor:pointer}
-.compact-manage-actions #manageItemRemove{margin-right:auto;color:#a13b4b;
-  border-color:transparent;background:transparent}
 .compact-manage-actions #manageItemSave{background:#765ed5;border-color:#765ed5;color:white}
 .compact-manage-actions #manageItemSave:disabled{opacity:.4;cursor:default}
 @media(max-width:760px){
@@ -917,4 +915,31 @@
   .compact-manage-dialog form{padding:17px}
   .compact-manage-actions button{min-height:40px;font-size:12px}
   .compact-manage-dialog #manageItemName{font-size:16px}
+}
+
+/* GS-030: rename/delete live inside the same per-row ellipsis (no extra Options dialog). */
+.agent-rail .rail-action-menu{position:relative;flex:0 0 31px;min-width:31px}
+.agent-rail .rail-action-menu summary.project-more{
+  display:flex;align-items:center;justify-content:center;list-style:none;
+  width:31px;min-width:31px;height:33px;user-select:none;cursor:pointer
+}
+.agent-rail .rail-action-menu summary::-webkit-details-marker{display:none}
+.agent-rail .rail-action-menu[open] summary.project-more{background:#ede9f9;color:#655099}
+.agent-rail .rail-action-choices{
+  position:absolute;right:0;top:calc(100% + 3px);z-index:30;
+  width:150px;background:#fff;border:1px solid #ddd7ea;border-radius:10px;
+  box-shadow:0 8px 22px rgba(43,31,80,.13);padding:4px;display:grid;gap:2px
+}
+.agent-rail .rail-action-choices button{
+  display:block;text-align:left;padding:9px 10px;min-height:35px;width:100%;
+  background:transparent;border:0;border-radius:7px;
+  font:600 12px Inter,"Segoe UI",sans-serif;color:#393249;cursor:pointer
+}
+.agent-rail .rail-action-choices button:hover,
+.agent-rail .rail-action-choices button:focus-visible{background:#f1edfb}
+.agent-rail .rail-action-choices .action-danger{color:#ad4554}
+@media(max-width:760px){
+  .agent-rail .rail-action-menu{min-width:38px;flex-basis:38px}
+  .agent-rail .rail-action-menu summary.project-more{width:38px;height:43px}
+  .agent-rail .rail-action-choices button{min-height:43px;font-size:13px}
 }
