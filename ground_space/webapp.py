@@ -37,7 +37,7 @@ MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
-BACKEND_RELEASE = "GS-021"
+BACKEND_RELEASE = "GS-025"
 
 # A single explicit private HTTPS Origin is opt-in for the owner-only Tailscale
 # Serve pilot. Never derive trusted origins from untrusted Host/forwarded headers.
