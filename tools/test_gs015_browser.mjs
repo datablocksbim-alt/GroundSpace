@@ -19,6 +19,7 @@ const tasks = [];
 const collaborations = [];
 const chatgptStatus={connected:false,login_state:"not_started",auth_mode:null,plan_type:null};
 const modelProfiles={};
+const agentConfigs={};
 const conversations = {};
 const codex = {default_mode:'manual',project_modes:{},jobs:[]};
 const state = {csrf:'functional-test-token'};
@@ -52,6 +53,12 @@ const bootstrap = () => ({
   collaborations:collaborations.map(x=>({...x})),
   model_profiles:{provider:'codex_cli',supported_efforts:['low','medium','high'],
     other_cloud_providers_connected:false,profiles:{...modelProfiles}},
+  agent_configs:{schema_version:1,profiles:Object.fromEntries(registered.map(x=>[x.model,
+    agentConfigs[x.model]||(x.model==='codex'?
+      {model_id:'',level:'',access:['read','review','workspace_write'],approval:'manual'}:
+      {model_id:x.model,level:'balanced',access:['chat','read','propose','review'],approval:'auto_read_only'})])),
+    providers:[{id:'ollama',connected:true},{id:'openai_codex_cli',connected:true},
+      {id:'anthropic',connected:false},{id:'grok',connected:false}]},
   chatgpt_connection:{scope:'single_owner_codex_cli',enabled:true,login_state:chatgptStatus.login_state},
   security:{deployment:'owner_private',public_ready:false,multi_user_accounts:false},
   paid_api_usage_aud:0,
@@ -83,6 +90,17 @@ const server=createServer(async(req,res)=>{
     if(req.method==='POST'){
       assert.equal(req.headers['x-ground-space-csrf'],state.csrf,'CSRF token missing');
       const body=await reqBody(req);
+      if(path==='/api/agents/configure'){
+        const ids=registered.map(x=>x.model);
+        if(!ids.includes(body.agent_id))return json(res,400,{error:'Agent not registered'});
+        if(!Array.isArray(body.access)||!body.access.length)return json(res,400,{error:'Access is required'});
+        const connected=body.agent_id==='codex';
+        if(!connected&&!ids.includes(body.model_id))return json(res,400,{error:'Model not registered'});
+        if(!connected&&body.access.includes('workspace_write'))return json(res,400,{error:'No local filesystem permissions'});
+        agentConfigs[body.agent_id]={model_id:body.model_id,level:body.level,
+          access:body.access,approval:body.approval};
+        return json(res,200,agentConfigs[body.agent_id]);
+      }
       if(path==='/api/model-profiles/set'){
         if(body.provider!=='codex')return json(res,400,{error:'Provider not connected'});
         if(!['','low','medium','high'].includes(body.reasoning_effort))return json(res,400,{error:'Invalid effort'});
@@ -258,6 +276,65 @@ try{
     }
     assert.equal(exceptions.length,0,label+' startup errors: '+exceptions.join(', '));
 
+    // Compact per-field buttons, Save and reload, and unified built-in cards.
+    await page.locator('.nav-button[data-view="agents"]').click();
+    const localAgent=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"]');
+    assert.equal(await localAgent.locator('[data-agent-menu]').count(),4);
+    assert.equal(await localAgent.locator('details').count(),0,'no whole-card dropdown');
+    const tinySave=localAgent.locator('.save-agent-config');
+    assert.equal(await tinySave.isDisabled(),true);
+    assert.equal(await tinySave.getAttribute('aria-label'),
+      'Save configuration for qwen2.5-coder:3b');
+    assert.equal((await tinySave.textContent()).trim(),'✓');
+    const originalLevel=await localAgent.locator('[data-agent-field="level"]').inputValue();
+    const nextLevel=originalLevel==='detailed'?'fast':'detailed';
+    await localAgent.locator('[data-agent-menu="level"]').click();
+    assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),true);
+    assert.equal(await localAgent.locator('[data-agent-pane="model_id"]').isVisible(),false);
+    await localAgent.locator('[data-agent-field="level"]').selectOption(nextLevel);
+    assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),false,
+      'Single-choice Level menu should close automatically');
+    assert.equal(await localAgent.locator('.save-agent-config').isEnabled(),true);
+    if(viewport.mobile){
+      const controls=await localAgent.locator('.agent-small-actions button').evaluateAll(buttons=>
+        buttons.map(el=>{const b=el.getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,height:b.height};}));
+      const cardRight=await localAgent.evaluate(el=>el.getBoundingClientRect().right);
+      assert.ok(controls.every(c=>c.right<=cardRight+1),'Buttons must not overflow mobile card');
+      assert.ok(controls.every(c=>c.height>=32&&c.height<=42),'Compact buttons keep usable touch targets');
+    }
+    // Returning to the current saved value cancels the pending Save.
+    await localAgent.locator('[data-agent-menu="level"]').click();
+    await localAgent.locator('[data-agent-field="level"]').selectOption(originalLevel);
+    assert.equal(await tinySave.isDisabled(),true,'no changes means no Save');
+    await localAgent.locator('[data-agent-menu="level"]').click();
+    await localAgent.locator('[data-agent-field="level"]').selectOption(nextLevel);
+    assert.equal(await tinySave.isEnabled(),true);
+    await localAgent.locator('[data-agent-menu="access"]').click();
+    assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),false);
+    assert.equal(await localAgent.locator('[data-agent-pane="access"]').isVisible(),true);
+    assert.equal(await localAgent.locator('input[data-agent-access]').count(),4);
+    await tinySave.click();
+    await page.waitForFunction(level=>document.querySelector('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .agent-summary-value')?.textContent.includes(level), nextLevel);
+    const refreshedSave=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .save-agent-config');
+    assert.equal(await refreshedSave.isDisabled(),true,'successful Save returns to disabled state');
+    await page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .agent-config-feedback').getByText('Saved').waitFor({state:'visible'});
+    assert.equal(agentConfigs['qwen2.5-coder:3b'].level,nextLevel);
+    // Built-in agents use matching compact rows, not the former technical grid.
+    assert.equal(await page.locator('#agentGrid.agent-grid').count(),0);
+    const builtIn=page.locator('#agentGrid .builtin-agent-card[data-builtin-agent="administrator"]');
+    assert.equal(await builtIn.count(),1);
+    await builtIn.locator('[data-builtin-menu="access"]').click();
+    assert.equal(await builtIn.locator('[data-builtin-pane="access"]').isVisible(),true);
+    assert.match(await builtIn.locator('[data-builtin-pane="access"]').innerText(),/Managed by Ground Space/);
+    await page.reload({waitUntil:'domcontentloaded'});
+    await page.waitForFunction(()=>document.querySelector('#registeredModels .agent-config-card'));
+    await page.locator('.nav-button[data-view="agents"]').click();
+    const afterReload=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"]');
+    await afterReload.locator('[data-agent-menu="level"]').click();
+    assert.equal(await afterReload.locator('[data-agent-field="level"]').inputValue(),nextLevel);
+    await page.locator('.nav-button[data-view="chat"]').click();
+
+
     // Regression: GS-026 originally reapplied a desktop two-column grid after
     // the mobile breakpoint. This silently reduced iPhone chat to ~55% width.
     const geometry = await page.evaluate(() => {
@@ -413,6 +490,7 @@ try{
     assert.ok(maxScroll<=2,label+' task table must not overflow horizontally: '+maxScroll);
     assert.equal(await page.locator('#taskRows .task-name').first().isVisible(),true);
     await page.locator('.nav-button[data-view="agents"]').click();
+    await page.locator('#codexAdvanced > summary').click();
     assert.equal(await page.locator('#codexAgentSettings').isVisible(),true);
     assert.equal(await page.locator('#codexAgentChannel').isVisible(),false);
     const selectedProject=projects[projects.length-1].id;

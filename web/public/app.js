@@ -54,9 +54,9 @@ function setAgent(agent){
   $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':agent==='codex'?'Codex workspace agent':'Administrator channel';
   $('#editGroupButton').hidden=true;
   $('#startCollaborationButton').hidden=true;
-  $('#openModelSettings').hidden=agent!=='codex';
+  $('#openModelSettings').hidden=true; // Direct agent models are saved under Agents.
   $('#projectSelect').disabled=false;
-  $('#modelControls').hidden=agent!=='qwen';
+  $('#modelControls').hidden=true;
   $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
   $('#requestType').hidden=agent!=='qwen';
   $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':agent==='codex'?'Ask Codex to create, edit, test or delete project files…':'Try “list tasks” or “status GS-…”';
@@ -73,6 +73,7 @@ function selectGroup(groupId){
   $('#editGroupButton').hidden=false;
   $('#startCollaborationButton').hidden=false;
   $('#openModelSettings').hidden=!group.models.includes('codex');
+  $('#openModelSettings').textContent='Group override ⚙';
   $('#privateChannelMenu').open=false;
   $('#projectSelect').disabled=true;
   $('#modelControls').hidden=true;
@@ -277,7 +278,10 @@ function openGroupEditor(groupId=''){
   $('#saveGroup').textContent=group?'Save changes':'Create group';
   $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
   $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>{
-    const mode=group?.approval_modes?.[item.model]||(item.model==='codex'?'manual':'approve_for_me');
+    const savedApproval=state.data?.agent_configs?.profiles?.[item.model]?.approval;
+    const agentDefault=savedApproval==='disabled'?'disabled':
+      savedApproval==='manual'?'manual':'approve_for_me';
+    const mode=group?.approval_modes?.[item.model]||(savedApproval?agentDefault:(item.model==='codex'?'manual':'approve_for_me'));
     const opts=[['manual','Ask me'],['approve_for_me','Approve for me'],['disabled','Off']]
       .map(([value,label])=>'<option value="'+value+'"'+(mode===value?' selected':'')+'>'+label+'</option>').join('');
     return '<div class="group-member-setting"><label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
@@ -324,6 +328,62 @@ async function browseFolders(path=null){
   }catch(error){showDialogError('#projectDialogError',error);}
 }
 
+
+function renderAgentCard(item, all){
+  const profiles=state.data?.agent_configs?.profiles||{};
+  const codex=item.model==='codex';
+  const profile=profiles[item.model]||{model_id:codex?'':item.model,
+    level:codex?'':'balanced',
+    access:codex?['read','review','workspace_write']:['chat','read','propose','review'],
+    approval:codex?'manual':'auto_read_only'};
+  const available=all.filter(x=>x.provider==='ollama');
+  const models=codex
+    ?[['','CLI default'],['gpt-6.1-sol','GPT-6.1 Sol'],['gpt-5.6-sol','GPT-5.6 Sol (check CLI)']]
+    :available.map(x=>[x.model,x.model+(x.available?'':' (offline)')]);
+  if(!models.some(x=>x[0]===profile.model_id))models.push([profile.model_id,profile.model_id+' (saved custom)']);
+  const opts=(entries,value)=>entries.map(([id,label])=>'<option value="'+esc(id)+'"'+(id===value?' selected':'')+'>'+esc(label)+'</option>').join('');
+  const access=codex
+    ?[['read','Read'],['review','Review'],['workspace_write','Workspace coding · write/run/delete']]
+    :[['chat','Chat'],['read','Read'],['propose','Propose'],['review','Review']];
+  const checks=access.map(([id,label])=>'<label class="agent-access-option"><input type="checkbox" data-agent-access value="'+esc(id)+'"'+
+    ((profile.access||[]).includes(id)?' checked':'')+'><span>'+esc(label)+'</span></label>').join('');
+  const level=codex?[['','CLI default'],['low','Low'],['medium','Medium'],['high','High']]
+    :[['fast','Low · fast'],['balanced','Medium · balanced'],['detailed','High · detailed']];
+  const approvals=codex
+    ?[['manual','Ask me'],['auto_read_only','Auto · read-only'],['disabled','Off']]
+    :[['auto_read_only','Auto · read-only'],['disabled','Off']];
+  const selectedApproval=approvals.some(x=>x[0]===profile.approval)?profile.approval:approvals[0][0];
+  const menu=(id,label,inner)=>
+    '<section class="agent-menu-panel" data-agent-pane="'+id+'" hidden>'+
+      '<div class="agent-menu-title">'+esc(label)+'</div>'+inner+'</section>';
+  const field=(name,label,options,value)=>'<label class="agent-config-field"><span>'+esc(label)+
+    '</span><select data-agent-field="'+name+'" aria-label="'+esc(item.model)+' '+esc(label)+'">'+
+    opts(options,value)+'</select></label>';
+  return '<article class="registered-model agent-config-card agent-compact-row" data-agent-item="'+esc(item.model)+'">'+
+    '<div class="agent-config-top"><div class="agent-config-heading"><b>'+esc(item.model)+'</b>'+
+    '<small>'+esc(item.available?'Ready · '+(codex?'Codex CLI':'Local Ollama'):'Unavailable')+'</small>'+
+    '<span class="agent-summary-value">'+esc(codex?(profile.model_id||'CLI default'):profile.model_id)+
+    ' · '+esc(profile.level||'default')+' · '+esc(selectedApproval)+'</span></div>'+
+    '<span class="agent-presence'+(item.available?'':' offline')+'" aria-label="'+(item.available?'Available':'Unavailable')+'"></span></div>'+
+    '<div class="agent-small-actions" role="group" aria-label="'+esc(item.model)+' settings">'+
+    [['model_id','Model'],['access','Access'],['level','Level'],['approval','Approval']].map(([key,label])=>
+      '<button class="agent-mini-button" type="button" data-agent-menu="'+key+'" aria-expanded="false">'+label+'</button>').join('')+
+    '<button type="button" class="save-agent-config" data-agent="'+esc(item.model)+'"'+
+    ' aria-label="Save configuration for '+esc(item.model)+'" title="Save configuration" disabled>'+
+    '<span aria-hidden="true">✓</span></button></div>'+
+    '<div class="agent-menu-content">'+
+      menu('model_id','Model',field('model_id','Execution model',models,profile.model_id))+
+      menu('access','Access', '<div class="agent-access-grid">'+checks+'</div>'+
+        '<p class="agent-config-note">Skills are restricted by provider and server permissions.</p>')+
+      menu('level','Level',field('level',codex?'Reasoning effort':'Response detail',level,profile.level))+
+      menu('approval','Approval',field('approval','Default approval',approvals,selectedApproval)+
+        '<p class="agent-config-note">Existing group overrides remain. Write actions still need server approval.</p>')+
+    '</div><div class="agent-config-footer">'+
+    '<span class="agent-config-feedback" role="status" aria-live="polite"></span>'+
+    '<button type="button" class="remove-model agent-remove-link" data-model="'+esc(item.model)+'">Remove agent</button>'+
+    '</div></article>';
+}
+
 function renderModels(){
   const data=state.data?.models||{};
   const registered=data.registered||[];
@@ -355,7 +415,8 @@ function renderModels(){
   const keep=available.value;
   const availableKey=JSON.stringify(discovered);
   if(available.dataset.optionsKey!==availableKey){
-    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex — OpenAI coding agent (CLI)':name)+'</option>').join('');
+    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex CLI · check sign-in on first job':'Local · '+name)+'</option>').join('')+
+      '<option value="" disabled>Claude · Not connected</option><option value="" disabled>Grok · Not connected</option>';
     available.dataset.optionsKey=availableKey;
   }
   if(discovered.includes(keep))available.value=keep;
@@ -366,12 +427,14 @@ function renderModels(){
     : data.registered?.some(item=>item.available)
       ? 'All detected Ollama models are already registered, or no additional model is installed. To add more, install them in Ollama on the ASUS first.'
       : 'No additional installed Ollama models detected. Check that Ollama is running on the ASUS. Online AI accounts require a separate integration.';
-  $('#registeredModels').innerHTML=registered.map(item=>
-    '<div class="registered-model"><span><b>'+esc(item.model)+'</b><small>'+
-    esc(item.available?'Ready · '+item.role:'Offline · '+item.role)+
-    '</small></span><button type="button" class="remove-model" data-model="'+esc(item.model)+
-    '" aria-label="Remove '+esc(item.model)+'">Remove</button></div>'
-  ).join('')||'<p>No models registered. Add an installed model above.</p>';
+  const cards=$('#registeredModels');
+  const signature=JSON.stringify(registered.map(item=>[item.model,item.available,
+    state.data?.agent_configs?.profiles?.[item.model]]));
+  if(cards.dataset.signature!==signature){
+    cards.innerHTML=registered.map(item=>renderAgentCard(item,registered)).join('')||
+      '<p>No agents registered yet. Add a local model or a connected provider.</p>';
+    cards.dataset.signature=signature;
+  }
   updateComposerAvailability();
 }
 async function copyText(value){
@@ -395,7 +458,38 @@ async function copyReply(taskId){
   try{await copyText(answer);toast('Response copied');}catch(error){toast(error.message);}
 }
 
-function renderAgents(){const root=$('#agentGrid');root.innerHTML=(state.data?.agents||[]).map(a=>`<article class="agent-card"><header><h2>${esc(a.agent_id.replaceAll('-',' '))}</h2><span class="${a.active?'live':'live offline'}">${a.active?'● ONLINE':'○ INACTIVE'}</span></header><p>${esc(a.role)}${a.model?` · ${esc(a.model)}`:''}</p><div class="chips">${a.permissions.map(p=>`<span>${esc(p)}</span>`).join('')}</div></article>`).join('')}
+function renderAgents(){
+  const root=$('#agentGrid');
+  const loaded=new Set((state.data?.models?.registered||[]).map(x=>x.model));
+  // Registry-backed model workers and Codex are already shown above.
+  // The built-in list represents platform roles, not duplicate model registrations.
+  const builtins=(state.data?.agents||[]).filter(a=>a.agent_id!=='codex-cli' &&
+    !(a.role==='proposal_only_chat'&&loaded.has(a.model)));
+  const signature=JSON.stringify(builtins.map(a=>[a.agent_id,a.active,a.role,a.model,a.permissions]));
+  if(root.dataset.signature===signature)return; // Keep an open built-in menu through live status polls.
+  root.dataset.signature=signature;
+  root.innerHTML=builtins.map(a=>{
+    const name=a.agent_id.replaceAll('-',' ');
+    const permissions=(a.permissions||[]).map(p=>'<span class="agent-readonly-pill">'+esc(p)+'</span>').join('');
+    const panel=(id,title,body)=>'<section class="agent-menu-panel" data-builtin-pane="'+id+'" hidden>'+
+      '<div class="agent-menu-title">'+title+'</div>'+body+'</section>';
+    return '<article class="registered-model agent-config-card agent-compact-row builtin-agent-card" data-builtin-agent="'+esc(a.agent_id)+'">'+
+      '<div class="agent-config-top"><div class="agent-config-heading"><b>'+esc(name)+'</b>'+
+      '<small>Built-in · '+(a.active?'Ready':'Inactive')+'</small></div>'+
+      '<span class="agent-presence'+(a.active?'':' offline')+'" aria-label="'+(a.active?'Available':'Inactive')+'"></span></div>'+
+      '<div class="agent-small-actions" role="group" aria-label="'+esc(name)+' information">'+
+      '<button type="button" class="agent-mini-button" data-builtin-menu="role" aria-expanded="false">Role</button>'+
+      '<button type="button" class="agent-mini-button" data-builtin-menu="access" aria-expanded="false">Access</button>'+
+      '<span class="builtin-status">'+(a.active?'Active':'Inactive')+'</span></div>'+
+      '<div class="agent-menu-content">'+
+      panel('role','Built-in role','<p class="agent-config-note">'+esc(a.role)+
+        (a.model?' · '+esc(a.model):'')+'</p>')+
+      panel('access','Enforced permissions','<div class="agent-access-grid">'+(permissions||
+        '<span class="agent-config-note">No permissions reported</span>')+'</div>'+
+        '<p class="agent-config-note">Managed by Ground Space. Not editable here.</p>')+
+      '</div></article>';
+  }).join('')||'<p class="model-import-status">No built-in agents reported.</p>';
+}
 function taskLabel(task){
   const source=task.payload?.prompt||task.payload?.operation||task.payload?.request_type||task.requested_worker||'Task';
   return String(source).replace(/\s+/g,' ').trim().slice(0,160);
@@ -469,7 +563,11 @@ function modelProfileKey(){
   return state.agent==='group'&&state.groupId?'codex:group:'+state.groupId:'codex:direct';
 }
 function currentCodexProfile(){
-  return state.data?.model_profiles?.profiles?.[modelProfileKey()]||{model_id:'',reasoning_effort:''};
+  const legacy=state.data?.model_profiles?.profiles?.[modelProfileKey()];
+  if(state.agent==='group'&&legacy)return legacy;
+  const saved=state.data?.agent_configs?.profiles?.codex;
+  if(saved)return {model_id:saved.model_id,reasoning_effort:saved.level};
+  return legacy||{model_id:'',reasoning_effort:''};
 }
 function updateCustomModelVisibility(){
   const custom=$('#codexModelChoice').value==='_custom';
@@ -575,8 +673,8 @@ async function refresh(){
     }
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
     renderModels();renderWorkspaces();renderMessages();renderActiveAgents();renderAgents();renderTasks();renderCodex();renderChatGPTConnection();
-    $('#openModelSettings').hidden=!(state.agent==='codex'||(state.agent==='group'&&
-      (data.workspaces?.groups||[]).some(g=>g.id===state.groupId&&g.models.includes('codex'))));
+    $('#openModelSettings').hidden=!(state.agent==='group'&&
+      (data.workspaces?.groups||[]).some(g=>g.id===state.groupId&&g.models.includes('codex')));
   }finally{state.refreshing=false;}
 }
 async function submit(event){
@@ -705,6 +803,119 @@ $('#addModelButton').addEventListener('click',async()=>{
   try{await api('/api/models/add',{method:'POST',body:JSON.stringify({model})});await refresh();toast('Model added');}
   catch(error){toast(error.message);}
 });
+
+function setAgentMenu(root, type, choice){
+  const isBuiltin=type==='builtin';
+  const buttonKey=isBuiltin?'data-builtin-menu':'data-agent-menu';
+  const paneKey=isBuiltin?'data-builtin-pane':'data-agent-pane';
+  root.querySelectorAll('button['+buttonKey+']').forEach(button=>{
+    const open=button.dataset[isBuiltin?'builtinMenu':'agentMenu']===choice;
+    button.setAttribute('aria-expanded',String(open));
+    button.classList.toggle('active',open);
+  });
+  root.querySelectorAll('['+paneKey+']').forEach(pane=>{
+    pane.hidden=pane.dataset[isBuiltin?'builtinPane':'agentPane']!==choice;
+  });
+}
+function closeAgentMenus(except=null){
+  document.querySelectorAll('.agent-config-card').forEach(row=>{
+    if(row===except)return;
+    setAgentMenu(row,row.hasAttribute('data-builtin-agent')?'builtin':'loadable',null);
+  });
+}
+$('#registeredModels').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-agent-menu]');
+  if(!button)return;
+  const root=button.closest('[data-agent-item]');
+  const next=button.getAttribute('aria-expanded')==='true'?null:button.dataset.agentMenu;
+  closeAgentMenus(root);
+  setAgentMenu(root,'loadable',next);
+});
+function agentDraft(root){
+  const select=key=>root.querySelector('[data-agent-field="'+key+'"]').value;
+  return {model_id:select('model_id'),level:select('level'),
+    approval:select('approval'),
+    access:[...root.querySelectorAll('input[data-agent-access]:checked')]
+      .map(x=>x.value).sort()};
+}
+function agentDraftChanged(root){
+  const saved=state.data?.agent_configs?.profiles?.[root.dataset.agentItem];
+  if(!saved)return true;
+  const draft=agentDraft(root);
+  return draft.model_id!==saved.model_id||draft.level!==saved.level||
+    draft.approval!==saved.approval||
+    JSON.stringify(draft.access)!==JSON.stringify([...(saved.access||[])].sort());
+}
+$('#registeredModels').addEventListener('change',event=>{
+  const root=event.target.closest('[data-agent-item]');
+  if(!root)return;
+  const dirty=agentDraftChanged(root);
+  const save=root.querySelector('.save-agent-config');
+  if(save)save.disabled=!dirty;
+  const feedback=root.querySelector('.agent-config-feedback');
+  feedback.textContent=dirty?'Unsaved changes':'';
+  feedback.classList.remove('saved');
+  // Single-choice menus close as soon as the user selects a value.
+  // Keep Access open for multi-select until another button or outside tap.
+  if(event.target.matches('select[data-agent-field]')){
+    setAgentMenu(root,'loadable',null);
+  }
+});
+
+$('#agentGrid').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-builtin-menu]');
+  if(!button)return;
+  const root=button.closest('[data-builtin-agent]');
+  const next=button.getAttribute('aria-expanded')==='true'?null:button.dataset.builtinMenu;
+  closeAgentMenus(root);
+  setAgentMenu(root,'builtin',next);
+});
+document.addEventListener('click',event=>{
+  if(!event.target.closest('.agent-config-card'))closeAgentMenus();
+});
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape')closeAgentMenus();
+});
+
+$('#registeredModels').addEventListener('click',async event=>{
+  const button=event.target.closest('button.save-agent-config');
+  if(!button||button.disabled)return;
+  const root=button.closest('[data-agent-item]');
+  const agent_id=button.dataset.agent;
+  const draft=agentDraft(root);
+  button.disabled=true;
+  const feedback=root.querySelector('.agent-config-feedback');
+  feedback.classList.remove('saved');
+  feedback.textContent='Saving…';
+  let persisted=false;
+  try{
+    await api('/api/agents/configure',{method:'POST',
+      body:JSON.stringify({agent_id,...draft})});
+    persisted=true;
+    if(state.agent==='qwen'&&state.selectedModel===agent_id){
+      // Keep the stable agent identity in chat; backend resolves the saved model.
+      localStorage.setItem('gs_model',agent_id);
+    }
+    await refresh();
+    const row=[...document.querySelectorAll('#registeredModels [data-agent-item]')]
+      .find(node=>node.dataset.agentItem===agent_id);
+    const confirmation=row?.querySelector('.agent-config-feedback');
+    if(confirmation){
+      confirmation.classList.add('saved');
+      confirmation.textContent='Saved';
+      setTimeout(()=>{
+        if(confirmation.isConnected&&confirmation.textContent==='Saved'){
+          confirmation.textContent='';
+          confirmation.classList.remove('saved');
+        }
+      },2500);
+    }
+  }catch(error){
+    feedback.textContent=persisted?'Saved; refresh to verify':error.message;
+    button.disabled=!agentDraftChanged(root);
+  }
+});
+
 $('#registeredModels').addEventListener('click',async event=>{
   const button=event.target.closest('button.remove-model');
   if(!button)return;

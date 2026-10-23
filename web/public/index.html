@@ -113,17 +113,17 @@
       <section class="view" id="view-agents">
         <div class="page-head"><p class="eyebrow">Workforce registry</p><h1>Agents</h1><p>Live availability and enforced authority boundaries.</p></div>
         <section class="model-manager" aria-label="Model management">
-          <h2>Add AI agents</h2>
-          <p>Add installed Ollama models or your signed-in Codex CLI. Codex can create, edit, run and delete files in its selected project when writable mode is explicitly enabled and the task is approved.</p>
+          <h2>Loadable agents</h2>
+          <p>Local Ollama and Codex agents. Adjust each setting with a small button, then Save.</p>
           <div class="model-add">
             <select id="availableModel" aria-label="Installed models available to add"></select>
-            <button type="button" id="addModelButton">Add AI</button>
+            <button type="button" id="addModelButton">+ Add Agent</button>
           </div>
           <p id="modelImportStatus" class="model-import-status" role="status" aria-live="polite">Checking local Ollama models…</p>
           <div id="registeredModels" class="registered-models"></div>
-          <p class="provider-note">Codex uses the signed-in CLI on your ASUS, not Ollama. It may consume your ChatGPT allowance or API credits. Other cloud AI providers are not connected.</p>
+          <p class="provider-note">Claude and Grok are not connected. Server restrictions and group approval policies still apply.</p>
         </section>
-        <div class="agent-grid" id="agentGrid"></div>
+        <section class="builtin-agents" aria-label="Built-in agents"><div class="agent-section-heading"><h2>Built-in agents</h2><p>Ground Space services · managed automatically</p></div><div class="registered-models" id="agentGrid"></div></section>
       <section class="chatgpt-connect-card" aria-label="ChatGPT account connection" id="chatgptConnection">
           <h2>Connect ChatGPT</h2>
           <p>For this private ASUS owner pilot, sign in through Codex using your ChatGPT account. Ground Space never asks for your password or API key. Your phone will show a device code to enter on OpenAI's website.</p>
@@ -141,6 +141,8 @@
           </div>
           <small>This connects only the ASUS owner's Codex CLI session. It is not a shared multi-user account system or an API usage entitlement.</small>
         </section>
+        <details class="agent-advanced" id="codexAdvanced">
+          <summary>Advanced · Codex project approvals &amp; jobs <span aria-hidden="true">⌄</span></summary>
         <section class="codex-integrated" id="codexAgentSettings" aria-label="Codex agent settings and approvals">
         <div class="page-head codex-head">
           <p class="eyebrow">Owner-only integration pilot</p>
@@ -182,6 +184,7 @@
           </section>
         </div>
       </section>
+      </details>
       </section>
 
       <section class="view" id="view-tasks">
