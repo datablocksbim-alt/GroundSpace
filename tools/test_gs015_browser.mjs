@@ -5,7 +5,10 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {chromium} from 'playwright';
+import {pathToFileURL} from 'node:url';
+
+const playwrightModule=process.env.GROUND_SPACE_PLAYWRIGHT_MODULE;
+const {chromium}=await import(playwrightModule?pathToFileURL(playwrightModule).href:'playwright');
 
 const ROOT = resolve(import.meta.dirname, '..');
 const registered = [{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only'}];
@@ -234,7 +237,8 @@ let browser;
 try{
   await new Promise(ok=>server.listen(0,'127.0.0.1',ok));
   const url='http://127.0.0.1:'+server.address().port;
-  browser=await chromium.launch({headless:true});
+  const executablePath=process.env.GROUND_SPACE_CHROMIUM_EXECUTABLE||undefined;
+  browser=await chromium.launch({headless:true,...(executablePath?{executablePath}:{})});
   for(const viewport of [{width:390,height:844,mobile:true},{width:1280,height:800,mobile:false}]){
     const label=viewport.mobile?'mobile':'desktop';
     registered.splice(0,registered.length,{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only',provider:'ollama'});
