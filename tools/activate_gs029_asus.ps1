@@ -1,6 +1,6 @@
 # GS-029 guarded ASUS release; default is non-disruptive preflight.
 [CmdletBinding()]
-param([switch]$Activate)
+param([switch]$Activate, [switch]$RefreshCurrent)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repo=Split-Path -Parent $PSScriptRoot
@@ -13,24 +13,65 @@ $remote=(@(& git -C $repo rev-parse 'refs/remotes/origin/feature/gs-029-project-
 if ($LASTEXITCODE -ne 0 -or $head -ne $remote) { throw 'GS-029 HEAD must equal fetched remote.' }
 $dirty=@(& git -C $repo status --porcelain | Where-Object { $_ })
 if ($LASTEXITCODE -ne 0 -or $dirty.Count) { throw 'GS-029 worktree must be clean.' }
+$candidateCode=Get-Content -LiteralPath (Join-Path $repo 'ground_space\webapp.py') -Raw
+if (-not $candidateCode.Contains('if path == "/api/projects/remove"') -or
+    -not $candidateCode.Contains('"project_remove": True')) {
+  throw 'Selected GS-029 checkout lacks the project-remove backend capability.'
+}
 $initial=Invoke-RestMethod 'http://127.0.0.1:8765/api/bootstrap' -TimeoutSec 10
 $oldRelease=[string]$initial.backend_release
 if ($oldRelease -eq 'GS-029') {
-  Write-Host 'GS-029 already running on port 8765. No restart needed.' -ForegroundColor Green
-  return
-}
-if ($oldRelease -notin @('GS-026','GS-027','GS-028')) { throw "Unexpected live release '$oldRelease'." }
-foreach ($name in @('GroundSpace-GS028-Preview','GroundSpace-GS027-Preview','GroundSpace-GS026-Preview')) {
-  $candidate=Join-Path 'D:\000_AI Project' $name
-  $oldApp=Join-Path $candidate 'ground_space\webapp.py'
-  if ((Test-Path -LiteralPath $oldApp -PathType Leaf) -and
-      ((Get-Content -LiteralPath $oldApp -Raw).Contains('BACKEND_RELEASE = "'+$oldRelease+'"'))) {
-    $oldRepo=$candidate
-    break
+  if ($initial.PSObject.Properties['capabilities'] -and
+      $initial.capabilities.project_remove -eq $true) {
+    Write-Host 'GS-029 project-remove capability is already active on port 8765. No restart.' -ForegroundColor Green
+    return
   }
+  if (-not $RefreshCurrent) {
+    Write-Warning 'GS-029 is running without the new project-remove endpoint.'
+    Write-Host 'Run with -RefreshCurrent for a guarded canary; -RefreshCurrent -Activate for cutover.'
+    return
+  }
+  # Pin a previously validated GS-029 release as an application-only rollback.
+  # Do not pretend a running Python process can be rolled back from updated files.
+  $rollbackSha='112ed622fce83f26e059f297c5cea4e5288ca88e'
+  $rollbackDir='D:\000_AI Project\GroundSpace-GS029-Rollback-112ed62'
+  $validated=(@(& git -C $repo rev-parse $rollbackSha) -join '').Trim()
+  if ($LASTEXITCODE -ne 0 -or $validated -ne $rollbackSha) {
+    throw 'Pinned GS-029 recovery release commit unavailable. No changes made.'
+  }
+  if (-not (Test-Path -LiteralPath $rollbackDir)) {
+    & git -C $repo worktree add --detach $rollbackDir $rollbackSha
+    if ($LASTEXITCODE -ne 0) { throw 'Could not make the pinned GS-029 rollback worktree.' }
+  }
+  if (-not (Test-Path -LiteralPath (Join-Path $rollbackDir '.git') -PathType Leaf)) {
+    throw 'Rollback checkout is not a detached worktree.'
+  }
+  $rollbackHead=(@(& git -C $rollbackDir rev-parse HEAD) -join '').Trim()
+  $rollbackDirty=@(& git -C $rollbackDir status --porcelain | Where-Object { $_ })
+  if ($LASTEXITCODE -ne 0 -or $rollbackHead -ne $rollbackSha -or $rollbackDirty.Count) {
+    throw 'Pinned rollback checkout differs from the validated GS-029 commit.'
+  }
+  $oldApp=Join-Path $rollbackDir 'ground_space\webapp.py'
+  if (-not (Get-Content -LiteralPath $oldApp -Raw).Contains('BACKEND_RELEASE = "GS-029"')) {
+    throw 'Pinned fallback is not a GS-029 release.'
+  }
+  $oldRepo=$rollbackDir
+  Write-Host "Verified GS-029 fallback checkout: $oldRepo" -ForegroundColor Cyan
+} else {
+  if ($oldRelease -notin @('GS-026','GS-027','GS-028')) {
+    throw "Unexpected live release '$oldRelease'."
+  }
+  foreach ($name in @('GroundSpace-GS028-Preview','GroundSpace-GS027-Preview','GroundSpace-GS026-Preview')) {
+    $candidate=Join-Path 'D:\000_AI Project' $name
+    $oldApp=Join-Path $candidate 'ground_space\webapp.py'
+    if ((Test-Path -LiteralPath $oldApp -PathType Leaf) -and
+        ((Get-Content -LiteralPath $oldApp -Raw).Contains('BACKEND_RELEASE = "'+$oldRelease+'"'))) {
+      $oldRepo=$candidate
+      break
+    }
+  }
+  if (-not $oldRepo) { throw "No intact $oldRelease rollback checkout found." }
 }
-if (-not $oldRepo) { throw "No intact $oldRelease rollback checkout found." }
-
 function Bootstrap([int]$port) { Invoke-RestMethod "http://127.0.0.1:$port/api/bootstrap" -TimeoutSec 8 }
 function Verify($item,$baseline,[string]$release) {
   if ([string]$item.backend_release -ne $release) { throw "Expected $release, found $($item.backend_release)" }
@@ -176,7 +217,11 @@ Get-ChildItem -LiteralPath $backup -Force | Where-Object { $_.Name -ne 'BACKUP_M
 $testProcess=$null
 try {
   $testProcess=StartApp $repo $canaryPort $testRoot '' 'gs029-canary'
-  $null=Healthy $testProcess $canaryPort 'GS-029' $live
+  $canary=Healthy $testProcess $canaryPort 'GS-029' $live
+  if (-not $canary.PSObject.Properties['capabilities'] -or
+      $canary.capabilities.project_remove -ne $true) {
+    throw 'GS-029 canary does not support project removal. No production restart.'
+  }
 } finally {
   if($testProcess -and -not $testProcess.HasExited) {
     Stop-Process -Id $testProcess.Id -ErrorAction SilentlyContinue
@@ -187,7 +232,7 @@ try {
 Write-Host "Verified backup: $backup"
 Write-Host 'GS-029 restored-state canary PASS' -ForegroundColor Green
 if(-not $Activate) {
-  Write-Host "PREFLIGHT PASS: $oldRelease still running. Rerun with -Activate." -ForegroundColor Green
+  Write-Host "PREFLIGHT PASS: $oldRelease still running. Rerun with the same switches plus -Activate." -ForegroundColor Green
   return
 }
 $before=Bootstrap 8765
@@ -207,8 +252,17 @@ try {
   }
   if(Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 8765 occupied after stop' }
   $newProcess=StartApp $repo 8765 $state $origin 'gs029-production'
-  $null=Healthy $newProcess 8765 'GS-029' $live
-  Verify (Invoke-RestMethod ($origin+'/api/bootstrap') -TimeoutSec 8) $live 'GS-029'
+  $active=Healthy $newProcess 8765 'GS-029' $live
+  if (-not $active.PSObject.Properties['capabilities'] -or
+      $active.capabilities.project_remove -ne $true) {
+    throw 'GS-029 backend capability missing after cutover.'
+  }
+  $remoteCheck=Invoke-RestMethod ($origin+'/api/bootstrap') -TimeoutSec 8
+  Verify $remoteCheck $live 'GS-029'
+  if (-not $remoteCheck.PSObject.Properties['capabilities'] -or
+      $remoteCheck.capabilities.project_remove -ne $true) {
+    throw 'Private Tailscale endpoint did not expose the updated GS-029 backend.'
+  }
   Write-Host "GS-029 ACTIVATED AND VERIFIED: PID $($newProcess.Id)" -ForegroundColor Green
   Write-Host 'Private Tailscale route unchanged; Codex workspace-write disabled.'
   Write-Host "Retained $oldRelease backup: $backup"
