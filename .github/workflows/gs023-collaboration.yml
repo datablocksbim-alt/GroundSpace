@@ -1,0 +1,41 @@
+name: GS-023 supervised multi-agent collaboration
+on:
+  push:
+    branches: [feature/gs-023-multi-agent-handoffs]
+  pull_request:
+    branches: [feature/gs-022-release-stability]
+permissions:
+  contents: read
+jobs:
+  collaboration:
+    name: Workflow and portable regressions (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Workflow phases, approval limits and regression
+        run: python -m unittest tests.test_gs023_collaboration tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Python compile
+        run: python -m compileall -q ground_space
+      - name: Browser scripts syntax
+        run: node --check web/public/app.js
+  browser:
+    name: Browser core regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test-only Playwright
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Browser click-through
+        run: node tools/test_gs015_browser.mjs

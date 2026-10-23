@@ -458,3 +458,21 @@
  .codex-integrated .page-head{padding:16px 14px 10px}
  .codex-integrated .page-head h2{font-size:21px}
 }
+
+/* GS-023 — compact supervised co-work cards, inside normal group chat. */
+#startCollaborationButton[hidden]{display:none!important}
+#startCollaborationButton{border:1px solid #c7bbec;background:#f0ebfc;color:#5b4796;
+ padding:7px 11px;border-radius:9px;font-size:12px;font-weight:650;min-height:36px;cursor:pointer}
+#startCollaborationButton:disabled{opacity:.5}
+.collaboration-card{border:1px solid #dcd5f2;background:#f9f6ff;border-radius:14px;padding:14px 16px;
+ max-width:760px;margin:3px 0;color:#493977}
+.collaboration-card strong{font-size:14px}
+.collaboration-card p{margin:9px 0;color:#493977;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.collaboration-card small{display:block;margin:5px 0;color:#786c97;font:11px/1.4 Consolas,monospace}
+.collaboration-card .flow-state{float:right;text-transform:uppercase;font:700 10px Consolas,monospace}
+.collaboration-card button{border:0;background:#7053c4;color:#fff;border-radius:8px;
+ font:650 12px Inter,"Segoe UI",sans-serif;padding:10px 13px;cursor:pointer;margin-top:9px}
+@media(max-width:760px){#startCollaborationButton{min-height:42px}
+ .collaboration-card{padding:13px;max-width:100%}
+ .collaboration-card button{min-height:43px}
+}
