@@ -51,6 +51,7 @@ function setAgent(agent){
   $$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));
   $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':agent==='codex'?'Codex workspace agent':'Administrator channel';
   $('#editGroupButton').hidden=true;
+  $('#startCollaborationButton').hidden=true;
   $('#projectSelect').disabled=false;
   $('#modelControls').hidden=agent!=='qwen';
   $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
@@ -67,6 +68,7 @@ function selectGroup(groupId){
   $$('.agent-choice').forEach(x=>x.classList.remove('active'));
   $('#conversationTitle').textContent=group.name;
   $('#editGroupButton').hidden=false;
+  $('#startCollaborationButton').hidden=false;
   $('#projectSelect').disabled=true;
   $('#modelControls').hidden=true;
   $('#requestType').hidden=false;
@@ -174,6 +176,16 @@ function renderMessages(){
     // Show the authoritative result in that case instead of losing the reply.
     if(['user','note'].includes(entry.role)&&task?.status==='completed'&&!replies.has(entry.task_id)&&typeof task.result?.answer==='string'&&task.result.answer){
       html.push(`<div class="message assistant">${esc(task.result.answer)}<small>${esc(entry.task_id)} · recovered from task result</small>${responseMeta({},task)}${copyButton(entry.task_id)}</div>`);
+    }
+  }
+  if(state.agent==='group'&&state.groupId){
+    const flows=(state.data?.collaborations||[]).filter(f=>f.group_id===state.groupId).slice(0,4);
+    for(const flow of flows.reverse()){
+      const status=esc(flow.state);
+      const action=flow.state==='completed'||flow.state==='failed'?'': '<button type="button" data-flow-advance="'+esc(flow.id)+'">Check &amp; advance</button>';
+      html.unshift('<div class="collaboration-card"><strong>Multi-agent workflow</strong> <span class="flow-state">'+status+'</span>'+
+        '<p>'+esc(flow.goal)+'</p><small>Qwen proposal → Codex implementation → Granite report review</small>'+
+        '<small>'+esc(flow.id)+'</small>'+action+'</div>');
     }
   }
   root.innerHTML=html.join('');
@@ -585,6 +597,14 @@ $('#registeredModels').addEventListener('click',async event=>{
   catch(error){toast(error.message);}
 });
 $('#messages').addEventListener('click',event=>{
+  const step=event.target.closest('button[data-flow-advance]');
+  if(step){
+    step.disabled=true;
+    api('/api/collaboration/advance',{method:'POST',body:JSON.stringify({flow_id:step.dataset.flowAdvance})})
+      .then(async result=>{await refresh();toast(result.waiting_for||'Workflow advanced to '+result.state);})
+      .catch(error=>{toast(error.message);step.disabled=false;});
+    return;
+  }
   const decision=event.target.closest('button[data-group-decision]');
   if(decision){
     decision.disabled=true;
@@ -611,6 +631,19 @@ $('#messages').addEventListener('click',event=>{
 
 $('#newGroupButton').addEventListener('click',()=>openGroupEditor());
 $('#editGroupButton').addEventListener('click',()=>openGroupEditor(state.groupId));
+$('#startCollaborationButton').addEventListener('click',async()=>{
+  if(state.agent!=='group'||!state.groupId){toast('Select a group');return;}
+  const goal=$('#prompt').value.trim();
+  if(!goal){toast('Describe the coding goal in the message box first');$('#prompt').focus();return;}
+  const button=$('#startCollaborationButton');button.disabled=true;
+  try{
+    await api('/api/collaboration/start',{method:'POST',body:JSON.stringify({group_id:state.groupId,goal})});
+    $('#prompt').value='';
+    await refresh();
+    toast('Qwen proposal requested; advance after review and approval');
+  }catch(error){toast(error.message);}
+  finally{button.disabled=false;}
+});
 $('#groupForm').addEventListener('submit',saveGroup);
 $('#cancelGroup').addEventListener('click',()=>$('#groupDialog').close());
 $('#groupList').addEventListener('click',event=>{
