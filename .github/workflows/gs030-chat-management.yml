@@ -33,14 +33,15 @@ jobs:
         run: |
           $tokens = $null
           $errors = $null
-          $script = 'tools/activate_gs029_asus.ps1'
+          $script = 'tools/activate_gs030_asus.ps1'
           [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
           $source = Get-Content $script -Raw
           foreach ($check in @('Assert-LiveUnchanged', 'backup_ground_space_state.ps1',
-              'GS-029', 'GS-028', 'GS-027', 'GS-026', 'SafeJobs',
-              'StartApp $repo $canaryPort', 'Stop-Process -Id $oldPid',
-              'RefreshCurrent', 'project_remove', 'GroundSpace-GS029-Rollback-112ed62')) {
+              'GS-030', 'GS-029', 'GS-028', 'GS-027', 'SafeJobs',
+              'SafeAllQueueFiles', 'StartApp $repo $canaryPort', 'Stop-Process -Id $oldPid',
+              'project_rename', 'group_rename', 'group_remove',
+              'GroundSpace-GS029-Rollback-GS030')) {
             if (-not $source.Contains($check)) { throw "Missing GS-030 release safeguard: $check" }
           }
           if ($source -match '(?m)^[^#]*tailscale serve (?:--bg|--https|--tcp|--set-path|--service|reset)') {
@@ -49,6 +50,9 @@ jobs:
       - name: GS-030 safe queue release gate unit tests
         shell: pwsh
         run: ./tools/test_gs029_cutover_gate.ps1
+      - name: Full queue release gate regression
+        shell: pwsh
+        run: ./tools/test_gs030_cutover_gate.ps1
       - name: JS syntax
         run: node --check web/public/app.js
       - name: Browser smoke syntax
