@@ -1,0 +1,52 @@
+name: GS-026 mobile focus and Codex model controls
+on:
+  push:
+    branches: [feature/gs-026-mobile-agent-model-controls]
+  pull_request:
+    branches: [feature/gs-025-security-boundaries]
+permissions:
+  contents: read
+jobs:
+  regression:
+    name: GS-026 models, approvals and mobile tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Model profiles, Codex CLI, workflows and portable regressions
+        run: python -m unittest tests.test_gs026_model_controls tests.test_gs025_public_security tests.test_gs024_device_login tests.test_gs023_collaboration tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Python syntax
+        run: python -m compileall -q ground_space
+      - name: JavaScript syntax
+        run: node --check web/public/app.js
+      - name: Chromium test JS syntax
+        run: node --check tools/test_gs015_browser.mjs
+      - name: Guarded restart PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('tools/restart_gs016_codex.ps1', [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+  browser:
+    name: iPhone + desktop Chromium click-through
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test-only Playwright install
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test layouts, model changes, Co-work and task overflow
+        run: node tools/test_gs015_browser.mjs
+
+# CLI model access and actual iPhone Safari require ASUS owner verification.
