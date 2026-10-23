@@ -22,6 +22,7 @@ from .bridge import AdministratorAdapter, OrchestratorAdapter
 from .coordinator import coordinator_instructions, route_group_message, specialist_instructions
 from .codex_pilot import CodexPilot
 from .collaboration import CollaborationLedger
+from .chatgpt_connection import CodexAppServerClient
 from .messages import utc_timestamp
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
@@ -124,6 +125,7 @@ class GroundSpaceApp:
         self.conversations = self._load_history()
         self.codex = CodexPilot(self.state_dir / "private", self.workspaces)
         self.collaborations = CollaborationLedger(self.state_dir / "private" / "collaborations.json")
+        self.chatgpt_connection = CodexAppServerClient()
         self.collaboration_lock = threading.RLock()
 
 
@@ -736,6 +738,9 @@ class GroundSpaceApp:
                 "models": self.catalog(availability=availability),
                 "workspaces": self.workspaces.snapshot(), "codex": self.codex.snapshot(),
                 "collaborations": self.collaborations.snapshot(),
+                "chatgpt_connection": {"scope":"single_owner_codex_cli",
+                    "enabled":self.chatgpt_connection.enabled(),
+                    "login_state":self.chatgpt_connection.login_state},
                 "backend_release": BACKEND_RELEASE,
                 "paid_api_usage_aud": 0}
 
@@ -804,6 +809,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
             except (ValueError, OSError) as error:
                 self._error(HTTPStatus.BAD_REQUEST, str(error))
             return
+        if path == "/api/auth/chatgpt/status":
+            self._json(HTTPStatus.OK, self.app.chatgpt_connection.status())
+            return
         if path == "/api/bootstrap":
             token = secrets.token_urlsafe(24)
             self._json(200, {**self.app.bootstrap(), "csrf_token": token},
@@ -858,6 +866,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/groups/send":
                 self._json(HTTPStatus.CREATED, self.app.submit_group(body))
+                return
+            if path == "/api/auth/chatgpt/device/start":
+                self._json(HTTPStatus.OK, self.app.chatgpt_connection.start_device_login())
                 return
             if path == "/api/collaboration/start":
                 self._json(HTTPStatus.CREATED, self.app.start_collaboration(body))
