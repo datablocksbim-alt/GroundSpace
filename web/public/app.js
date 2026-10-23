@@ -56,7 +56,7 @@ function setAgent(agent){
   $('#startCollaborationButton').hidden=true;
   $('#openModelSettings').hidden=agent!=='codex';
   $('#projectSelect').disabled=false;
-  $('#modelControls').hidden=agent!=='qwen';
+  $('#modelControls').hidden=true;
   $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
   $('#requestType').hidden=agent!=='qwen';
   $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':agent==='codex'?'Ask Codex to create, edit, test or delete project files…':'Try “list tasks” or “status GS-…”';
@@ -324,6 +324,49 @@ async function browseFolders(path=null){
   }catch(error){showDialogError('#projectDialogError',error);}
 }
 
+
+function renderAgentCard(item, all){
+  const profiles=state.data?.agent_configs?.profiles||{};
+  const codex=item.model==='codex';
+  const profile=profiles[item.model]||{model_id:codex?'':item.model,
+    level:codex?'':'balanced',
+    access:codex?['read','review','workspace_write']:['chat','read','propose','review'],
+    approval:codex?'manual':'auto_read_only'};
+  const available=all.filter(x=>x.provider==='ollama');
+  const models=codex
+    ?[['','CLI default'],['gpt-6.1-sol','GPT-6.1 Sol (verified on ASUS)'],['gpt-5.6-sol','GPT-5.6 Sol (requires CLI support)']]
+    :available.map(x=>[x.model,x.model+(x.available?'':' (offline)')]);
+  if(!models.some(x=>x[0]===profile.model_id))models.push([profile.model_id,profile.model_id+' (saved custom)']);
+  const opts=(entries,value)=>entries.map(([id,label])=>'<option value="'+esc(id)+'"'+(id===value?' selected':'')+'>'+esc(label)+'</option>').join('');
+  const access=codex
+    ?[['read','Read'],['review','Review'],['workspace_write','Workspace coding · write/run/delete']]
+    :[['chat','Chat'],['read','Read'],['propose','Propose'],['review','Review']];
+  const checks=access.map(([id,label])=>'<label class="agent-access-option"><input type="checkbox" data-agent-access value="'+esc(id)+'"'+
+    ((profile.access||[]).includes(id)?' checked':'')+'><span>'+esc(label)+'</span></label>').join('');
+  const level=codex?[['','CLI default'],['low','Low'],['medium','Medium'],['high','High']]
+    :[['fast','Low · fast'],['balanced','Medium · balanced'],['detailed','High · detailed']];
+  const approvals=codex
+    ?[['manual','Ask me'],['auto_read_only','Auto · read-only'],['disabled','Off']]
+    :[['auto_read_only','Auto · read-only'],['disabled','Off']];
+  const selectedApproval=approvals.some(x=>x[0]===profile.approval)?profile.approval:approvals[0][0];
+  return '<details class="registered-model agent-config-card" data-agent-item="'+esc(item.model)+'">'+
+    '<summary><span class="agent-config-heading"><b>'+esc(item.model)+'</b>'+
+    '<small>'+esc(item.available?'Ready · '+(codex?'Connected CLI':'Local Ollama'):'Unavailable')+'</small>'+
+    '<span class="agent-summary-value">'+esc((codex?(profile.model_id||'CLI default'):profile.model_id))+
+    ' · '+esc(profile.level||'Default')+' · '+esc(profile.approval)+'</span></span>'+
+    '<span class="agent-settings-chevron" aria-hidden="true">⌄</span></summary>'+
+    '<div class="agent-config-fields">'+
+    '<label class="agent-config-field"><span>Model</span><select data-agent-field="model_id" aria-label="'+esc(item.model)+' model">'+opts(models,profile.model_id)+'</select></label>'+
+    '<fieldset class="agent-config-field agent-config-access"><legend>Access · multi-select</legend><div class="agent-access-grid">'+checks+'</div></fieldset>'+
+    '<label class="agent-config-field"><span>Level</span><select data-agent-field="level" aria-label="'+esc(item.model)+' level">'+opts(level,profile.level)+'</select></label>'+
+    '<label class="agent-config-field"><span>Approval</span><select data-agent-field="approval" aria-label="'+esc(item.model)+' approval">'+opts(approvals,selectedApproval)+'</select></label>'+
+    '<p class="agent-config-note">'+(codex?'Workspace coding bundles write, run and delete; it still requires ASUS server opt-in and task approval.':'Local models never receive filesystem write access.')+
+    ' Existing group overrides stay in place; saved defaults apply to new tasks.</p>'+
+    '<div class="agent-config-actions"><button type="button" class="remove-model" data-model="'+esc(item.model)+'">Remove</button>'+
+    '<button type="button" class="save-agent-config" data-agent="'+esc(item.model)+'">Save configuration</button></div>'+
+    '<p class="agent-config-feedback" role="status" aria-live="polite"></p></div></details>';
+}
+
 function renderModels(){
   const data=state.data?.models||{};
   const registered=data.registered||[];
@@ -355,7 +398,8 @@ function renderModels(){
   const keep=available.value;
   const availableKey=JSON.stringify(discovered);
   if(available.dataset.optionsKey!==availableKey){
-    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex — OpenAI coding agent (CLI)':name)+'</option>').join('');
+    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Connected · Codex CLI':'Local · '+name)+'</option>').join('')+
+      '<option value="" disabled>Claude · Not connected</option><option value="" disabled>Grok · Not connected</option>';
     available.dataset.optionsKey=availableKey;
   }
   if(discovered.includes(keep))available.value=keep;
@@ -366,12 +410,14 @@ function renderModels(){
     : data.registered?.some(item=>item.available)
       ? 'All detected Ollama models are already registered, or no additional model is installed. To add more, install them in Ollama on the ASUS first.'
       : 'No additional installed Ollama models detected. Check that Ollama is running on the ASUS. Online AI accounts require a separate integration.';
-  $('#registeredModels').innerHTML=registered.map(item=>
-    '<div class="registered-model"><span><b>'+esc(item.model)+'</b><small>'+
-    esc(item.available?'Ready · '+item.role:'Offline · '+item.role)+
-    '</small></span><button type="button" class="remove-model" data-model="'+esc(item.model)+
-    '" aria-label="Remove '+esc(item.model)+'">Remove</button></div>'
-  ).join('')||'<p>No models registered. Add an installed model above.</p>';
+  const cards=$('#registeredModels');
+  const signature=JSON.stringify(registered.map(item=>[item.model,item.available,
+    state.data?.agent_configs?.profiles?.[item.model]]));
+  if(cards.dataset.signature!==signature){
+    cards.innerHTML=registered.map(item=>renderAgentCard(item,registered)).join('')||
+      '<p>No agents registered yet. Add a local model or a connected provider.</p>';
+    cards.dataset.signature=signature;
+  }
   updateComposerAvailability();
 }
 async function copyText(value){
@@ -705,6 +751,31 @@ $('#addModelButton').addEventListener('click',async()=>{
   try{await api('/api/models/add',{method:'POST',body:JSON.stringify({model})});await refresh();toast('Model added');}
   catch(error){toast(error.message);}
 });
+
+$('#registeredModels').addEventListener('click',async event=>{
+  const button=event.target.closest('button.save-agent-config');
+  if(!button)return;
+  const root=button.closest('[data-agent-item]');
+  const agent_id=button.dataset.agent;
+  const select=key=>root.querySelector('[data-agent-field="'+key+'"]').value;
+  const access=[...root.querySelectorAll('input[data-agent-access]:checked')].map(x=>x.value);
+  button.disabled=true;
+  const feedback=root.querySelector('.agent-config-feedback');
+  feedback.textContent='Saving…';
+  try{
+    await api('/api/agents/configure',{method:'POST',
+      body:JSON.stringify({agent_id,model_id:select('model_id'),level:select('level'),
+        approval:select('approval'),access})});
+    if(state.agent==='qwen'&&state.selectedModel===agent_id){
+      // Keep stable agent identity in chat; the backend resolves its saved model.
+      localStorage.setItem('gs_model',agent_id);
+    }
+    feedback.textContent='Saved for future direct, group and Co-work tasks';
+    await refresh();
+    toast('Agent configuration saved');
+  }catch(error){feedback.textContent=error.message;button.disabled=false;}
+});
+
 $('#registeredModels').addEventListener('click',async event=>{
   const button=event.target.closest('button.remove-model');
   if(!button)return;
