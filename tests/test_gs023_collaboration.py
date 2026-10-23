@@ -92,6 +92,16 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual("completed",CollaborationLedger(self.path/"flows.json").read(flow["id"])["state"])
         self.assertEqual("completed",self.app.advance_collaboration({"flow_id":flow["id"]})["state"])
 
+    def test_rejected_codex_marks_workflow_failed_and_allows_retry(self):
+        flow=self.begin()
+        self.tasks["GS-1"]["status"]="completed"
+        self.app.advance_collaboration({"flow_id":flow["id"]})
+        self.jobs["CODEX-1"]["status"]="rejected"
+        result=self.app.advance_collaboration({"flow_id":flow["id"]})
+        self.assertEqual("failed",result["state"])
+        retry=self.begin()
+        self.assertEqual("proposal_pending",retry["state"])
+
     def test_auto_code_requires_stored_codex_group_policy(self):
         self.group["approval_modes"]["codex"]="approve_for_me"
         flow=self.begin()
