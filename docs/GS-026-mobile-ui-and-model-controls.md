@@ -63,6 +63,18 @@ shutdown.exe /r /t 60 /c "Ground Space maintenance reboot"
 
 Cancel the pending reboot within 60 seconds with `shutdown.exe /a`. A reboot stops the running Ground Space server; do not assume it will automatically start again unless a verified Windows startup task/service exists. Recheck the app and private Tailscale access after sign-in. These commands are instructions only; nothing in GS-026 runs them automatically.
 
+### Full ASUS automated gate (no restart)
+
+After the isolated preview check, run this **from the GS-026 preview worktree** to validate the existing GS-025 server and the external ASUS-only Administrator integration before discussing a live cutover:
+
+```powershell
+.\tools\check_gs026_asus.ps1
+```
+
+It verifies the existing port-8765 server reports `GS-025`, refuses if Codex jobs are running, checks private Tailscale Serve status **without modifying it**, replays the focused GS-026 checks, and runs the entire local Ground Space/Administrator suite. Add `-Browser` only when Playwright and its Chromium browser are already installed on that machine. The script **does not** invoke Codex with live model credentials and **does not** start or stop any production process. A clean result is an automated **preflight**, not completion of owner-only Codex entitlement, physical Safari or rollback checks.
+
+A Windows reboot is **not required** for GS-026. Keep it deferred unless the owner separately wants a maintenance reboot; a reboot may stop Ground Space until its startup behavior is verified.
+
 ### Owner-gated cutover, not yet authorised
 
 A final release decision still requires the owner to run the full ASUS-local integration suite and live Codex model/effort tests against a disposable project, then physically check iPhone Safari. In particular, mocked subprocess tests prove the `--model` and reasoning `-c` flags are constructed, **not** that the signed-in account accepts a named model ID. Before any live rollout, back up owner-local GS-025 state, confirm no running Codex jobs, agree a rollback method and approve the guarded restart explicitly. A separate worktree alone does not keep two servers' shared state safe unless `--state-dir` is isolated as above.
