@@ -1,0 +1,71 @@
+name: GS-030 compact project and chat controls
+on:
+  push:
+    branches: [feature/gs-030-chat-project-management]
+  pull_request:
+    branches: [feature/gs-029-project-folder-picker]
+permissions:
+  contents: read
+jobs:
+  regression:
+    name: Chat and project management and prior protections (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Regressions including GS-027 persistence/security
+        run: python -m unittest tests.test_gs030_chat_management tests.test_gs029_project_removal tests.test_gs029_qwen_greeting_approval tests.test_gs029_folder_picker tests.test_gs027_agent_configs tests.test_gs026_model_controls tests.test_gs025_public_security tests.test_gs024_device_login tests.test_gs023_collaboration tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+      - name: Isolated preview PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('tools/prepare_gs029_preview.ps1', [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+      - name: GS-030 production cutover PowerShell syntax and safety guards
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $script = 'tools/activate_gs029_asus.ps1'
+          [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+          $source = Get-Content $script -Raw
+          foreach ($check in @('Assert-LiveUnchanged', 'backup_ground_space_state.ps1',
+              'GS-029', 'GS-028', 'GS-027', 'GS-026', 'SafeJobs',
+              'StartApp $repo $canaryPort', 'Stop-Process -Id $oldPid',
+              'RefreshCurrent', 'project_remove', 'GroundSpace-GS029-Rollback-112ed62')) {
+            if (-not $source.Contains($check)) { throw "Missing GS-030 release safeguard: $check" }
+          }
+          if ($source -match '(?m)^[^#]*tailscale serve (?:--bg|--https|--tcp|--set-path|--service|reset)') {
+            throw 'Cutover helper must never alter Tailscale Serve settings.'
+          }
+      - name: GS-030 safe queue release gate unit tests
+        shell: pwsh
+        run: ./tools/test_gs029_cutover_gate.ps1
+      - name: JS syntax
+        run: node --check web/public/app.js
+      - name: Browser smoke syntax
+        run: node --check tools/test_gs015_browser.mjs
+  browser:
+    name: iPhone-size and desktop chat/project management
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test-only Playwright
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Project-first navigation and previous workflow regression
+        run: node tools/test_gs015_browser.mjs
+
+# GS-030 is a feature preview only, not a production deployment or a main merge.
