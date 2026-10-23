@@ -17,6 +17,8 @@ import threading
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from .security import assert_private_owner_mode
+
 USER_CODE = re.compile(r"^[A-Za-z0-9-]{4,64}$")
 TRUSTED_DEVICE_HOSTS = frozenset(("auth.openai.com", "chatgpt.com"))
 MAX_RPC_WAIT = 20
@@ -133,6 +135,7 @@ class CodexAppServerClient:
         return {"verification_url":url,"user_code":code,"login_id":login_id}
 
     def start_device_login(self) -> dict[str,str]:
+        assert_private_owner_mode()
         if not self.enabled():
             raise ValueError("Owner ChatGPT connection is disabled on the ASUS")
         self._ensure()
