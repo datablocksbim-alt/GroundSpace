@@ -357,19 +357,34 @@ async function saveGroup(event){
     toast(groupId?'Group updated':'Group created');
   }catch(error){showDialogError('#groupDialogError',error);}
 }
+let projectBrowseRequest=0;
 async function browseFolders(path=null){
+  const request=++projectBrowseRequest;
+  $('#folderEntries').textContent='Loading ASUS folders…';
+  $('#folderUp').disabled=true;
   try{
     const data=await api('/api/projects/browse'+(path?'?path='+encodeURIComponent(path):''));
+    if(request!==projectBrowseRequest||!$('#projectDialog').open)return;
     clearDialogError('#projectDialogError');
     $('#folderPicker').hidden=false;
-    $('#folderCurrent').textContent=data.current||'Allowed project roots';
-    $('#folderUp').disabled=data.is_root_list;
+    $('#folderCurrent').textContent=data.current||'Allowed ASUS folders';
+    $('#folderUp').disabled=Boolean(data.is_root_list);
     $('#folderUp').dataset.parent=data.parent||'';
-    const choose=data.current?'<button type="button" class="folder-use" data-folder="'+esc(data.current)+'">✓ Use this folder</button>':'';
-    $('#folderEntries').innerHTML=choose+(data.folders||[]).map(item=>
-      '<button type="button" class="folder-entry" data-folder="'+esc(item.path)+'">📁 '+esc(item.name)+'</button>'
-    ).join('')||'<p>No subfolders</p>';
-  }catch(error){showDialogError('#projectDialogError',error);}
+    const roots=state.data?.workspaces?.allowed_project_roots||[];
+    const selectable=Boolean(data.current&&!roots.includes(data.current));
+    const choose=selectable?
+      '<button type="button" class="folder-use" data-folder="'+esc(data.current)+'">✓ Select this folder</button>':'';
+    const folders=(data.folders||[]).map(item=>
+      '<button type="button" class="folder-entry" data-folder="'+esc(item.path)+'">'+
+      '<span aria-hidden="true">📁</span> '+esc(item.name)+'</button>'
+    ).join('');
+    $('#folderEntries').innerHTML=choose+folders||
+      '<p class="project-picker-empty">No subfolders. Go back to choose another folder.</p>';
+  }catch(error){
+    if(request!==projectBrowseRequest||!$('#projectDialog').open)return;
+    $('#folderEntries').textContent='Folder list unavailable.';
+    showDialogError('#projectDialogError',error);
+  }
 }
 
 
@@ -1033,34 +1048,59 @@ $('#projectList').addEventListener('click',event=>{
   localStorage.setItem('gs_expanded_project',state.expandedProjectId);
   renderWorkspaces();
 });
+function resetProjectFolderSelection(){
+  $('#projectPath').value='';
+  $('#selectedFolderPath').textContent='';
+  $('#selectedProjectFolder').hidden=true;
+  $('#folderPicker').hidden=false;
+  $('#saveProject').disabled=true;
+}
 $('#addProjectButton').addEventListener('click',()=>{
   setMobileRail(false);
   clearDialogError('#projectDialogError');
-  $('#projectName').value='';$('#projectPath').value='';$('#folderPicker').hidden=true;$('#projectDialog').showModal();
+  $('#projectName').value='';
+  resetProjectFolderSelection();
+  $('#projectDialog').showModal();
+  browseFolders(); // Open the ASUS folder browser immediately; no address entry.
 });
 $('#cancelProject').addEventListener('click',()=>$('#projectDialog').close());
+$('#projectDialog').addEventListener('close',()=>{projectBrowseRequest++});
 $('#projectForm').addEventListener('submit',async event=>{
   event.preventDefault();
+  const path=$('#projectPath').value;
+  if(!path){showDialogError('#projectDialogError','Select an ASUS folder first.');return;}
+  const button=$('#saveProject');
+  button.disabled=true;
   try{
     clearDialogError('#projectDialogError');
     const project=await api('/api/projects/add',{method:'POST',body:JSON.stringify({
-      path:$('#projectPath').value,name:$('#projectName').value
+      path,name:$('#projectName').value
     })});
     $('#projectDialog').close();
     await refresh();
     if(state.agent==='group')setAgent('qwen');
     chooseProject(project.id);
-    toast('Project folder registered — file access remains disabled');
+    toast('Project added · AI file access remains restricted');
   }catch(error){showDialogError('#projectDialogError',error);}
+  finally{if($('#projectDialog').open)button.disabled=!$('#projectPath').value;}
 });
 $('#browseRoots').addEventListener('click',()=>browseFolders());
+$('#changeProjectFolder').addEventListener('click',()=>{
+  resetProjectFolderSelection();
+  browseFolders();
+});
 $('#folderUp').addEventListener('click',()=>browseFolders($('#folderUp').dataset.parent||null));
 $('#folderEntries').addEventListener('click',event=>{
   const button=event.target.closest('button[data-folder]');
   if(!button)return;
   if(button.classList.contains('folder-use')){
-    $('#projectPath').value=button.dataset.folder;
+    const path=button.dataset.folder;
+    $('#projectPath').value=path;
+    $('#selectedFolderPath').textContent=path;
+    $('#selectedProjectFolder').hidden=false;
     $('#folderPicker').hidden=true;
+    $('#saveProject').disabled=false;
+    clearDialogError('#projectDialogError');
   }else browseFolders(button.dataset.folder);
 });
 
