@@ -893,3 +893,28 @@
   .remove-project-content{padding:17px}
   .remove-project-dialog .dialog-actions button{min-height:40px}
 }
+
+
+/* GS-030: small option control on both project folders and nested project chats. */
+.agent-rail .project-chat-row{display:flex;align-items:center;gap:3px;min-width:0}
+.agent-rail .project-chat-row .project-chat-room{flex:1 1 auto;min-width:0;width:auto}
+.agent-rail .project-chat-row .project-more{flex:0 0 28px;min-width:28px;height:31px;font-size:16px}
+.compact-manage-dialog{width:min(380px,calc(100vw - 24px));border-radius:15px}
+.compact-manage-dialog form{padding:18px;display:grid;gap:10px}
+.compact-manage-dialog h2{font-size:19px;letter-spacing:-.025em;margin:0}
+.compact-manage-dialog #manageItemName{font-size:15px;margin:0}
+.compact-manage-hint{margin:0;color:#777085;font-size:11px;line-height:1.4}
+.compact-manage-actions{display:flex;gap:7px;align-items:center;justify-content:flex-end}
+.compact-manage-actions button{min-height:34px;padding:7px 10px;border-radius:8px;
+  border:1px solid #ddd7e9;background:#fff;color:#423b53;
+  font:600 12px Inter,"Segoe UI",sans-serif;cursor:pointer}
+.compact-manage-actions #manageItemRemove{margin-right:auto;color:#a13b4b;
+  border-color:transparent;background:transparent}
+.compact-manage-actions #manageItemSave{background:#765ed5;border-color:#765ed5;color:white}
+.compact-manage-actions #manageItemSave:disabled{opacity:.4;cursor:default}
+@media(max-width:760px){
+  .agent-rail .project-chat-row .project-more{min-width:35px;flex-basis:35px;height:40px;font-size:18px}
+  .compact-manage-dialog form{padding:17px}
+  .compact-manage-actions button{min-height:40px;font-size:12px}
+  .compact-manage-dialog #manageItemName{font-size:16px}
+}
