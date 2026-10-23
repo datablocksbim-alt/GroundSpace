@@ -30,24 +30,8 @@
 
 ## ASUS private-owner acceptance still required
 
-Before switching branches: protect any uncommitted work and verify no running Codex job. On the actual ASUS:
+Use the **non-destructive, isolated preview** in [GS-026 iPhone-first validation](GS-026-mobile-ui-and-model-controls.md#non-destructive-asus-preview-gs-025-stays-running). It creates a separate Git worktree, private state directory, and loopback-only port 8766. Do **not** switch or restart the approved GS-025 installation before explicit owner approval.
 
-```powershell
-cd "D:\000_AI Project\002 Datablocks Ground Space"
-git status --short
-git fetch origin
-git switch feature/gs-026-mobile-agent-model-controls
-git pull --ff-only
-.\tools\restart_gs016_codex.ps1
-```
-
-If preflight passes, use the existing guarded restart with Codex writable jobs and optional owner-only ChatGPT device connection:
-
-```powershell
-.\tools\restart_gs016_codex.ps1 -Restart -EnableCodexWrite -EnableChatGPTConnect
-.\tools\verify_gs022_local.ps1
-```
-
-Verify `/api/bootstrap` reports `backend_release: GS-026`. On the iPhone private Tailscale URL, test group/project drawer, private AI chats icon, Tasks tap-to-expand, model settings and Co-work with an **actually supported CLI model** in the disposable `Codex Test` project. Do not start with Pyrene Mini.
+The final release gate still requires the full ASUS integration suite, signed-in Codex CLI model/effort checks in a disposable project, and physical iPhone Safari verification. CI can validate argument construction and a Chromium mobile-sized viewport, but cannot certify Codex account entitlements, real workspace safety or Safari behavior.
 
 **Release limits:** This remains a **single-owner, Tailscale-private** app. Independent ChatGPT/Claude users, public multi-tenant sessions and OS-isolated execution are not built. Do not publicly host, or merge stacked draft PRs without full ASUS-local tests.
