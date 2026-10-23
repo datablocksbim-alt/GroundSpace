@@ -38,6 +38,8 @@ def validate_config(agent_id: str, value: Any, registered: list[str]) -> dict[st
     model, level, access, approval = (value[k] for k in ("model_id", "level", "access", "approval"))
     if not isinstance(approval, str) or approval not in APPROVALS:
         raise ValueError("Invalid approval setting")
+    if agent_id != "codex" and approval == "manual":
+        raise ValueError("Direct local agents only support automatic read-only or Off; use group Ask me for manual review")
     if not isinstance(access, list) or not access or len(access) != len(set(map(str, access))):
         raise ValueError("Choose unique supported access capabilities")
     if agent_id == "codex":
