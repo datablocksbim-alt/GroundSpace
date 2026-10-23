@@ -39,7 +39,8 @@ jobs:
           $source = Get-Content $script -Raw
           foreach ($check in @('Assert-LiveUnchanged', 'backup_ground_space_state.ps1',
               'GS-029', 'GS-028', 'GS-027', 'GS-026', 'SafeJobs',
-              'StartApp $repo $canaryPort', 'Stop-Process -Id $oldPid')) {
+              'StartApp $repo $canaryPort', 'Stop-Process -Id $oldPid',
+              'RefreshCurrent', 'project_remove', 'GroundSpace-GS029-Rollback-112ed62')) {
             if (-not $source.Contains($check)) { throw "Missing GS-029 release safeguard: $check" }
           }
           if ($source -match '(?m)^[^#]*tailscale serve (?:--bg|--https|--tcp|--set-path|--service|reset)') {
