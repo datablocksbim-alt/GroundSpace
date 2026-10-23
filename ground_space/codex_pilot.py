@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .security import assert_private_owner_mode
+from .model_profiles import validated_selection
 
 MODES = ("manual", "auto_read_only", "disabled")
 
@@ -106,6 +107,7 @@ class CodexPilot:
 
     def submit(self, body: dict[str,Any], *, group_auto_approval: bool = False) -> dict[str,Any]:
         project_id, prompt = body.get("project_id"), body.get("prompt")
+        selection=validated_selection(body.get("model_id",""),body.get("reasoning_effort",""))
         scope = body.get("scope", "read_only")
         if scope not in ("read_only", "workspace_write"):
             raise ValueError("Invalid Codex operation scope")
@@ -128,7 +130,9 @@ class CodexPilot:
                       "project_name":project["name"],"prompt":prompt.strip(),
                       "mode_at_submission":mode,"status":"pending_approval",
                       "scope":scope,"answer":"","error":"",
-                      "group_id":body.get("group_id"), "conversation_id":body.get("conversation_id")}
+                      "group_id":body.get("group_id"), "conversation_id":body.get("conversation_id"),
+                      "model_id":selection["model_id"],
+                      "reasoning_effort":selection["reasoning_effort"]}
             self.jobs = (self.jobs+[record])[-50:]
             persist(self.jobs_path,self.jobs)
         if mode=="auto_read_only" and scope=="read_only": self.approve({"job_id":record["id"]})
@@ -266,10 +270,16 @@ class CodexPilot:
             ) + job["prompt"]
             # --ask-for-approval is a global CLI flag. Some installed Codex
             # versions reject it after "exec" before a task even starts.
-            args=[executable,"--ask-for-approval","never","exec","--sandbox",
-                  "workspace-write" if writable else "read-only",
+            selection=validated_selection(job.get("model_id",""),job.get("reasoning_effort",""))
+            args=[executable,"--ask-for-approval","never"]
+            if selection["reasoning_effort"]:
+                args.extend(["-c","model_reasoning_effort="+selection["reasoning_effort"]])
+            args.extend(["exec","--sandbox","workspace-write" if writable else "read-only",
                   "--skip-git-repo-check","--ephemeral","--color","never",
-                  "-C",str(cwd),"-"]
+                  "-C",str(cwd)])
+            if selection["model_id"]:
+                args.extend(["--model",selection["model_id"]])
+            args.append("-")
             child_env = os.environ.copy()
             child_env["NO_COLOR"] = "1"
             completed=self.run(args,input=prompt,text=True,cwd=str(cwd),
