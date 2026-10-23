@@ -638,6 +638,63 @@ class GroundSpaceApp:
             threading.Thread(target=self._process_group, args=([task_id],), daemon=True).start()
         return updated
 
+    def decide_direct_proposal_task(self, body: dict[str, Any], *, approve: bool) -> dict[str, Any]:
+        """Owner decision for one queued direct-chat proposal task.
+
+        This is intentionally narrower than a generic task approval API.  The
+        task must already belong to a persisted, non-group Qwen conversation,
+        must retain proposal-only permissions, and must map to the registered
+        local worker that created it.  Legacy qwen-proposal records predate the
+        payload model field, so that one exact worker maps to its historic model.
+        """
+        task_id = body.get("task_id")
+        if not isinstance(task_id, str) or not task_id.startswith("GS-"):
+            raise ValueError("Valid proposal task ID required")
+        with self.lock:
+            task = self.administrator.status(task_id)
+            payload = task.get("payload", {})
+            conversation_id = payload.get("conversation_id")
+            project_id = payload.get("project_id")
+            worker_id = task.get("requested_worker")
+            model = payload.get("model")
+            if worker_id == "qwen-proposal" and not model:
+                model = "qwen2.5-coder:3b"
+            expected_worker = self.worker_id(model) if isinstance(model, str) else None
+            messages = self.conversations.get(conversation_id, []) if isinstance(conversation_id, str) else []
+            source = next((item for item in messages if item.get("task_id") == task_id), None)
+            group_conversations = {
+                item.get("conversation_id") for item in self.workspaces.snapshot().get("groups", [])
+            }
+            valid_project = project_id is None
+            if project_id is not None:
+                try:
+                    valid_project = self.workspaces.validate_project(project_id) == project_id
+                except ValueError:
+                    valid_project = False
+            if (task.get("source") != "ground_space" or
+                task.get("status") != "queued" or
+                task.get("approval", {}).get("status") != "pending" or
+                payload.get("group_id") or
+                conversation_id in group_conversations or
+                not source or source.get("agent") != "qwen" or
+                source.get("project_id") != project_id or
+                not valid_project or
+                worker_id != expected_worker or
+                set(task.get("required_permissions", [])) != {"read", "propose"}):
+                raise ValueError("Only a pending read-only reply in its original direct conversation may be decided")
+            if approve:
+                updated = self.administrator.approve(task_id, owner="ground-space-direct-owner")
+            else:
+                updated = self.administrator.queue.transition(
+                    task, "queued", approval={
+                        "status": "rejected", "owner": "ground-space-direct-owner",
+                        "decided_at": utc_timestamp(), "method": "manual",
+                    }
+                )
+        if approve:
+            threading.Thread(target=self._process_group, args=([task_id],), daemon=True).start()
+        return updated
+
     def _process_group(self, task_ids: list[str]) -> None:
         # Single laptop GPU: avoid parallel simultaneous Ollama generations.
         with self.group_dispatch_lock:
@@ -1032,6 +1089,12 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/groups/reject":
                 self._json(HTTPStatus.OK, self.app.decide_group_task(body, approve=False))
+                return
+            if path == "/api/tasks/approve":
+                self._json(HTTPStatus.OK, self.app.decide_direct_proposal_task(body, approve=True))
+                return
+            if path == "/api/tasks/reject":
+                self._json(HTTPStatus.OK, self.app.decide_direct_proposal_task(body, approve=False))
                 return
             if path == "/api/groups/send":
                 self._json(HTTPStatus.CREATED, self.app.submit_group(body))

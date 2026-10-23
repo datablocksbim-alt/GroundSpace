@@ -533,6 +533,7 @@
   font:10px Consolas,monospace;color:var(--muted)}
 .task-table-wrap td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .task-table-wrap tbody tr:focus-visible{outline:2px solid var(--violet);outline-offset:-2px}
+.mobile-task-actions{display:none}
 .task-detail{overflow-wrap:anywhere;font-size:11px}
 @media(max-width:760px){
   html,body{width:100%;overflow-x:hidden}
@@ -558,6 +559,7 @@
   .task-table-wrap th,.task-table-wrap td{padding:10px 12px}
   .task-table-wrap th:nth-child(4){width:26%;text-align:right}
   .task-table-wrap td:nth-child(4){text-align:right}
+  .mobile-task-actions{display:flex;margin-top:7px}
   .task-name{font-size:13px}
   .task-short-id{font-size:9px}
   #taskDetail{margin:12px 10px 20px;max-width:calc(100vw - 20px);font-size:10px}

@@ -154,7 +154,12 @@ function renderMessages(){
       return '<span class="group-task-status">'+esc(t.payload?.speaker||t.payload?.model||t.requested_worker)+
         ' · '+taskStatus(t)+actions+'</span>';
     }).join('');
-    const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task))+codexProgress:'';
+    const directPending=task&&task.status==='queued'&&task.approval?.status==='pending'&&
+      task.payload?.conversation_id===state.conversationId&&!task.payload?.group_id&&entry.agent==='qwen';
+    const directActions=directPending?'<span class="group-approval-actions">'+
+      '<button type="button" data-task-decision="approve" data-task-id="'+esc(task.task_id)+'">Approve reply</button>'+
+      '<button type="button" data-task-decision="reject" data-task-id="'+esc(task.task_id)+'">Reject</button></span>':'';
+    const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task)+directActions)+codexProgress:'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
     const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
@@ -559,15 +564,21 @@ function renderTasks(){
     const label=taskLabel(t),time=t.updated_at?new Date(t.updated_at).toLocaleString():'—';
     return '<tr data-task="'+esc(t.task_id)+'" tabindex="0" aria-label="Inspect '+esc(label)+'">'+
       '<td class="task-primary"><b class="task-name" title="'+esc(label)+'">'+esc(label)+'</b>'+
-      '<small class="task-short-id" title="'+esc(t.task_id)+'">'+esc(t.task_id)+'</small></td>'+
+      '<small class="task-short-id" title="'+esc(t.task_id)+'">'+esc(t.task_id)+'</small>'+
+      (t.status==='queued'&&t.approval?.status==='pending'&&t.payload?.conversation_id&&!t.payload?.group_id?
+        '<span class="mobile-task-actions group-approval-actions"><button type="button" data-task-decision="approve" data-task-id="'+esc(t.task_id)+'">Approve</button>'+
+        '<button type="button" data-task-decision="reject" data-task-id="'+esc(t.task_id)+'">Reject</button></span>':'')+'</td>'+
       '<td class="task-worker">'+esc(t.requested_worker)+'</td>'+
-      '<td class="task-approval">'+esc(t.approval?.status||'unknown')+'</td>'+
+      '<td class="task-approval">'+esc(t.approval?.status||'unknown')+
+      (t.status==='queued'&&t.approval?.status==='pending'&&t.payload?.conversation_id&&!t.payload?.group_id?
+        '<span class="group-approval-actions"><button type="button" data-task-decision="approve" data-task-id="'+esc(t.task_id)+'">Approve</button>'+
+        '<button type="button" data-task-decision="reject" data-task-id="'+esc(t.task_id)+'">Reject</button></span>':'')+'</td>'+
       '<td class="task-status"><span class="badge '+esc(t.status)+'">'+esc(t.status)+'</span></td>'+
       '<td class="task-date">'+esc(time)+'</td></tr>';
   }).join('')||'<tr><td colspan="5">No tasks yet.</td></tr>';
   for(const row of rows.querySelectorAll('tr[data-task]')){
     const show=async()=>{$('#taskDetail').textContent=JSON.stringify(await api('/api/tasks/'+encodeURIComponent(row.dataset.task)),null,2)};
-    row.addEventListener('click',()=>show().catch(error=>toast(error.message)));
+    row.addEventListener('click',event=>{if(!event.target.closest('button'))show().catch(error=>toast(error.message));});
     row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();show().catch(error=>toast(error.message));}});
   }
 }
@@ -1011,6 +1022,24 @@ $('#messages').addEventListener('click',event=>{
   }
   const button=event.target.closest('button.copy-response');
   if(button)copyReply(button.dataset.taskId);
+});
+
+async function decideDirectTask(button){
+  button.disabled=true;
+  try{
+    await api('/api/tasks/'+button.dataset.taskDecision,{method:'POST',
+      body:JSON.stringify({task_id:button.dataset.taskId})});
+    await refresh();
+    toast(button.dataset.taskDecision==='approve'?'Read-only reply approved':'Reply rejected');
+  }catch(error){toast(error.message);button.disabled=false;}
+}
+$('#messages').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-task-decision]');
+  if(button)decideDirectTask(button);
+});
+$('#taskRows').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-task-decision]');
+  if(button){event.stopPropagation();decideDirectTask(button);}
 });
 
 

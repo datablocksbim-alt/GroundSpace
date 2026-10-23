@@ -23,6 +23,11 @@ const agentConfigs={};
 const conversations = {};
 const codex = {default_mode:'manual',project_modes:{},jobs:[]};
 const state = {csrf:'functional-test-token'};
+tasks.push({task_id:'GS-PENDING-DIRECT',status:'queued',requested_worker:'qwen-proposal',
+  payload:{conversation_id:'direct-pending',model:'qwen2.5-coder:3b',project_id:null},
+  required_permissions:['read','propose'],approval:{status:'pending'}});
+conversations['direct-pending']=[{role:'user',agent:'qwen',content:'Pending owner review',
+  timestamp:new Date().toISOString(),task_id:'GS-PENDING-DIRECT',project_id:null}];
 // Migration-free navigation fixture: stored group IDs, messages and approvals must survive.
 projects.push({id:'project-existing',name:'Existing Ground Space',
   path:'D:\\000_AI Project\\Existing Ground Space'});
@@ -241,6 +246,12 @@ const server=createServer(async(req,res)=>{
         task.approval.status=path.endsWith('/approve')?'approved':'rejected';
         return json(res,200,task);
       }
+      if(path==='/api/tasks/approve'||path==='/api/tasks/reject'){
+        const task=tasks.find(t=>t.task_id===body.task_id&&!t.payload.group_id);
+        if(!task||task.approval.status!=='pending')return json(res,400,{error:'Pending direct task not found'});
+        task.approval.status=path.endsWith('/approve')?'approved':'rejected';
+        return json(res,200,task);
+      }
       if(path==='/api/chat'){
         const id=body.conversation_id||'chat';
         if(body.agent==='codex'){
@@ -274,6 +285,7 @@ try{
     const label=viewport.mobile?'mobile':'desktop';
     registered.splice(0,registered.length,{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only',provider:'ollama'});
     discovered.splice(0,discovered.length,'granite4:3b','codex');
+    tasks.find(task=>task.task_id==='GS-PENDING-DIRECT').approval.status='pending';
     const context=await browser.newContext({viewport:{width:viewport.width,height:viewport.height},isMobile:viewport.mobile,hasTouch:viewport.mobile});
     const page=await context.newPage();
     const exceptions=[];
@@ -566,6 +578,10 @@ try{
     const maxScroll=await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
     assert.ok(maxScroll<=2,label+' task table must not overflow horizontally: '+maxScroll);
     assert.equal(await page.locator('#taskRows .task-name').first().isVisible(),true);
+    const directRow=page.locator('#taskRows tr[data-task="GS-PENDING-DIRECT"]');
+    await directRow.locator('button[data-task-decision="approve"]:visible').click();
+    await page.waitForFunction(()=>!document.querySelector('tr[data-task="GS-PENDING-DIRECT"] button[data-task-decision]'));
+    assert.equal(tasks.find(task=>task.task_id==='GS-PENDING-DIRECT').approval.status,'approved');
     await page.locator('.nav-button[data-view="agents"]').click();
     await page.locator('#codexAdvanced > summary').click();
     assert.equal(await page.locator('#codexAgentSettings').isVisible(),true);

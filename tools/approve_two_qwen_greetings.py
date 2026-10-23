@@ -55,8 +55,11 @@ def validate_target(task: dict[str, Any]) -> str:
     if task.get("status") != "queued" or (task.get("approval") or {}).get("status") != "pending":
         raise ValueError(f"{task_id}: not a queued/pending task.")
     payload = task.get("payload") or {}
-    if payload.get("model") != MODEL or payload.get("group_id") or payload.get("project_id"):
-        raise ValueError(f"{task_id}: not an unassigned direct Qwen 2.5 greeting.")
+    # GS-021 direct Qwen records identify the model by their dedicated worker;
+    # the payload model field was added later.  Never infer a missing model for
+    # any other worker, and leave group replies to the authenticated group API.
+    if payload.get("model") not in (None, MODEL) or payload.get("group_id"):
+        raise ValueError(f"{task_id}: not a direct Qwen 2.5 greeting.")
     if payload.get("request_type") not in ("explanation", None):
         raise ValueError(f"{task_id}: unexpected request type.")
     if set(task.get("required_permissions") or []) != ALLOWED:
@@ -67,7 +70,12 @@ def validate_target(task: dict[str, Any]) -> str:
     return request
 
 
-def target_pair(tasks: list[dict[str, Any]]) -> list[tuple[dict[str, Any], str]]:
+def target_pair(
+    tasks: list[dict[str, Any]], *,
+    conversations: dict[str, list[dict[str, Any]]] | None = None,
+    project_ids: set[str] | None = None,
+    group_conversations: set[str] | None = None,
+) -> list[tuple[dict[str, Any], str]]:
     # Fail closed if other work could compete for the one local GPU or change the
     # release gate during this explicit owner recovery.
     active_states = {"claimed", "running", "in_progress", "retrying",
@@ -83,21 +91,33 @@ def target_pair(tasks: list[dict[str, Any]]) -> list[tuple[dict[str, Any], str]]
     if len(pending) != 2:
         raise ValueError(f"Expected exactly 2 queued/pending tasks, found {len(pending)}. No changes.")
     validated = [(task, validate_target(task)) for task in pending]
+    if conversations is not None:
+        projects = project_ids or set()
+        groups = group_conversations or set()
+        for task, _ in validated:
+            payload = task["payload"]
+            conversation_id = payload.get("conversation_id")
+            project_id = payload.get("project_id")
+            history = conversations.get(conversation_id, []) if isinstance(conversation_id, str) else []
+            source = next((item for item in history if item.get("task_id") == task["task_id"]), None)
+            if (not source or source.get("agent") != "qwen" or
+                conversation_id in groups or source.get("project_id") != project_id or
+                (project_id is not None and project_id not in projects)):
+                raise ValueError(f"{task['task_id']}: conversation/project origin is not verified.")
     if {name for _, name in validated} != EXPECTED_PROMPTS:
         raise ValueError("Pending tasks do not match the two greetings. No changes.")
     return validated
 
 
-def live_tasks() -> list[dict[str, Any]]:
+def live_snapshot() -> dict[str, Any]:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with opener.open(URL, timeout=12) as resp:
         data = json.load(resp)
     if str(data.get("backend_release")) not in {"GS-026", "GS-027", "GS-028"}:
         raise ValueError("Live version is not the supported pre-GS-029 server. No changes.")
-    tasks = data.get("tasks")
-    if not isinstance(tasks, list):
+    if not isinstance(data.get("tasks"), list) or not isinstance(data.get("conversations"), dict):
         raise ValueError("Live task list missing.")
-    return tasks
+    return data
 
 
 def main() -> int:
@@ -105,9 +125,16 @@ def main() -> int:
     parser.add_argument("--execute", action="store_true",
                         help="Approve only the validated two greetings and process them serially.")
     args = parser.parse_args()
-    selection = target_pair(live_tasks())
+    snapshot = live_snapshot()
+    workspaces = snapshot.get("workspaces") or {}
+    selection = target_pair(
+        snapshot["tasks"], conversations=snapshot["conversations"],
+        project_ids={item.get("id") for item in workspaces.get("projects", []) if item.get("id")},
+        group_conversations={item.get("conversation_id") for item in workspaces.get("groups", [])
+                             if item.get("conversation_id")},
+    )
     for task, name in selection:
-        print(f"VERIFIED {task['task_id']} — {name!r}, worker={WORKER}, permissions=read/propose")
+        print(f"VERIFIED {task['task_id']} - {name!r}, worker={WORKER}, permissions=read/propose")
     if not args.execute:
         print("PRECHECK PASS — read-only. Re-run with --execute for owner-approved processing.")
         return 0
@@ -132,7 +159,7 @@ def main() -> int:
         if current.get("payload") != task.get("payload"):
             raise RuntimeError(f"Task {task['task_id']} changed; stopping without further approval.")
         admin.approve(task["task_id"], owner="ground-space-owner-explicit-approval")
-        print(f"APPROVED {task['task_id']} — {request!r}. Running read/propose worker...")
+        print(f"APPROVED {task['task_id']} - {request!r}. Running read/propose worker...")
         outcome = orchestrator.process(task["task_id"])
         print(f"RESULT {task['task_id']}: {outcome.get('status')}")
         if outcome.get("status") != "completed":

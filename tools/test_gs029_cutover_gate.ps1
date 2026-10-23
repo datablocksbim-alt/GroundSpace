@@ -17,8 +17,9 @@ function Sample([string]$status,[string]$approval){
 SafeJobs (Sample 'queued' 'rejected') # Explicitly rejected group work is not executable.
 SafeJobs (Sample 'completed' 'approved')
 SafeJobs (Sample 'failed' 'approved')
-foreach($case in @(@('queued','pending'),@('queued','approved'),@('claimed','approved'),
-                 @('running','approved'),@('leased','approved'))) {
+foreach($case in @(@('queued','pending'),@('queued','approved'),@('queued','unknown'),
+                 @('claimed','approved'),@('running','approved'),@('leased','approved'),
+                 @('retry_pending','approved'),@('retrying','approved'))) {
   $blocked=$false
   try { SafeJobs (Sample $case[0] $case[1]) } catch { $blocked=$true }
   if (-not $blocked) { throw "Unsafe work was accepted: $($case[0])/$($case[1])" }

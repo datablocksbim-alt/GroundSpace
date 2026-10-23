@@ -60,8 +60,22 @@ function SafeJobs($item) {
     # Never treat an explicit owner rejection as pending work.
     if ([string]$task.status -eq 'queued' -and
         [string]$task.approval.status -eq 'rejected') { continue }
-    if ([string]$task.status -in @('queued','claimed','running','in_progress','retrying','pending','pending_approval','processing','leased')) {
-      throw 'Active/queued task detected. Review group approvals and finish the queue before cutover.'
+    $status=[string]$task.status
+    $approval=[string]$task.approval.status
+    if ($status -eq 'queued' -and $approval -eq 'pending') {
+      throw 'Task awaiting owner approval; approve or reject it before cutover.'
+    }
+    if ($status -eq 'queued' -and $approval -eq 'approved') {
+      throw 'Approved task is waiting for execution; process it before cutover.'
+    }
+    if ($status -in @('claimed','running','in_progress','processing','leased')) {
+      throw 'Task is running or leased; wait for it to finish before cutover.'
+    }
+    if ($status -in @('retrying','retry_pending','pending','pending_approval')) {
+      throw 'Task is stalled or retryable; resolve it before cutover.'
+    }
+    if ($status -eq 'queued') {
+      throw "Queued task has unknown approval state '$approval'; cutover refused."
     }
   }
   foreach ($job in @($item.codex.jobs)) {
@@ -133,7 +147,7 @@ $served=(& tailscale serve status | Out-String)
 if($LASTEXITCODE -ne 0 -or $served -notmatch '127\.0\.0\.1:8765') { throw 'Private route does not target 8765' }
 Verify (Invoke-RestMethod ($origin+'/api/bootstrap') -TimeoutSec 8) $live $oldRelease
 if(Get-NetTCPConnection -LocalPort $canaryPort -State Listen -ErrorAction SilentlyContinue) {
-  throw 'Canary test port 8779 is occupied'
+  throw "Canary test port $canaryPort is occupied"
 }
 $backupOutput=@(& (Join-Path $PSScriptRoot 'backup_ground_space_state.ps1') -ExpectedRelease $oldRelease -Port 8765 -StateRoot $state)
 $backup=[string]$backupOutput[-1]
