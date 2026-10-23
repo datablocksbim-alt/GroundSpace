@@ -26,7 +26,7 @@ jobs:
         run: |
           $tokens = $null
           $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile('tools/prepare_gs029_preview.ps1', [ref]$tokens, [ref]$errors) | Out-Null
+          [System.Management.Automation.Language.Parser]::ParseFile('tools/prepare_gs030_preview.ps1', [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
       - name: GS-030 production cutover PowerShell syntax and safety guards
         shell: pwsh
