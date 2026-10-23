@@ -106,6 +106,19 @@ $manifestFile=Join-Path $backup 'BACKUP_MANIFEST.json'
 if(-not (Test-Path $manifestFile)) { throw 'Verified backup manifest missing' }
 $manifest=Get-Content $manifestFile -Raw | ConvertFrom-Json
 if($manifest.source_release -ne 'GS-026') { throw 'Wrong backup release' }
+function Assert-LiveUnchanged {
+  $root=Join-Path $state 'private'
+  $all=@(Get-ChildItem -LiteralPath $root -Recurse -File -Force | Where-Object { $_.Name -notlike '*.tmp' -and $_.Name -ne 'BACKUP_MANIFEST.json' })
+  $entries=@($manifest.files)
+  if($all.Count -ne $entries.Count) { throw 'Private-state file count changed since backup' }
+  foreach($entry in $entries) {
+    $path=Join-Path $root $entry.path
+    if(-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw ('Missing private state: '+$entry.path) }
+    if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne [string]$entry.sha256) {
+      throw ('Private state changed since backup: '+$entry.path)
+    }
+  }
+}
 $testRoot=Join-Path $env:TEMP ('gs027-restore-'+[guid]::NewGuid().ToString('N'))
 $testPrivate=Join-Path $testRoot 'private'
 New-Item -ItemType Directory -Force -Path $testPrivate | Out-Null
@@ -131,12 +144,14 @@ if(-not $Activate) {
 $before=Bootstrap 8765
 Verify $before $live 'GS-026'
 SafeJobs $before
+Assert-LiveUnchanged
 if((LivePid) -ne $oldPid) { throw 'Production PID changed; refusing cutover' }
 $newProcess=$null
 $stopped=$false
 try {
   Stop-Process -Id $oldPid -ErrorAction Stop
   $stopped=$true
+  Assert-LiveUnchanged
   for($i=0;$i -lt 12;$i++) {
     if(-not (Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue)) { break }
     Start-Sleep -Milliseconds 250
