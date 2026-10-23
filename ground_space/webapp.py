@@ -301,8 +301,13 @@ class GroundSpaceApp:
                 job=self.codex.submit({"project_id":run["project_id"],"prompt":prompt,
                    "scope":"workspace_write","group_id":run["group_id"],
                    "conversation_id":group["conversation_id"]},group_auto_approval=auto)
-                return self.collaborations.attach(flow_id,expected_state="proposal_pending",
+                flow=self.collaborations.attach(flow_id,expected_state="proposal_pending",
                     state="codex_pending",link_name="codex_job_id",link_id=job["id"])
+                # Reuse the existing group conversation approval controls.
+                self.add_history(group["conversation_id"],"note","Co-work: Codex implementation",
+                    agent="group",source="collaboration",codex_job_ids=[job["id"]],
+                    group_id=run["group_id"],project_id=run["project_id"])
+                return flow
             if run["state"]=="codex_pending":
                 job=self.codex.get(run["codex_job_id"])
                 if job["status"]!="completed":
