@@ -55,7 +55,7 @@ function SafeJobs($item) {
     throw 'Codex job state unavailable'
   }
   foreach ($task in @($item.tasks)) {
-    if ([string]$task.status -in @('queued','claimed','running','in_progress','retrying')) {
+    if ([string]$task.status -in @('queued','claimed','running','in_progress','retrying','pending','pending_approval','processing','leased')) {
       throw 'Active/queued task detected. Finish the queue before cutover.'
     }
   }
