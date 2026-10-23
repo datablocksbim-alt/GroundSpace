@@ -88,6 +88,7 @@ class BootstrapAvailabilityTests(unittest.TestCase):
         app.agents = Mock(return_value=[])
         app.catalog = Mock(return_value={"registered": []})
         app.codex = SimpleNamespace(snapshot=Mock(return_value={"scope": "single_owner_pilot"}))
+        app.collaborations = SimpleNamespace(snapshot=Mock(return_value=[]))
         availability = {"available": False, "models": [], "reason": "offline"}
 
         with patch("ground_space.webapp.probe_ollama", return_value=availability) as probe:
