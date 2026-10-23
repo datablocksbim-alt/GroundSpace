@@ -13,6 +13,8 @@ const discovered = ['granite4:3b','codex'];
 const projects = [];
 const groups = [];
 const tasks = [];
+const collaborations = [];
+const chatgptStatus={connected:false,login_state:"not_started",auth_mode:null,plan_type:null};
 const conversations = {};
 const codex = {default_mode:'manual',project_modes:{},jobs:[]};
 const state = {csrf:'functional-test-token'};
@@ -43,6 +45,9 @@ const bootstrap = () => ({
   codex:{scope:'single_owner_pilot',per_user_accounts:false,cli_installed:true,
     registered:registered.some(x=>x.model==='codex'),write_enabled:true,max_permission:'workspace_write_if_owner_approved',
     default_mode:codex.default_mode,project_modes:{...codex.project_modes},jobs:[...codex.jobs].reverse()},
+  collaborations:collaborations.map(x=>({...x})),
+  chatgpt_connection:{scope:'single_owner_codex_cli',enabled:true,login_state:chatgptStatus.login_state},
+  security:{deployment:'owner_private',public_ready:false,multi_user_accounts:false},
   paid_api_usage_aud:0,
 });
 const server=createServer(async(req,res)=>{
@@ -57,6 +62,8 @@ const server=createServer(async(req,res)=>{
       return;
     }
     if(req.method==='GET'&&path==='/api/bootstrap')return json(res,200,bootstrap());
+    if(req.method==='GET'&&path==='/api/auth/chatgpt/status')
+      return json(res,200,{scope:'single_owner_codex_cli',enabled:true,...chatgptStatus});
     if(req.method==='GET'&&path==='/api/projects/browse'){
       const chosen=url.searchParams.get('path');
       if(!chosen)return json(res,200,{
@@ -70,6 +77,41 @@ const server=createServer(async(req,res)=>{
     if(req.method==='POST'){
       assert.equal(req.headers['x-ground-space-csrf'],state.csrf,'CSRF token missing');
       const body=await reqBody(req);
+      if(path==='/api/auth/chatgpt/device/start'){
+        chatgptStatus.login_state='pending';
+        return json(res,200,{verification_url:'https://auth.openai.com/codex/device',
+          user_code:'ABCD-1234',login_id:'mock-login'});
+      }
+      if(path==='/api/collaboration/start'){
+        const group=groups.find(g=>g.id===body.group_id);
+        if(!group||!group.project_id)return json(res,400,{error:'Project required'});
+        const task={task_id:'GS-FLOW-'+(tasks.length+1),status:'completed',
+          payload:{model:'qwen2.5-coder:3b',group_id:group.id},result:{answer:'Propose a small test module'},
+          approval:{status:'approved'}};
+        tasks.push(task);
+        const flow={id:'FLOW-'+(collaborations.length+1),group_id:group.id,project_id:group.project_id,
+          goal:body.goal,state:'proposal_pending',proposal_task_id:task.task_id};
+        collaborations.push(flow);
+        conversations[group.conversation_id]||=[];
+        conversations[group.conversation_id].push({role:'user',agent:'group',content:'@Qwen proposal: '+body.goal,
+          task_ids:[task.task_id],timestamp:new Date().toISOString()});
+        return json(res,201,flow);
+      }
+      if(path==='/api/collaboration/advance'){
+        const flow=collaborations.find(f=>f.id===body.flow_id);
+        if(!flow)return json(res,400,{error:'Unknown collaboration'});
+        if(flow.state==='proposal_pending'){
+          const group=groups.find(g=>g.id===flow.group_id);
+          const item={id:'CODEX-'+(codex.jobs.length+1),project_id:flow.project_id,
+            project_name:'Demo',prompt:flow.goal,status:'pending_approval',
+            scope:'workspace_write',mode_at_submission:'manual',answer:'',error:''};
+          codex.jobs.push(item);
+          flow.codex_job_id=item.id;flow.state='codex_pending';
+          conversations[group.conversation_id].push({role:'note',agent:'group',content:'Co-work: Codex implementation',
+            codex_job_ids:[item.id],timestamp:new Date().toISOString()});
+        }
+        return json(res,200,flow);
+      }
       if(path==='/api/codex/policy'){
         if(!['manual','auto_read_only','disabled'].includes(body.mode))return json(res,400,{error:'Invalid approval mode'});
         if(body.project_id)codex.project_modes[body.project_id]=body.mode;
@@ -202,6 +244,14 @@ try{
     await page.locator('.nav-button[data-view="agents"]').click();
     assert.equal(await page.locator('#view-agents').evaluate(el=>el.classList.contains('active')),true,label+' Agents click');
 
+    // Owner's explicit device login is an active control, not a cosmetic provider card.
+    await page.locator('#chatgptConnectButton').waitFor({state:'visible'});
+    await page.waitForFunction(()=>document.querySelector('#chatgptConnectButton')?.disabled===false);
+    await page.locator('#chatgptConnectButton').click();
+    await page.locator('#chatgptDevicePanel').waitFor({state:'visible'});
+    assert.equal(await page.locator('#chatgptDeviceCode').innerText(),'ABCD-1234');
+    assert.match(await page.locator('#chatgptVerifyLink').getAttribute('href'),/^https:\/\/auth\.openai\.com\//);
+
     // Reaching a disabled control must explain the exact reason rather than appearing broken.
     assert.equal(await page.locator('#addModelButton').isEnabled(),true,label+' installed model available');
     await page.locator('#addModelButton').click();
@@ -278,6 +328,18 @@ try{
     await page.locator('#messages button[data-codex-decision="approve"]').last().click();
     await page.waitForFunction(()=>document.querySelector('#messages')?.textContent.includes('running'));
     assert.equal(codex.jobs[codex.jobs.length-1].status,'running');
+    await page.locator('#editGroupButton').click();
+    await page.locator('#groupMemberOptions input[value="granite4:3b"]').check();
+    await page.locator('#saveGroup').click();
+    await page.locator('#groupDialog').waitFor({state:'hidden'});
+    await page.locator('#prompt').fill('Build a small Python inventory');
+    await page.locator('#startCollaborationButton').click();
+    await page.locator('#messages .collaboration-card').first().waitFor({state:'visible'});
+    assert.equal(collaborations[collaborations.length-1].state,'proposal_pending');
+    await page.locator('#messages button[data-flow-advance]').first().click();
+    await page.waitForFunction(()=>document.querySelector('#messages')?.textContent.includes('codex_pending'));
+    assert.equal(collaborations[collaborations.length-1].state,'codex_pending');
+    await page.locator('#messages button[data-codex-decision="approve"]').last().waitFor({state:'visible'});
     if(viewport.mobile){
       assert.equal(await page.locator('#mobileRailBackdrop').isVisible(),false,'Drawer must close after group selection');
       const availableHeight=await page.locator('#messages').evaluate(el=>el.getBoundingClientRect().height);
