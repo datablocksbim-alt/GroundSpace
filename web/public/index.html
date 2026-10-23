@@ -118,7 +118,24 @@
           <p class="provider-note">Codex uses the signed-in CLI on your ASUS, not Ollama. It may consume your ChatGPT allowance or API credits. Other cloud AI providers are not connected.</p>
         </section>
         <div class="agent-grid" id="agentGrid"></div>
-      <section class="codex-integrated" id="codexAgentSettings" aria-label="Codex agent settings and approvals">
+      <section class="chatgpt-connect-card" aria-label="ChatGPT account connection" id="chatgptConnection">
+          <h2>Connect ChatGPT</h2>
+          <p>For this private ASUS owner pilot, sign in through Codex using your ChatGPT account. Ground Space never asks for your password or API key. Your phone will show a device code to enter on OpenAI's website.</p>
+          <p id="chatgptConnectionStatus" role="status">Checking local connection settings…</p>
+          <div class="chatgpt-connection-actions">
+            <button type="button" id="chatgptConnectButton" disabled>Continue with ChatGPT</button>
+            <button type="button" id="chatgptCheckButton">Check connection</button>
+          </div>
+          <div id="chatgptDevicePanel" hidden>
+            <p>Open the official verification page and enter this one-time code:</p>
+            <a id="chatgptVerifyLink" target="_blank" rel="noopener noreferrer">Open ChatGPT sign-in</a>
+            <code id="chatgptDeviceCode"></code>
+            <button type="button" id="chatgptCopyCode">Copy code</button>
+            <p>Return to Ground Space and tap Check connection after approving the sign-in.</p>
+          </div>
+          <small>This connects only the ASUS owner's Codex CLI session. It is not a shared multi-user account system or an API usage entitlement.</small>
+        </section>
+        <section class="codex-integrated" id="codexAgentSettings" aria-label="Codex agent settings and approvals">
         <div class="page-head codex-head">
           <p class="eyebrow">Owner-only integration pilot</p>
           <h2>Codex agent settings</h2>
