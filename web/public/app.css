@@ -630,3 +630,15 @@
   .agent-config-fields{grid-template-columns:minmax(0,1fr)}
   .agent-config-field,.agent-config-access{grid-column:1}
 }
+
+/* Keep legacy project-scoped Codex settings available, but out of the main Agent list. */
+.agent-advanced{max-width:1280px;margin:10px auto 28px;padding:0 16px;min-width:0}
+.agent-advanced>summary{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  min-height:44px;padding:10px 14px;border:1px solid #e4dfed;border-radius:11px;
+  background:#fbfafe;cursor:pointer;list-style:none;color:#655a83;font:650 12px Inter,"Segoe UI",sans-serif}
+.agent-advanced>summary::-webkit-details-marker{display:none}
+.agent-advanced>summary:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+.agent-advanced[open]>summary span{transform:rotate(180deg)}
+.agent-advanced .codex-integrated{margin-top:12px}
+@media(max-width:760px){.agent-advanced{margin:6px auto 18px;padding:0 12px}
+  .agent-advanced>summary{min-height:43px;padding:9px 12px}}
