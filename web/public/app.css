@@ -642,3 +642,72 @@
 .agent-advanced .codex-integrated{margin-top:12px}
 @media(max-width:760px){.agent-advanced{margin:6px auto 18px;padding:0 12px}
   .agent-advanced>summary{min-height:43px;padding:9px 12px}}
+
+
+/* GS-027b — one compact visual language for loadable and built-in agents. */
+#view-agents .page-head{padding-bottom:8px}
+#view-agents .model-manager{margin-bottom:7px;padding-top:8px;padding-bottom:12px}
+#view-agents .model-manager h2{font-size:16px;letter-spacing:-.02em;margin:0}
+#view-agents .model-add{margin:10px 0}
+#view-agents .provider-note{margin:12px 0 0!important;font-size:11px}
+#view-agents .registered-models{max-width:700px;gap:8px}
+.builtin-agents{max-width:1200px;margin:0 auto 22px;padding:0 30px}
+.agent-section-heading{margin:0 0 10px}
+.agent-section-heading h2{font-size:16px;letter-spacing:-.02em;margin:0 0 3px}
+.agent-section-heading p{font-size:11px;color:var(--muted);margin:0}
+.agent-compact-row{display:block;overflow:visible;min-width:0;padding:0;
+  border:1px solid #e1deea;border-radius:13px;background:rgba(255,255,255,.88)}
+.agent-config-top{display:flex;align-items:center;gap:12px;justify-content:space-between;
+  padding:11px 13px 7px;min-width:0}
+.agent-config-top .agent-config-heading{min-width:0;flex:1}
+.agent-config-top .agent-config-heading b{font-size:13px;line-height:1.25;letter-spacing:-.01em}
+.agent-config-top .agent-config-heading small{font-size:11px;line-height:1.3}
+.agent-config-top .agent-summary-value{font-size:10px;margin-top:4px;font-weight:500}
+.agent-config-top .agent-presence{flex:0 0 7px}
+.agent-small-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+  padding:2px 12px 10px}
+.agent-mini-button{appearance:none;border:1px solid #e2dcf0;background:#f8f6fd;
+  border-radius:8px;min-height:32px;padding:6px 9px;font:600 11px/1.2 Inter,"Segoe UI",sans-serif;
+  white-space:nowrap;color:#65578f;cursor:pointer}
+.agent-mini-button.active,.agent-mini-button[aria-expanded="true"]{background:#ebe6fb;
+  border-color:#afa0e1;color:#4c3d85}
+.agent-mini-button:focus-visible,.save-agent-config:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+.agent-small-actions .save-agent-config{appearance:none;min-height:32px;margin-left:auto;
+  border:1px solid #715ad2;background:#715ad2;color:white;border-radius:8px;
+  padding:6px 13px;font:650 11px Inter,"Segoe UI",sans-serif;cursor:pointer}
+.agent-small-actions .save-agent-config:disabled{opacity:.5;cursor:default;
+  background:#f6f4fb;border-color:#e5e0ef;color:#756b90}
+.agent-menu-content{min-width:0}
+.agent-menu-panel{margin:0 12px 9px;padding:11px 12px;border:1px solid #e8e3f2;
+  border-radius:10px;background:#fcfbff}
+.agent-menu-panel[hidden]{display:none!important}
+.agent-menu-title{margin:0 0 7px;font:700 11px Inter,"Segoe UI",sans-serif;color:#5c5083}
+.agent-menu-panel .agent-config-field{max-width:450px}
+.agent-menu-panel .agent-config-field select{border-radius:9px;height:38px;font-size:13px;background:#fff}
+.agent-menu-panel .agent-access-grid{gap:7px}
+.agent-menu-panel .agent-config-note{margin:8px 0 0;font-size:11px}
+.agent-config-footer{display:flex;align-items:center;justify-content:space-between;
+  min-width:0;gap:10px;padding:0 13px 8px}
+.agent-config-footer .agent-config-feedback{min-width:0;flex:1;font-size:10px}
+.agent-remove-link{border:0!important;background:none!important;
+  padding:2px!important;line-height:1.3;font-size:10px!important;color:#88829a!important}
+.agent-remove-link:hover{text-decoration:underline}
+.agent-compact-row .agent-readonly-pill{display:inline-flex;padding:6px 9px;border-radius:8px;
+  background:#f0edf7;color:#60577a;font:600 11px Inter,"Segoe UI",sans-serif}
+.builtin-agent-card .agent-config-top{padding-bottom:8px}
+.builtin-agent-card .agent-small-actions{padding-bottom:11px}
+.builtin-status{color:#80788f;font-size:10px;margin-left:auto}
+@media(max-width:760px){
+  #view-agents .page-head{padding:17px 16px 8px}
+  #view-agents .model-manager{padding:9px 16px 11px}
+  .builtin-agents{padding:0 16px;margin-bottom:20px}
+  .agent-small-actions{gap:5px;padding:2px 11px 9px}
+  .agent-mini-button{min-height:37px;padding:7px 9px;font-size:11px}
+  .agent-small-actions .save-agent-config{min-height:37px;padding:7px 11px}
+  .agent-menu-panel{margin:0 11px 9px}
+  .agent-menu-panel .agent-config-field select{font-size:16px;height:43px}
+}
+@media(max-width:365px){
+  .agent-mini-button{padding:6px 7px}
+  .agent-small-actions .save-agent-config{padding:7px 9px}
+}
