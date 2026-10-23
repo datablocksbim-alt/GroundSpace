@@ -68,7 +68,16 @@ def validate_target(task: dict[str, Any]) -> str:
 
 
 def target_pair(tasks: list[dict[str, Any]]) -> list[tuple[dict[str, Any], str]]:
-    # Fail closed if there are any other pending queue tasks, even from other agents.
+    # Fail closed if other work could compete for the one local GPU or change the
+    # release gate during this explicit owner recovery.
+    active_states = {"claimed", "running", "in_progress", "retrying",
+                     "retry_pending", "processing", "leased", "pending_approval"}
+    competitors = [x for x in tasks if
+                   x.get("status") in active_states or
+                   (x.get("status") == "queued" and
+                    (x.get("approval") or {}).get("status") not in {"pending", "rejected"})]
+    if competitors:
+        raise ValueError("Another task is active or approved. Finish it before approving greetings.")
     pending = [x for x in tasks if x.get("status") == "queued" and
                (x.get("approval") or {}).get("status") == "pending"]
     if len(pending) != 2:
