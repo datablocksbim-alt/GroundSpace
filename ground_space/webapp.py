@@ -1000,6 +1000,7 @@ class GroundSpaceApp:
                     "enabled":self.chatgpt_connection.enabled(),
                     "login_state":self.chatgpt_connection.login_state},
                 "backend_release": BACKEND_RELEASE,
+                "capabilities": {"project_remove": True, "project_folder_picker": True},
                 "security": security_posture(),
                 "paid_api_usage_aud": 0}
 
