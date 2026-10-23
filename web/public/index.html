@@ -113,17 +113,17 @@
       <section class="view" id="view-agents">
         <div class="page-head"><p class="eyebrow">Workforce registry</p><h1>Agents</h1><p>Live availability and enforced authority boundaries.</p></div>
         <section class="model-manager" aria-label="Model management">
-          <h2>AI workforce</h2>
-          <p>Choose a local model or an authenticated agent, then configure that agent below. Model, access, level and approvals are saved together.</p>
+          <h2>Loadable agents</h2>
+          <p>Local Ollama and Codex agents. Adjust each setting with a small button, then Save.</p>
           <div class="model-add">
             <select id="availableModel" aria-label="Installed models available to add"></select>
             <button type="button" id="addModelButton">+ Add Agent</button>
           </div>
           <p id="modelImportStatus" class="model-import-status" role="status" aria-live="polite">Checking local Ollama models…</p>
           <div id="registeredModels" class="registered-models"></div>
-          <p class="provider-note">Codex runs through the authenticated ASUS CLI. Claude and Grok are not connected. Saved access never overrides server safety rules or existing group-specific policies.</p>
+          <p class="provider-note">Claude and Grok are not connected. Server restrictions and group approval policies still apply.</p>
         </section>
-        <div class="agent-grid" id="agentGrid"></div>
+        <section class="builtin-agents" aria-label="Built-in agents"><div class="agent-section-heading"><h2>Built-in agents</h2><p>Ground Space services · managed automatically</p></div><div class="registered-models" id="agentGrid"></div></section>
       <section class="chatgpt-connect-card" aria-label="ChatGPT account connection" id="chatgptConnection">
           <h2>Connect ChatGPT</h2>
           <p>For this private ASUS owner pilot, sign in through Codex using your ChatGPT account. Ground Space never asks for your password or API key. Your phone will show a device code to enter on OpenAI's website.</p>
