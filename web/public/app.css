@@ -584,3 +584,49 @@
   #modelSettingsDialog{max-height:calc(var(--gs-mobile-viewport-height,100dvh) - 26px)}
   #modelSettingsForm select,#modelSettingsForm input{font-size:16px}
 }
+
+
+/* GS-027 — compact in-place Agent configuration, mobile-first. */
+.agent-config-card{display:block;min-width:0;padding:0;overflow:hidden;border-radius:13px;background:#fcfbff}
+.agent-config-card summary{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 14px;min-height:56px;list-style:none;cursor:pointer}
+.agent-config-card summary::-webkit-details-marker{display:none}
+.agent-config-card summary:focus-visible{outline:2px solid var(--violet);outline-offset:-2px}
+.agent-config-heading{display:block;min-width:0;flex:1}
+.agent-config-heading b,.agent-config-heading small,.agent-summary-value{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-config-heading b{font-size:13px}
+.agent-config-heading small{margin-top:2px;font-size:11px;color:var(--muted)}
+.agent-summary-value{font-size:10px;color:#65578d;font-weight:600;margin-top:5px}
+.agent-settings-chevron{flex:none;color:#7767b2;font-size:18px;transform-origin:center;transition:transform .14s ease}
+.agent-config-card[open] .agent-settings-chevron{transform:rotate(180deg)}
+.agent-config-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;padding:12px 14px 14px;
+  border-top:1px solid #e9e4f2;background:#fff}
+.agent-config-field{display:grid;min-width:0;gap:5px;font:600 11px Inter,"Segoe UI",sans-serif;color:#665c86}
+.agent-config-field>span,.agent-config-access legend{font:650 11px Inter,"Segoe UI",sans-serif;color:#6b6385}
+.agent-config-field select{min-width:0;max-width:100%;width:100%;height:40px;border:1px solid #ded9ec;border-radius:10px;
+  padding:7px 9px;color:var(--ink);background:#fff;font-size:12px}
+.agent-config-access{grid-column:1/-1;padding:0;margin:0;border:0}
+.agent-access-grid{display:flex;flex-wrap:wrap;gap:7px}
+.agent-access-option{display:inline-flex;align-items:center;gap:6px;min-height:35px;border:1px solid #e4e0ee;border-radius:9px;
+  background:#faf9fe;padding:6px 9px;font:600 11px Inter,"Segoe UI",sans-serif;color:#4f486c;cursor:pointer}
+.agent-access-option input{margin:0;accent-color:#7763c4}
+.agent-config-note{grid-column:1/-1;font-size:10px;line-height:1.5;color:#736d85;margin:1px 0}
+.agent-config-actions{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:9px}
+.agent-config-actions button{height:39px;min-width:0;border-radius:10px;cursor:pointer}
+.agent-config-actions .save-agent-config{border:1px solid #715ad2;background:#715ad2;color:#fff;
+  font:650 12px Inter,"Segoe UI",sans-serif;padding:8px 15px}
+.agent-config-actions .remove-model{border-color:#e5e2ed;color:#716986}
+.agent-config-actions button:disabled{opacity:.6;cursor:wait}
+.agent-config-feedback{grid-column:1/-1;min-height:15px;font-size:11px;line-height:1.35;color:#65589a;margin:0}
+@media(max-width:760px){
+  .registered-models{gap:8px}
+  .agent-config-card summary{padding:10px 12px}
+  .agent-config-fields{gap:10px;padding:11px 12px}
+  .agent-config-field select{height:43px;font-size:16px}
+  .agent-access-option{min-height:41px;font-size:12px}
+  .agent-config-actions .save-agent-config{min-height:43px}
+}
+@media(max-width:350px){
+  .agent-config-fields{grid-template-columns:minmax(0,1fr)}
+  .agent-config-field,.agent-config-access{grid-column:1}
+}
