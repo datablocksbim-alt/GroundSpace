@@ -281,7 +281,11 @@ try{
     const localAgent=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"]');
     assert.equal(await localAgent.locator('[data-agent-menu]').count(),4);
     assert.equal(await localAgent.locator('details').count(),0,'no whole-card dropdown');
-    assert.equal(await localAgent.locator('.save-agent-config').isDisabled(),true);
+    const tinySave=localAgent.locator('.save-agent-config');
+    assert.equal(await tinySave.isDisabled(),true);
+    assert.equal(await tinySave.getAttribute('aria-label'),
+      'Save configuration for qwen2.5-coder:3b');
+    assert.equal((await tinySave.textContent()).trim(),'✓');
     await localAgent.locator('[data-agent-menu="level"]').click();
     assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),true);
     assert.equal(await localAgent.locator('[data-agent-pane="model_id"]').isVisible(),false);
@@ -296,12 +300,22 @@ try{
       assert.ok(controls.every(c=>c.right<=cardRight+1),'Buttons must not overflow mobile card');
       assert.ok(controls.every(c=>c.height>=32&&c.height<=42),'Compact buttons keep usable touch targets');
     }
+    // Returning to the current saved value cancels the pending Save.
+    await localAgent.locator('[data-agent-menu="level"]').click();
+    await localAgent.locator('[data-agent-field="level"]').selectOption('balanced');
+    assert.equal(await tinySave.isDisabled(),true,'no changes means no Save');
+    await localAgent.locator('[data-agent-menu="level"]').click();
+    await localAgent.locator('[data-agent-field="level"]').selectOption('detailed');
+    assert.equal(await tinySave.isEnabled(),true);
     await localAgent.locator('[data-agent-menu="access"]').click();
     assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),false);
     assert.equal(await localAgent.locator('[data-agent-pane="access"]').isVisible(),true);
     assert.equal(await localAgent.locator('input[data-agent-access]').count(),4);
-    await localAgent.locator('.save-agent-config').click();
+    await tinySave.click();
     await page.waitForFunction(()=>document.querySelector('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .agent-summary-value')?.textContent.includes('detailed'));
+    const refreshedSave=page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .save-agent-config');
+    assert.equal(await refreshedSave.isDisabled(),true,'successful Save returns to disabled state');
+    await page.locator('.agent-config-card[data-agent-item="qwen2.5-coder:3b"] .agent-config-feedback').getByText('Saved').waitFor({state:'visible'});
     assert.equal(agentConfigs['qwen2.5-coder:3b'].level,'detailed');
     // Built-in agents use matching compact rows, not the former technical grid.
     assert.equal(await page.locator('#agentGrid.agent-grid').count(),0);
