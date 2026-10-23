@@ -476,3 +476,24 @@
  .collaboration-card{padding:13px;max-width:100%}
  .collaboration-card button{min-height:43px}
 }
+
+/* GS-024 owner-only official device-code ChatGPT account connection. */
+.chatgpt-connect-card{max-width:1160px;margin:16px auto 20px;padding:20px;
+ border:1px solid #ded7ed;background:#f8f6fe;border-radius:16px}
+.chatgpt-connect-card h2{margin:0 0 8px;font-size:21px}
+.chatgpt-connect-card p{color:#655c80;font-size:13px;line-height:1.55}
+.chatgpt-connect-card small{display:block;color:#756c87;font-size:11px;margin-top:12px}
+.chatgpt-connection-actions{display:flex;flex-wrap:wrap;gap:9px}
+.chatgpt-connection-actions button,#chatgptCopyCode{border:1px solid #c4bae9;color:#523ba0;
+ border-radius:9px;background:white;padding:10px 13px;min-height:42px;cursor:pointer;font-size:13px;font-weight:650}
+#chatgptConnectButton{background:#6e50c7;color:#fff}
+#chatgptConnectButton:disabled{opacity:.52;cursor:not-allowed}
+#chatgptDevicePanel{margin-top:15px;padding:15px;background:#fff;border:1px solid #dfd7f3;border-radius:12px}
+#chatgptDevicePanel[hidden]{display:none}
+#chatgptVerifyLink{color:#5a43b2;display:inline-block;font-weight:650;margin-bottom:10px}
+#chatgptDeviceCode{display:block;background:#f0ecfc;border-radius:9px;
+ padding:13px;font:700 20px Consolas,monospace;letter-spacing:.12em;color:#49307c;
+ margin-bottom:11px;width:fit-content}
+@media(max-width:760px){.chatgpt-connect-card{margin:12px;padding:15px}
+ .chatgpt-connection-actions button{flex:1;min-width:135px}
+ #chatgptDeviceCode{max-width:100%;font-size:18px;overflow-wrap:anywhere}}
