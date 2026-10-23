@@ -36,6 +36,43 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
           }
+  activation-preflight:
+    name: Detached GS-026 worktree preflight (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify detached preflight does not restart any live service
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $remote = 'refs/remotes/origin/feature/gs-026-mobile-agent-model-controls'
+          git update-ref $remote HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare expected remote ref' }
+          $preview = Join-Path $env:RUNNER_TEMP 'gs026-detached-validation'
+          git worktree add --detach $preview HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare detached worktree' }
+          try {
+            function tailscale {
+              if ($args[0] -eq 'status') {
+                return '{"Self":{"DNSName":"ci.device.ts.net."}}'
+              }
+              if ($args[0] -eq 'serve') {
+                return 'https://ci.device.ts.net:8443 -> http://127.0.0.1:8765'
+              }
+              throw 'Unexpected mocked Tailnet operation'
+            }
+            # The runner has no Ground Space process on port 8765. Without
+            # -Restart this may only inspect and print "Preflight only".
+            $output = & (Join-Path $preview 'tools/restart_gs016_codex.ps1') 2>&1 | Out-String
+            if ($output -notmatch 'Preflight only') {
+              throw ('Detached worktree preflight did not reach the no-restart gate: ' + $output)
+            }
+            Write-Host 'Detached GS-026 worktree preflight reached safe no-restart exit.'
+          } finally {
+            git worktree remove --force $preview
+          }
   browser:
     name: iPhone + desktop Chromium click-through
     runs-on: ubuntu-latest
