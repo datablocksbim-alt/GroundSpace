@@ -274,6 +274,31 @@
       </div>
     </form>
   </dialog>
+  <dialog id="manageItemDialog" class="workspace-dialog compact-manage-dialog">
+    <form id="manageItemForm">
+      <h2 id="manageItemTitle">Options</h2>
+      <label for="manageItemName">Name</label>
+      <input id="manageItemName" maxlength="80" required autocomplete="off">
+      <p id="manageItemHint" class="compact-manage-hint"></p>
+      <p id="manageItemError" class="dialog-feedback" role="alert" hidden></p>
+      <div class="compact-manage-actions">
+        <button type="button" id="manageItemCancel">Cancel</button>
+        <button type="submit" id="manageItemSave">Save name</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="removeChatDialog" class="workspace-dialog remove-project-dialog">
+    <div class="remove-project-content">
+      <h2>Delete chat?</h2>
+      <p><strong id="removeChatName"></strong> will disappear from Projects.</p>
+      <p class="remove-project-safety">Its archived conversation and task audit records are retained privately for recovery. This does not erase the underlying history or project files.</p>
+      <p id="removeChatError" class="dialog-feedback" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancelRemoveChat">Cancel</button>
+        <button type="button" id="confirmRemoveChat" class="destructive-action">Delete chat</button>
+      </div>
+    </div>
+  </dialog>
   <dialog id="removeProjectDialog" class="workspace-dialog remove-project-dialog">
     <div class="remove-project-content">
       <h2>Remove project?</h2>

@@ -200,6 +200,26 @@ const server=createServer(async(req,res)=>{
         for(const group of linked)group.project_id=null;
         return json(res,200,result);
       }
+      if(path==='/api/projects/rename'){
+        const item=projects.find(x=>x.id===body.project_id);
+        if(!item||body.confirm_name!==item.name||!String(body.name||'').trim())
+          return json(res,400,{error:'Invalid project rename'});
+        item.name=body.name.trim();return json(res,200,item);
+      }
+      if(path==='/api/groups/rename'){
+        const item=groups.find(x=>x.id===body.group_id);
+        if(!item||body.confirm_name!==item.name||!String(body.name||'').trim())
+          return json(res,400,{error:'Invalid chat rename'});
+        item.name=body.name.trim();return json(res,200,item);
+      }
+      if(path==='/api/groups/remove'){
+        const idx=groups.findIndex(x=>x.id===body.group_id);
+        if(idx<0||body.confirm_name!==groups[idx].name)
+          return json(res,400,{error:'Invalid chat removal'});
+        const item=groups.splice(idx,1)[0];
+        return json(res,200,{removed:item.id,name:item.name,conversation_id:item.conversation_id,transcript_retained:true});
+      }
+
 
       if(path==='/api/models/add'){
         const i=discovered.indexOf(body.model);
@@ -571,9 +591,9 @@ try{
     await page.locator('#groupDialog').waitFor({state:'hidden'});
     await page.locator('#prompt').fill('Build a small Python inventory');
     await page.locator('#startCollaborationButton').click();
-    await page.locator('#messages .collaboration-card').first().waitFor({state:'visible'});
+    await page.locator('#messages .collaboration-card').last().waitFor({state:'visible'});
     assert.equal(collaborations[collaborations.length-1].state,'proposal_pending');
-    await page.locator('#messages button[data-flow-advance]').first().click();
+    await page.locator('#messages button[data-flow-advance]').last().click();
     await page.waitForFunction(()=>document.querySelector('#messages')?.textContent.includes('codex_pending'));
     assert.equal(collaborations[collaborations.length-1].state,'codex_pending');
     assert.equal(codex.jobs[codex.jobs.length-1].reasoning_effort,'medium');
@@ -616,8 +636,43 @@ try{
     await page.waitForFunction(()=>document.querySelector('#codexJobList')?.textContent.includes('running'));
     assert.equal(codex.jobs[codex.jobs.length-1].status,'running');
     assert.equal(exceptions.length,0,label+' Codex settings and approvals: '+exceptions.join(', '));
-    // Owner project removal must be subtle, explicitly confirmed and metadata-only.
+    // Project settings: rename is metadata-only and can be cancelled.
     await page.locator('.nav-button[data-view="chat"]').click();
+    if(viewport.mobile)await page.locator('#mobileRailToggle').click();
+    const currentProject=page.locator('[data-project-cluster="'+createdProject+'"]');
+    const projectActions=currentProject.locator('.rail-action-menu:has([data-item-id="'+createdProject+'"])');
+    await projectActions.locator('summary').click();
+    assert.equal(await projectActions.locator('[data-item-action="rename"]').isVisible(),true);
+    assert.equal(await projectActions.locator('[data-item-action="delete"]').isVisible(),true);
+    assert.equal(await page.locator('#manageItemDialog').isVisible(),false,
+      'ellipsis itself must not launch an extra Options dialog');
+    await projectActions.locator('[data-item-action="rename"]').click();
+    assert.equal(await page.locator('#manageItemDialog').isVisible(),true);
+    await page.locator('#manageItemName').fill('Ignored rename');
+    await page.locator('#manageItemCancel').click();
+    assert.notEqual(projects.find(p=>p.id===createdProject).name,'Ignored rename');
+    await projectActions.locator('summary').click();
+    await projectActions.locator('[data-item-action="rename"]').click();
+    const folderBefore=projects.find(p=>p.id===createdProject).path;
+    await page.locator('#manageItemName').fill(label+' Project Renamed');
+    await page.locator('#manageItemSave').click();
+    await page.waitForFunction(id=>document.querySelector('[data-project-cluster="'+id+'"] .project-folder-name')?.textContent.includes('Renamed'),createdProject);
+    assert.equal(projects.find(p=>p.id===createdProject).path,folderBefore,
+      'rename must not modify the ASUS project path');
+    // Nested chat rename keeps identity and members.
+    const createdChatId=groups.find(g=>g.project_id===createdProject).id;
+    const conversationBefore=groups.find(g=>g.id===createdChatId).conversation_id;
+    const approvalBefore=groups.find(g=>g.id===createdChatId).approval_modes['qwen2.5-coder:3b'];
+    const createdChatActions=currentProject.locator('.rail-action-menu:has([data-item-id="'+createdChatId+'"])');
+    await createdChatActions.locator('summary').click();
+    await createdChatActions.locator('[data-item-action="rename"]').click();
+    await page.locator('#manageItemName').fill(label+' Chat Renamed');
+    await page.locator('#manageItemSave').click();
+    await page.waitForFunction(id=>document.querySelector('[data-group="'+id+'"] b')?.textContent.includes('Renamed'),createdChatId);
+    assert.equal(groups.find(g=>g.id===createdChatId).conversation_id,conversationBefore);
+    assert.equal(groups.find(g=>g.id===createdChatId).approval_modes['qwen2.5-coder:3b'],approvalBefore);
+    if(viewport.mobile)await page.locator('#closeMobileRail').click();
+    // Owner project removal must be subtle, explicitly confirmed and metadata-only.
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
     // The project created within each viewport's run can safely be unlinked
     // without invalidating the original seeded fixture for the next viewport.
@@ -625,13 +680,15 @@ try{
     const groupToPreserve=groups.find(g=>g.project_id===createdProject);
     const preservedChatId=groupToPreserve.conversation_id;
     const preservedApproval=groupToPreserve.approval_modes['qwen2.5-coder:3b'];
-    await existing.locator('[data-project-menu]').click();
+    await projectActions.locator('summary').click();
+    await projectActions.locator('[data-item-action="delete"]').click();
     assert.equal(await page.locator('#removeProjectDialog').isVisible(),true);
     assert.match(await page.locator('#removeProjectDialog').innerText(),/will not be deleted/);
     assert.match(await page.locator('#removeProjectChatNotice').innerText(),/1 existing project chat/);
     await page.locator('#cancelRemoveProject').click();
     assert.ok(projects.some(p=>p.id===createdProject),'Cancel must preserve the project');
-    await existing.locator('[data-project-menu]').click();
+    await projectActions.locator('summary').click();
+    await projectActions.locator('[data-item-action="delete"]').click();
     await page.locator('#confirmRemoveProject').click();
     await page.waitForFunction(id=>!document.querySelector('[data-project-cluster="'+id+'"]'),createdProject);
     assert.equal(projects.some(p=>p.id===createdProject),false,'project unregistered');
@@ -645,7 +702,19 @@ try{
       await unassignedFolder.locator('[data-project-toggle]').click();
     }
     assert.equal(await unassignedFolder.locator('[data-group="'+preserved.id+'"]').isVisible(),true);
-    assert.equal(exceptions.length,0,label+' project removal: '+exceptions.join(', '));
+    const archivedChatActions=unassignedFolder.locator('.rail-action-menu:has([data-item-id="'+preserved.id+'"])');
+    await archivedChatActions.locator('summary').click();
+    await archivedChatActions.locator('[data-item-action="delete"]').click();
+    assert.equal(await page.locator('#removeChatDialog').isVisible(),true);
+    await page.locator('#cancelRemoveChat').click();
+    assert.ok(groups.some(g=>g.id===preserved.id),'Cancelled delete must keep group');
+    await archivedChatActions.locator('summary').click();
+    await archivedChatActions.locator('[data-item-action="delete"]').click();
+    await page.locator('#confirmRemoveChat').click();
+    await page.waitForFunction(id=>!document.querySelector('[data-group="'+id+'"]'),preserved.id);
+    assert.equal(groups.some(g=>g.id===preserved.id),false);
+    assert.ok(conversations[preservedChatId].length>0,'audit transcript retained privately');
+    assert.equal(exceptions.length,0,label+' project/chat management: '+exceptions.join(', '));
     console.log('PASS: '+label+' buttons, project add/remove, preserved chats, Codex and mobile layout');
     await context.close();
   }

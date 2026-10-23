@@ -221,11 +221,21 @@ function renderWorkspaces(){
     state.expandedProjectId=(groups.find(g=>g.project_id&&known.has(g.project_id))?.project_id||
       projects[0]?.id||(unassigned.length?'__unassigned__':''));
   }
+  const itemMenu=(kind,item)=>
+    '<details class="rail-action-menu"><summary class="project-more"'+
+    ' aria-label="Manage '+esc(kind==='project'?'project ':'chat ')+esc(item.name)+'"'+
+    ' title="Rename or delete">···</summary>'+
+    '<div class="rail-action-choices">'+
+    '<button type="button" data-item-action="rename" data-item-kind="'+kind+'"'+
+    ' data-item-id="'+esc(item.id)+'">Rename</button>'+
+    '<button type="button" class="action-danger" data-item-action="delete"'+
+    ' data-item-kind="'+kind+'" data-item-id="'+esc(item.id)+'">'+
+    (kind==='project'?'Remove project':'Delete chat')+'</button></div></details>';
   const groupRows=items=>items.map(g=>
-    '<button type="button" class="group-room project-chat-room '+(g.id===state.groupId?'active':'')+
+    '<div class="project-chat-row"><button type="button" class="group-room project-chat-room '+(g.id===state.groupId?'active':'')+
     '" data-group="'+esc(g.id)+'"><span class="room-avatar" aria-hidden="true">◎</span>'+
     '<span class="project-chat-copy"><b>'+esc(g.name)+'</b><small>'+esc(g.models.length+' AI')+
-    '</small></span></button>'
+    '</small></span></button>'+itemMenu('chat',g)+'</div>'
   ).join('');
   const projectRow=(p,legacy=false)=>{
     const id=legacy?'__unassigned__':p.id;
@@ -243,8 +253,7 @@ function renderWorkspaces(){
       '<span class="project-folder-name">'+esc(p.name)+'</span>'+
       '<span class="project-folder-count" aria-label="'+children.length+' project chats">'+children.length+'</span>'+
       '<span class="project-folder-chevron" aria-hidden="true">'+(expanded?'⌄':'›')+'</span></button>'+
-      (legacy?'':'<button type="button" class="project-more" data-project-menu="'+esc(id)+'"'+
-        ' aria-label="Options for '+esc(p.name)+'" title="Project options">···</button>')+
+      (legacy?'':itemMenu('project',p))+
       '</div>'+
       '<div class="project-chat-list"'+(expanded?'':' hidden')+'>'+
       (childRows||'<p class="rail-empty">No chats in this project</p>')+
@@ -1070,8 +1079,15 @@ $('#groupForm').addEventListener('submit',saveGroup);
 $('#cancelGroup').addEventListener('click',()=>$('#groupDialog').close());
 $('#projectSelect').addEventListener('change',()=>chooseProject($('#projectSelect').value));
 $('#projectList').addEventListener('click',event=>{
-  const more=event.target.closest('button[data-project-menu]');
-  if(more){openRemoveProject(more.dataset.projectMenu);return;}
+  const action=event.target.closest('button[data-item-action]');
+  if(action){
+    const {itemAction,itemKind,itemId}=action.dataset;
+    action.closest('details')?.removeAttribute('open');
+    if(itemAction==='rename')openManageItem(itemKind,itemId);
+    else if(itemKind==='project')openRemoveProject(itemId);
+    else openRemoveChat(itemId);
+    return;
+  }
   const group=event.target.closest('button[data-group]');
   if(group){selectGroup(group.dataset.group);return;}
   const create=event.target.closest('button[data-new-project-group]');
@@ -1082,6 +1098,80 @@ $('#projectList').addEventListener('click',event=>{
   state.expandedProjectId=state.expandedProjectId===id?'':id;
   localStorage.setItem('gs_expanded_project',state.expandedProjectId);
   renderWorkspaces();
+});
+let manageItemTarget=null;
+function openManageItem(kind,id){
+  const records=kind==='project'?(state.data?.workspaces?.projects||[]):(state.data?.workspaces?.groups||[]);
+  const item=records.find(x=>x.id===id);
+  if(!item){toast('Item not found');return;}
+  manageItemTarget={kind,id:item.id,originalName:item.name};
+  $('#manageItemTitle').textContent=kind==='project'?'Rename project':'Rename chat';
+  $('#manageItemName').value=item.name;
+  $('#manageItemName').maxLength=kind==='project'?80:70;
+  $('#manageItemHint').textContent=kind==='project'?
+    'Renaming changes only the Ground Space label. The ASUS folder stays unchanged.':
+    'Renaming keeps the chat messages, AI participants and approval settings.';
+  $('#manageItemError').hidden=true;
+  $('#manageItemSave').disabled=true;
+  $('#manageItemDialog').showModal();
+}
+$('#manageItemName').addEventListener('input',()=>{
+  const value=$('#manageItemName').value.trim();
+  $('#manageItemSave').disabled=!manageItemTarget||!value||
+    value===manageItemTarget.originalName;
+});
+$('#manageItemCancel').addEventListener('click',()=>$('#manageItemDialog').close());
+$('#manageItemDialog').addEventListener('close',()=>{manageItemTarget=null;});
+$('#manageItemForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(!manageItemTarget)return;
+  const item=manageItemTarget;
+  const name=$('#manageItemName').value.trim();
+  const button=$('#manageItemSave');
+  button.disabled=true;
+  try{
+    await api(item.kind==='project'?'/api/projects/rename':'/api/groups/rename',{
+      method:'POST',body:JSON.stringify({
+        [item.kind==='project'?'project_id':'group_id']:item.id,
+        confirm_name:item.originalName,name
+      })
+    });
+    $('#manageItemDialog').close();
+    await refresh();
+    toast((item.kind==='project'?'Project':'Chat')+' renamed');
+  }catch(error){
+    const el=$('#manageItemError');el.textContent=error.message;el.hidden=false;
+  }finally{if($('#manageItemDialog').open)button.disabled=false;}
+});
+let removeChatTarget=null;
+function openRemoveChat(id){
+  const item=(state.data?.workspaces?.groups||[]).find(g=>g.id===id);
+  if(!item){toast('Chat not found');return;}
+  removeChatTarget={id:item.id,name:item.name};
+  $('#removeChatName').textContent=item.name;
+  $('#removeChatError').hidden=true;
+  $('#confirmRemoveChat').disabled=false;
+  $('#removeChatDialog').showModal();
+}
+$('#cancelRemoveChat').addEventListener('click',()=>$('#removeChatDialog').close());
+$('#removeChatDialog').addEventListener('close',()=>{removeChatTarget=null;});
+$('#confirmRemoveChat').addEventListener('click',async()=>{
+  if(!removeChatTarget)return;
+  const item=removeChatTarget;
+  const button=$('#confirmRemoveChat');button.disabled=true;
+  try{
+    await api('/api/groups/remove',{method:'POST',
+      body:JSON.stringify({group_id:item.id,confirm_name:item.name})});
+    $('#removeChatDialog').close();
+    if(state.groupId===item.id){
+      state.groupId=null;
+      setAgent('qwen');
+    }
+    await refresh();
+    toast('Chat removed · history retained privately for recovery');
+  }catch(error){
+    const el=$('#removeChatError');el.textContent=error.message;el.hidden=false;
+  }finally{if($('#removeChatDialog').open)button.disabled=false;}
 });
 let removeProjectTarget=null;
 function openRemoveProject(projectId){
