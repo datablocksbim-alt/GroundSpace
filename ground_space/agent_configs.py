@@ -104,7 +104,11 @@ class AgentConfigs:
     def snapshot(self, registered: list[str], codex_registered: bool) -> dict[str, Any]:
         names = list(registered) + (["codex"] if codex_registered else [])
         return {"schema_version": 1, "profiles": {name: self.get(name) for name in names},
-                "providers": [{"id": "ollama", "connected": True},
-                              {"id": "openai_codex_cli", "connected": codex_registered},
+                # Registration is not provider authentication. Codex CLI
+                # confirms model entitlement/login on actual execution.
+                "providers": [{"id": "ollama", "status": "local_adapter"},
+                              {"id": "openai_codex_cli",
+                               "status": "registered_cli" if codex_registered else "not_registered",
+                               "authentication": "checked_on_execution"},
                               {"id": "anthropic", "connected": False},
                               {"id": "grok", "connected": False}]}
