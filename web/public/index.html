@@ -26,16 +26,7 @@
         <div class="chat-layout">
           <aside class="agent-rail" id="agentRail" aria-label="Chats and projects">
             <div class="mobile-rail-heading"><strong>Chats &amp; projects</strong><button type="button" id="closeMobileRail" aria-label="Close chats and projects">✕</button></div>
-            <p class="eyebrow">Active channel</p>
-            <button class="agent-choice active" data-agent="qwen">
-              <span class="agent-glyph violet">AI</span><span><b>Local AI</b><small>Choose an Ollama model</small></span><em></em>
-            </button>
-            <button class="agent-choice" data-agent="administrator">
-              <span class="agent-glyph amber">A</span><span><b>Administrator</b><small>Task operations</small></span><em></em>
-            </button>
-            <button class="agent-choice" data-agent="codex" id="codexAgentChannel" hidden>
-              <span class="agent-glyph violet">CX</span><span><b>Codex</b><small>Workspace coding agent</small></span><em></em>
-            </button>
+
             <section class="group-rail" aria-label="Group chats">
               <div class="group-rail-heading"><span>GROUP CHATS</span><button type="button" id="newGroupButton" title="Create group chat">+ New</button></div>
               <div id="groupList" class="group-list"></div>
@@ -44,6 +35,20 @@
               <div class="group-rail-heading"><span>PROJECTS</span><button type="button" id="addProjectButton" title="Choose a local project folder">+ Folder</button></div>
               <div id="projectList" class="project-list"></div>
             </section>
+            <details class="private-channel-menu" id="privateChannelMenu">
+              <summary aria-label="Open private AI chats"><span class="private-channel-icon" aria-hidden="true">◉</span><span>Private AI chats</span><span class="private-channel-count">3</span></summary>
+              <div class="private-channel-items">
+                <button class="agent-choice active" data-agent="qwen">
+                  <span class="agent-glyph violet">AI</span><span><b>Local AI</b><small>Ollama conversation</small></span>
+                </button>
+                <button class="agent-choice" data-agent="administrator">
+                  <span class="agent-glyph amber">A</span><span><b>Administrator</b><small>Task operations</small></span>
+                </button>
+                <button class="agent-choice" data-agent="codex" id="codexAgentChannel" hidden>
+                  <span class="agent-glyph violet">CX</span><span><b>Codex</b><small>Private coding chat</small></span>
+                </button>
+              </div>
+            </details>
             <div class="rail-note">
               <span>BOUNDARY 01</span>
               <p>Group bots can be set to Ask me, Approve for me or Off. All AI chat is read/propose only; code execution is separately restricted.</p>
@@ -96,7 +101,7 @@
               </div>
             </form>
           </div>
-          <aside class="active-agent-panel" aria-label="Active agents">
+          <aside class="active-agent-panel" aria-label="Active agents" hidden>
             <div class="active-agent-heading"><p class="eyebrow">Current channel</p><h2>Active agents</h2></div>
             <div id="activeAgentList" class="active-agent-list"></div>
             <p class="active-agent-note" id="activeAgentNote">Participants available in this conversation.</p>
