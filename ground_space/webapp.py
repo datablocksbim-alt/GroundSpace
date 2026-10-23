@@ -239,6 +239,43 @@ class GroundSpaceApp:
             str(body.get("path", "")), str(body.get("name", ""))
         )
 
+    def remove_project(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Remove a project link, never its local directory or chat history."""
+        project_id = body.get("project_id")
+        if not isinstance(project_id, str) or not project_id:
+            raise ValueError("Project ID required")
+        with self.lock:
+            project = self.workspaces.get_project(project_id)
+            if body.get("confirm_name") != project["name"]:
+                raise ValueError("Project confirmation no longer matches. Reopen the dialog.")
+            groups = self.workspaces.snapshot()["groups"]
+            related_groups = {g["id"] for g in groups if g.get("project_id") == project_id}
+            active_states = {"queued", "claimed", "running", "retry_pending",
+                             "retrying", "processing", "leased", "pending_approval"}
+            # Read every queue record rather than just the last 100 visible tasks.
+            for path in self.queue_dir.glob("*.json"):
+                try:
+                    task = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as error:
+                    raise ValueError("Cannot verify the task queue. Project removal blocked.") from error
+                payload = task.get("payload") or {}
+                related = (payload.get("project_id") == project_id or
+                           payload.get("group_id") in related_groups)
+                if (related and task.get("status") in active_states and
+                    task.get("approval", {}).get("status") != "rejected"):
+                    raise ValueError("This project has pending or active tasks. Finish or reject them first.")
+            for job in self.codex.snapshot().get("jobs", []):
+                if job.get("project_id") == project_id and job.get("status") in {
+                    "running", "queued", "pending_approval", "retrying"
+                }:
+                    raise ValueError("This project has an active or awaiting-approval Codex job.")
+            for flow in self.collaborations.snapshot():
+                if flow.get("project_id") == project_id and flow.get("state") not in {
+                    "completed", "failed"
+                }:
+                    raise ValueError("Finish the project's active Co-work run before removing it.")
+            return self.workspaces.remove_project(project_id)
+
     def project_context(self, project_id: str | None) -> str:
         """Describe the selected workspace without granting filesystem access."""
         if not project_id:
@@ -1077,6 +1114,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/projects/add":
                 self._json(HTTPStatus.CREATED, self.app.add_project(body))
+                return
+            if path == "/api/projects/remove":
+                self._json(HTTPStatus.OK, self.app.remove_project(body))
                 return
             if path == "/api/groups/create":
                 self._json(HTTPStatus.CREATED, self.app.create_group(body))
