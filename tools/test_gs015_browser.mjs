@@ -431,25 +431,50 @@ try{
     await page.locator('.nav-button[data-view="chat"]').click();
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
     await page.locator('#addProjectButton').click();
-    await page.locator('#browseRoots').click();
-    await page.locator('#folderEntries button.folder-entry').first().click();
-    await page.locator('#folderEntries button.folder-entry').first().click();
-    await page.locator('#folderEntries button.folder-use').click();
-    await page.locator('#projectName').fill(label+' Demo');
-    await page.locator('#saveProject').click();
+    const picker=page.locator('#projectDialog');
+    await picker.locator('#folderEntries .folder-entry').first().waitFor({state:'visible'});
+    assert.equal(await picker.locator('#projectPath').getAttribute('type'),'hidden');
+    assert.equal(await picker.locator('#saveProject').isDisabled(),true,
+      'folder must be chosen before creating project');
+    assert.equal(await picker.locator('#folderPicker').isVisible(),true);
+    await picker.locator('#folderEntries .folder-entry').first().click();
+    assert.equal(await picker.locator('#folderEntries .folder-use').count(),0,
+      'allowed root itself must not be selectable');
+    await picker.locator('#folderEntries .folder-entry').first().click();
+    await picker.locator('#folderEntries .folder-use').click();
+    assert.equal(await picker.locator('#saveProject').isEnabled(),true);
+    assert.equal(await picker.locator('#selectedProjectFolder').isVisible(),true);
+    assert.equal(await picker.locator('#folderPicker').isVisible(),false);
+    assert.match(await picker.locator('#selectedFolderPath').innerText(),/Demo/);
+    await picker.locator('#changeProjectFolder').click();
+    assert.equal(await picker.locator('#saveProject').isDisabled(),true,
+      'changing selected folder must clear old selection');
+    await picker.locator('#folderEntries .folder-entry').first().click();
+    await picker.locator('#folderEntries .folder-entry').first().click();
+    await picker.locator('#folderEntries .folder-use').click();
+    await picker.locator('#projectName').fill(label+' Demo');
+    await picker.locator('#saveProject').click();
     await page.locator('#projectDialog').waitFor({state:'hidden'});
     await page.waitForFunction(name=>
       [...document.querySelectorAll('#projectSelect option')].some(el=>el.textContent===name),
       label+' Demo');
     assert.equal(exceptions.length,0,label+' project error: '+exceptions.join(', '));
 
-    // Open again and confirm invalid submissions produce a visible inline error.
+    // New project dialog never asks for a typed path; backend still rejects unsafe API paths.
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
     await page.locator('#addProjectButton').click();
-    await page.locator('#projectPath').fill('D:\\000_AI Project\\Forbidden');
-    await page.locator('#saveProject').click();
-    await page.locator('#projectDialogError').waitFor({state:'visible'});
-    assert.match(await page.locator('#projectDialogError').innerText(),/allowed project root/);
+    await page.locator('#folderEntries .folder-entry').first().waitFor({state:'visible'});
+    assert.equal(await page.locator('#saveProject').isDisabled(),true);
+    assert.equal(await page.locator('input#projectPath').isVisible(),false);
+    const outside=await page.evaluate(async()=>{
+      const response=await fetch('/api/projects/add',{
+        method:'POST',headers:{'Content-Type':'application/json',
+          'X-Ground-Space-CSRF':'functional-test-token'},
+        body:JSON.stringify({path:'D:\\\\Forbidden',name:'Unsafe'})});
+      return {status:response.status,data:await response.json()};
+    });
+    assert.equal(outside.status,400);
+    assert.match(outside.data.error,/allowed project root/);
     await page.locator('#cancelProject').click();
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
     const createdProject=projects[projects.length-1].id;
