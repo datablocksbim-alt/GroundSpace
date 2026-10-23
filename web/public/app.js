@@ -154,7 +154,12 @@ function renderMessages(){
       return '<span class="group-task-status">'+esc(t.payload?.speaker||t.payload?.model||t.requested_worker)+
         ' · '+taskStatus(t)+actions+'</span>';
     }).join('');
-    const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task))+codexProgress:'';
+    const directPending=task&&task.status==='queued'&&task.approval?.status==='pending'&&
+      task.payload?.conversation_id===state.conversationId&&!task.payload?.group_id&&entry.agent==='qwen';
+    const directActions=directPending?'<span class="group-approval-actions">'+
+      '<button type="button" data-task-decision="approve" data-task-id="'+esc(task.task_id)+'">Approve reply</button>'+
+      '<button type="button" data-task-decision="reject" data-task-id="'+esc(task.task_id)+'">Reject</button></span>':'';
+    const progress=['user','note'].includes(entry.role)?(groupTasks.length?groupProgress:taskStatus(task)+directActions)+codexProgress:'';
     const noteKind=entry.role==='note'&&['goal','milestone'].includes(entry.kind)?entry.kind:'';
     const noteLabel=noteKind?'<span class="note-label">'+esc(noteKind)+'</span>':'';
     const memberLabel=state.agent==='group'&&['assistant','system'].includes(entry.role)
@@ -228,6 +233,7 @@ function renderWorkspaces(){
     const children=legacy?unassigned:groups.filter(g=>g.project_id===id);
     const childRows=groupRows(children);
     return '<section class="project-cluster" data-project-cluster="'+esc(id)+'">'+
+      '<div class="project-folder-row">'+
       '<button type="button" class="project-room project-folder '+
       ((id===state.projectId&&state.agent!=='group')||(state.agent==='group'&&
         children.some(g=>g.id===state.groupId))?'active':'')+
@@ -237,6 +243,9 @@ function renderWorkspaces(){
       '<span class="project-folder-name">'+esc(p.name)+'</span>'+
       '<span class="project-folder-count" aria-label="'+children.length+' project chats">'+children.length+'</span>'+
       '<span class="project-folder-chevron" aria-hidden="true">'+(expanded?'⌄':'›')+'</span></button>'+
+      (legacy?'':'<button type="button" class="project-more" data-project-menu="'+esc(id)+'"'+
+        ' aria-label="Options for '+esc(p.name)+'" title="Project options">···</button>')+
+      '</div>'+
       '<div class="project-chat-list"'+(expanded?'':' hidden')+'>'+
       (childRows||'<p class="rail-empty">No chats in this project</p>')+
       (legacy?'':'<button type="button" class="new-project-chat" data-new-project-group="'+esc(id)+'">'+
@@ -357,19 +366,34 @@ async function saveGroup(event){
     toast(groupId?'Group updated':'Group created');
   }catch(error){showDialogError('#groupDialogError',error);}
 }
+let projectBrowseRequest=0;
 async function browseFolders(path=null){
+  const request=++projectBrowseRequest;
+  $('#folderEntries').textContent='Loading ASUS folders…';
+  $('#folderUp').disabled=true;
   try{
     const data=await api('/api/projects/browse'+(path?'?path='+encodeURIComponent(path):''));
+    if(request!==projectBrowseRequest||!$('#projectDialog').open)return;
     clearDialogError('#projectDialogError');
     $('#folderPicker').hidden=false;
-    $('#folderCurrent').textContent=data.current||'Allowed project roots';
-    $('#folderUp').disabled=data.is_root_list;
+    $('#folderCurrent').textContent=data.current||'Allowed ASUS folders';
+    $('#folderUp').disabled=Boolean(data.is_root_list);
     $('#folderUp').dataset.parent=data.parent||'';
-    const choose=data.current?'<button type="button" class="folder-use" data-folder="'+esc(data.current)+'">✓ Use this folder</button>':'';
-    $('#folderEntries').innerHTML=choose+(data.folders||[]).map(item=>
-      '<button type="button" class="folder-entry" data-folder="'+esc(item.path)+'">📁 '+esc(item.name)+'</button>'
-    ).join('')||'<p>No subfolders</p>';
-  }catch(error){showDialogError('#projectDialogError',error);}
+    const roots=state.data?.workspaces?.allowed_project_roots||[];
+    const selectable=Boolean(data.current&&!roots.includes(data.current));
+    const choose=selectable?
+      '<button type="button" class="folder-use" data-folder="'+esc(data.current)+'">✓ Select this folder</button>':'';
+    const folders=(data.folders||[]).map(item=>
+      '<button type="button" class="folder-entry" data-folder="'+esc(item.path)+'">'+
+      '<span aria-hidden="true">📁</span> '+esc(item.name)+'</button>'
+    ).join('');
+    $('#folderEntries').innerHTML=choose+folders||
+      '<p class="project-picker-empty">No subfolders. Go back to choose another folder.</p>';
+  }catch(error){
+    if(request!==projectBrowseRequest||!$('#projectDialog').open)return;
+    $('#folderEntries').textContent='Folder list unavailable.';
+    showDialogError('#projectDialogError',error);
+  }
 }
 
 
@@ -544,15 +568,21 @@ function renderTasks(){
     const label=taskLabel(t),time=t.updated_at?new Date(t.updated_at).toLocaleString():'—';
     return '<tr data-task="'+esc(t.task_id)+'" tabindex="0" aria-label="Inspect '+esc(label)+'">'+
       '<td class="task-primary"><b class="task-name" title="'+esc(label)+'">'+esc(label)+'</b>'+
-      '<small class="task-short-id" title="'+esc(t.task_id)+'">'+esc(t.task_id)+'</small></td>'+
+      '<small class="task-short-id" title="'+esc(t.task_id)+'">'+esc(t.task_id)+'</small>'+
+      (t.status==='queued'&&t.approval?.status==='pending'&&t.payload?.conversation_id&&!t.payload?.group_id?
+        '<span class="mobile-task-actions group-approval-actions"><button type="button" data-task-decision="approve" data-task-id="'+esc(t.task_id)+'">Approve</button>'+
+        '<button type="button" data-task-decision="reject" data-task-id="'+esc(t.task_id)+'">Reject</button></span>':'')+'</td>'+
       '<td class="task-worker">'+esc(t.requested_worker)+'</td>'+
-      '<td class="task-approval">'+esc(t.approval?.status||'unknown')+'</td>'+
+      '<td class="task-approval">'+esc(t.approval?.status||'unknown')+
+      (t.status==='queued'&&t.approval?.status==='pending'&&t.payload?.conversation_id&&!t.payload?.group_id?
+        '<span class="group-approval-actions"><button type="button" data-task-decision="approve" data-task-id="'+esc(t.task_id)+'">Approve</button>'+
+        '<button type="button" data-task-decision="reject" data-task-id="'+esc(t.task_id)+'">Reject</button></span>':'')+'</td>'+
       '<td class="task-status"><span class="badge '+esc(t.status)+'">'+esc(t.status)+'</span></td>'+
       '<td class="task-date">'+esc(time)+'</td></tr>';
   }).join('')||'<tr><td colspan="5">No tasks yet.</td></tr>';
   for(const row of rows.querySelectorAll('tr[data-task]')){
     const show=async()=>{$('#taskDetail').textContent=JSON.stringify(await api('/api/tasks/'+encodeURIComponent(row.dataset.task)),null,2)};
-    row.addEventListener('click',()=>show().catch(error=>toast(error.message)));
+    row.addEventListener('click',event=>{if(!event.target.closest('button'))show().catch(error=>toast(error.message));});
     row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();show().catch(error=>toast(error.message));}});
   }
 }
@@ -998,6 +1028,24 @@ $('#messages').addEventListener('click',event=>{
   if(button)copyReply(button.dataset.taskId);
 });
 
+async function decideDirectTask(button){
+  button.disabled=true;
+  try{
+    await api('/api/tasks/'+button.dataset.taskDecision,{method:'POST',
+      body:JSON.stringify({task_id:button.dataset.taskId})});
+    await refresh();
+    toast(button.dataset.taskDecision==='approve'?'Read-only reply approved':'Reply rejected');
+  }catch(error){toast(error.message);button.disabled=false;}
+}
+$('#messages').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-task-decision]');
+  if(button)decideDirectTask(button);
+});
+$('#taskRows').addEventListener('click',event=>{
+  const button=event.target.closest('button[data-task-decision]');
+  if(button){event.stopPropagation();decideDirectTask(button);}
+});
+
 
 $('#openModelSettings').addEventListener('click',openModelSettings);
 $('#cancelModelSettings').addEventListener('click',()=>$('#modelSettingsDialog').close());
@@ -1022,6 +1070,8 @@ $('#groupForm').addEventListener('submit',saveGroup);
 $('#cancelGroup').addEventListener('click',()=>$('#groupDialog').close());
 $('#projectSelect').addEventListener('change',()=>chooseProject($('#projectSelect').value));
 $('#projectList').addEventListener('click',event=>{
+  const more=event.target.closest('button[data-project-menu]');
+  if(more){openRemoveProject(more.dataset.projectMenu);return;}
   const group=event.target.closest('button[data-group]');
   if(group){selectGroup(group.dataset.group);return;}
   const create=event.target.closest('button[data-new-project-group]');
@@ -1033,34 +1083,101 @@ $('#projectList').addEventListener('click',event=>{
   localStorage.setItem('gs_expanded_project',state.expandedProjectId);
   renderWorkspaces();
 });
+let removeProjectTarget=null;
+function openRemoveProject(projectId){
+  const project=(state.data?.workspaces?.projects||[]).find(p=>p.id===projectId);
+  if(!project){toast('Project not found');return;}
+  removeProjectTarget={id:project.id,name:project.name};
+  const count=(state.data?.workspaces?.groups||[]).filter(g=>g.project_id===projectId).length;
+  $('#removeProjectName').textContent=project.name;
+  $('#removeProjectChatNotice').textContent=count?
+    count+' existing project chat'+(count===1?'':'s')+' will move to General · unassigned.':
+    'No project chats need to be moved.';
+  $('#removeProjectError').hidden=true;
+  $('#confirmRemoveProject').disabled=false;
+  $('#removeProjectDialog').showModal();
+}
+$('#cancelRemoveProject').addEventListener('click',()=>$('#removeProjectDialog').close());
+$('#removeProjectDialog').addEventListener('close',()=>{removeProjectTarget=null;});
+$('#confirmRemoveProject').addEventListener('click',async()=>{
+  if(!removeProjectTarget)return;
+  const item=removeProjectTarget;
+  const button=$('#confirmRemoveProject');
+  button.disabled=true;
+  try{
+    const response=await api('/api/projects/remove',{method:'POST',
+      body:JSON.stringify({project_id:item.id,confirm_name:item.name})});
+    $('#removeProjectDialog').close();
+    if(state.projectId===item.id){
+      state.projectId='';
+      localStorage.setItem('gs_project_id','');
+      if(state.agent!=='group')state.conversationId=conversationFor(state.agent,'');
+    }
+    if(state.expandedProjectId===item.id){
+      state.expandedProjectId=response.unassigned_chats?'__unassigned__':'';
+      localStorage.setItem('gs_expanded_project',state.expandedProjectId);
+    }
+    await refresh();
+    toast('Project removed from Ground Space · ASUS folder preserved');
+  }catch(error){
+    const el=$('#removeProjectError');
+    el.textContent=error.message;
+    el.hidden=false;
+  }finally{if($('#removeProjectDialog').open)button.disabled=false;}
+});
+function resetProjectFolderSelection(){
+  $('#projectPath').value='';
+  $('#selectedFolderPath').textContent='';
+  $('#selectedProjectFolder').hidden=true;
+  $('#folderPicker').hidden=false;
+  $('#saveProject').disabled=true;
+}
 $('#addProjectButton').addEventListener('click',()=>{
   setMobileRail(false);
   clearDialogError('#projectDialogError');
-  $('#projectName').value='';$('#projectPath').value='';$('#folderPicker').hidden=true;$('#projectDialog').showModal();
+  $('#projectName').value='';
+  resetProjectFolderSelection();
+  $('#projectDialog').showModal();
+  browseFolders(); // Open the ASUS folder browser immediately; no address entry.
 });
 $('#cancelProject').addEventListener('click',()=>$('#projectDialog').close());
+$('#projectDialog').addEventListener('close',()=>{projectBrowseRequest++});
 $('#projectForm').addEventListener('submit',async event=>{
   event.preventDefault();
+  const path=$('#projectPath').value;
+  if(!path){showDialogError('#projectDialogError','Select an ASUS folder first.');return;}
+  const button=$('#saveProject');
+  button.disabled=true;
   try{
     clearDialogError('#projectDialogError');
     const project=await api('/api/projects/add',{method:'POST',body:JSON.stringify({
-      path:$('#projectPath').value,name:$('#projectName').value
+      path,name:$('#projectName').value
     })});
     $('#projectDialog').close();
     await refresh();
     if(state.agent==='group')setAgent('qwen');
     chooseProject(project.id);
-    toast('Project folder registered — file access remains disabled');
+    toast('Project added · AI file access remains restricted');
   }catch(error){showDialogError('#projectDialogError',error);}
+  finally{if($('#projectDialog').open)button.disabled=!$('#projectPath').value;}
 });
 $('#browseRoots').addEventListener('click',()=>browseFolders());
+$('#changeProjectFolder').addEventListener('click',()=>{
+  resetProjectFolderSelection();
+  browseFolders();
+});
 $('#folderUp').addEventListener('click',()=>browseFolders($('#folderUp').dataset.parent||null));
 $('#folderEntries').addEventListener('click',event=>{
   const button=event.target.closest('button[data-folder]');
   if(!button)return;
   if(button.classList.contains('folder-use')){
-    $('#projectPath').value=button.dataset.folder;
+    const path=button.dataset.folder;
+    $('#projectPath').value=path;
+    $('#selectedFolderPath').textContent=path;
+    $('#selectedProjectFolder').hidden=false;
     $('#folderPicker').hidden=true;
+    $('#saveProject').disabled=false;
+    clearDialogError('#projectDialogError');
   }else browseFolders(button.dataset.folder);
 });
 

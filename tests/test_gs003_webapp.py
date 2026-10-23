@@ -7,11 +7,12 @@ import time
 import unittest
 import urllib.error
 import urllib.request
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ground_space.webapp import GroundSpaceApp, create_server
+from ground_space.workers import PERFORMANCE_PRESETS
 
 
 class GS003WebAppTests(unittest.TestCase):
@@ -78,6 +79,33 @@ class GS003WebAppTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.post_json(f"/api/tasks/{task_id}/approve", {})
         self.assertEqual(404, caught.exception.code)
+
+    def test_authenticated_direct_proposal_decision_is_narrow_and_csrf_protected(self):
+        conversation_id="pending-direct-proposal"
+        task=self.app.administrator.submit(
+            {"request_type":"explanation","prompt":"hello",
+             "conversation_id":conversation_id,"model":"qwen2.5-coder:3b","project_id":None},
+            worker_id="qwen-proposal",required_permissions=["read","propose"],
+            execution_timeout_seconds=5,approved=False,approval_source=None)
+        self.app.add_history(conversation_id,"user","hello",agent="qwen",
+                             task_id=task["task_id"],project_id=None)
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post_json("/api/tasks/approve", {"task_id":task["task_id"]}, csrf=False)
+        self.assertEqual(403,caught.exception.code)
+        original=self.app._process_group
+        process=self.app._process_group=Mock()
+        try:
+            decided=self.post_json("/api/tasks/approve", {"task_id":task["task_id"]})
+            self.assertEqual("approved",decided["approval"]["status"])
+            deadline=time.monotonic()+1
+            while time.monotonic()<deadline and not process.called:
+                time.sleep(0.01)
+            process.assert_called_once_with([task["task_id"]])
+        finally:
+            self.app._process_group=original
+        with self.assertRaises(urllib.error.HTTPError) as duplicate:
+            self.post_json("/api/tasks/approve", {"task_id":task["task_id"]})
+        self.assertEqual(400,duplicate.exception.code)
 
     def test_qwen_stays_proposal_only_when_auto_approved(self):
         created = self.post_json("/api/chat", {"agent": "qwen", "prompt": "Explain a queue",
@@ -201,12 +229,15 @@ class GS003WebAppTests(unittest.TestCase):
             self.assertEqual(self.app.worker_id("qwen3.5:4b"), task["requested_worker"])
             self.assertEqual(["read", "propose"], task["required_permissions"])
             self.assertEqual("qwen3.5:4b", task["payload"]["model"])
-            self.assertEqual("fast", task["payload"]["performance"])
-            self.assertLess(task["execution_timeout_seconds"], 100)
-            with self.assertRaises(urllib.error.HTTPError) as caught:
-                self.post_json("/api/chat", {"agent": "qwen", "prompt": "test",
-                                            "model": "qwen3.5:4b", "performance": "unlimited"})
-            self.assertEqual(400, caught.exception.code)
+            # GS-027 made the saved per-agent profile authoritative; a chat
+            # payload cannot silently override its configured effort level.
+            self.assertEqual("balanced", task["payload"]["performance"])
+            self.assertEqual(PERFORMANCE_PRESETS["balanced"]["timeout_seconds"]+5,
+                             task["execution_timeout_seconds"])
+            ignored=self.post_json("/api/chat", {"agent": "qwen", "prompt": "test",
+                                                  "model": "qwen3.5:4b",
+                                                  "performance": "unlimited"})
+            self.assertEqual("balanced",ignored["task"]["payload"]["performance"])
 
     def test_external_model_providers_are_not_connected(self):
         catalog = self.get_json("/api/bootstrap")["models"]
@@ -326,7 +357,7 @@ class GS003WebAppTests(unittest.TestCase):
             task = self.app.task(response["task_ids"][0])
             self.assertEqual("Coordinator", task["payload"]["speaker"])
             self.assertEqual(group["models"][0], task["payload"]["model"])
-            self.assertEqual("fast", task["payload"]["performance"])
+            self.assertEqual("balanced", task["payload"]["performance"])
             self.assertEqual(["read", "propose"], task["required_permissions"])
             self.assertNotIn("path", task["payload"])
             self.assertEqual(group["id"], task["payload"]["group_id"])

@@ -148,6 +148,53 @@ class GroupApprovalTests(unittest.TestCase):
             {"model":self.models[0]},worker_id="x",required_permissions=["read","propose"],
             execution_timeout_seconds=5,approved=True,approval_source="test")["required_permissions"])
 
+    def direct_task(self, *, project_id=None):
+        conversation_id="private-qwen-chat"
+        payload={"request_type":"explanation","prompt":"hello",
+                 "conversation_id":conversation_id,"project_id":project_id}
+        item=self.app.administrator.submit(
+            payload,worker_id="qwen-proposal",required_permissions=["read","propose"],
+            execution_timeout_seconds=5,approved=False,approval_source=None)
+        self.app.conversations[conversation_id]=[{
+            "role":"user","content":"hello","agent":"qwen",
+            "task_id":item["task_id"],"project_id":project_id,
+        }]
+        return item
+
+    def test_direct_legacy_proposal_can_be_individually_approved_once(self):
+        item=self.direct_task()
+        with patch("ground_space.webapp.threading.Thread") as threads:
+            approved=self.app.decide_direct_proposal_task({"task_id":item["task_id"]},approve=True)
+            self.assertEqual("approved",approved["approval"]["status"])
+            threads.assert_called_once()
+            with self.assertRaisesRegex(ValueError,"pending read-only"):
+                self.app.decide_direct_proposal_task({"task_id":item["task_id"]},approve=True)
+
+    def test_direct_project_proposal_requires_registered_matching_origin(self):
+        project={"id":"project-safe","name":"Safe","path":str(self.dir),"scope":"metadata_only"}
+        self.registry.projects=[project]
+        item=self.direct_task(project_id=project["id"])
+        with patch("ground_space.webapp.threading.Thread"):
+            rejected=self.app.decide_direct_proposal_task({"task_id":item["task_id"]},approve=False)
+        self.assertEqual("rejected",rejected["approval"]["status"])
+        self.assertEqual("ground-space-direct-owner",rejected["approval"]["owner"])
+
+    def test_direct_decision_rejects_group_foreign_and_write_tasks(self):
+        item=self.direct_task()
+        task_id=item["task_id"]
+        for mutation in ("group","history","permission"):
+            task=self.app.administrator.tasks[task_id]
+            if mutation=="group": task["payload"]["group_id"]="group-foreign"
+            elif mutation=="history": self.app.conversations["private-qwen-chat"]=[]
+            else: task["required_permissions"]=["read","write"]
+            with self.assertRaisesRegex(ValueError,"pending read-only"):
+                self.app.decide_direct_proposal_task({"task_id":task_id},approve=True)
+            task["payload"].pop("group_id",None)
+            task["required_permissions"]=["read","propose"]
+            self.app.conversations["private-qwen-chat"]=[{
+                "role":"user","agent":"qwen","task_id":task_id,"project_id":None,
+            }]
+
 
 if __name__=="__main__":
     unittest.main()

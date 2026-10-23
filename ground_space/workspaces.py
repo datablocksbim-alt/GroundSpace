@@ -157,6 +157,39 @@ class WorkspaceRegistry:
             self.projects = updated
             return dict(project)
 
+    def remove_project(self, project_id: str) -> dict[str, Any]:
+        """Unregister metadata only; preserve chat groups and their conversation IDs.
+
+        Nested groups become unassigned, retaining their members, messages and
+        approval policies. This never touches the selected filesystem folder.
+        """
+        if not isinstance(project_id, str) or not project_id.startswith("project-"):
+            raise ValueError("Valid project ID required")
+        with self.lock:
+            project = self.get_project(project_id)
+            remaining = [p for p in self.projects if p["id"] != project_id]
+            previous_groups = self.groups
+            groups = [
+                {**g, "project_id": None} if g.get("project_id") == project_id else g
+                for g in previous_groups
+            ]
+            # Update both small registries before in-memory mutation. If
+            # project persistence fails, restore the previous group registry.
+            if groups != previous_groups:
+                _save(self.groups_file, {"schema_version": 1, "groups": groups})
+            try:
+                _save(self.projects_file, {"schema_version": 1, "projects": remaining})
+            except Exception:
+                if groups != previous_groups:
+                    _save(self.groups_file, {"schema_version": 1, "groups": previous_groups})
+                raise
+            self.projects = remaining
+            self.groups = groups
+            return {"removed": project["id"], "name": project["name"],
+                    "unassigned_chats": sum(
+                        g.get("project_id") == project_id for g in previous_groups
+                    ), "folder_deleted": False}
+
     def get_group(self, group_id: str) -> dict[str, Any]:
         with self.lock:
             for group in self.groups:

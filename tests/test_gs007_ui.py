@@ -29,14 +29,15 @@ class GS007UITests(unittest.TestCase):
         cls.parser.feed(cls.html)
 
     def test_group_creation_and_participant_controls(self):
-        for key in ("newGroupButton", "groupDialog", "groupForm", "groupName",
-                    "groupProject", "groupMemberOptions", "saveGroup", "editGroupButton",
-                    "groupList"):
+        for key in ("groupDialog", "groupForm", "groupName", "groupProject",
+                    "groupMemberOptions", "saveGroup", "editGroupButton",
+                    "projectList", "addProjectButton"):
             with self.subTest(key=key):
                 self.assertIn(key, self.parser.ids)
         self.assertIn("/api/groups/create", self.js)
         self.assertIn("/api/groups/update", self.js)
         self.assertIn("/api/groups/send", self.js)
+        self.assertIn("data-new-project-group", self.js)
 
     def test_group_participants_are_visible_and_mentions_are_discoverable(self):
         self.assertIn('id="mentionMenu"', self.html)

@@ -39,7 +39,7 @@ MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
-BACKEND_RELEASE = "GS-028"
+BACKEND_RELEASE = "GS-029"
 
 # A single explicit private HTTPS Origin is opt-in for the owner-only Tailscale
 # Serve pilot. Never derive trusted origins from untrusted Host/forwarded headers.
@@ -238,6 +238,49 @@ class GroundSpaceApp:
         return self.workspaces.add_project(
             str(body.get("path", "")), str(body.get("name", ""))
         )
+
+    def remove_project(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Remove a project link, never its local directory or chat history."""
+        project_id = body.get("project_id")
+        if not isinstance(project_id, str) or not project_id:
+            raise ValueError("Project ID required")
+        with self.lock:
+            project = self.workspaces.get_project(project_id)
+            if body.get("confirm_name") != project["name"]:
+                raise ValueError("Project confirmation no longer matches. Reopen the dialog.")
+            groups = self.workspaces.snapshot()["groups"]
+            related_groups = {g["id"] for g in groups if g.get("project_id") == project_id}
+            active_states = {"queued", "claimed", "running", "retry_pending",
+                             "retrying", "processing", "leased", "pending_approval"}
+            # Read every queue record rather than just the last 100 visible tasks.
+            for path in self.queue_dir.glob("*.json"):
+                try:
+                    task = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as error:
+                    raise ValueError("Cannot verify the task queue. Project removal blocked.") from error
+                payload = task.get("payload") or {}
+                related = (payload.get("project_id") == project_id or
+                           payload.get("group_id") in related_groups)
+                rejected_queued = (task.get("status") == "queued" and
+                                   task.get("approval", {}).get("status") == "rejected")
+                if related and task.get("status") in active_states and not rejected_queued:
+                    raise ValueError("This project has pending or active tasks. Finish or reject them first.")
+            # Codex snapshots show only the newest 50 jobs; inspect the complete
+            # retained job ledger before unlinking a workspace.
+            all_codex_jobs = getattr(self.codex, "jobs", None)
+            if all_codex_jobs is None:
+                all_codex_jobs = self.codex.snapshot().get("jobs", [])
+            for job in all_codex_jobs:
+                if job.get("project_id") == project_id and job.get("status") in {
+                    "running", "queued", "pending_approval", "retrying"
+                }:
+                    raise ValueError("This project has an active or awaiting-approval Codex job.")
+            for flow in self.collaborations.snapshot():
+                if flow.get("project_id") == project_id and flow.get("state") not in {
+                    "completed", "failed"
+                }:
+                    raise ValueError("Finish the project's active Co-work run before removing it.")
+            return self.workspaces.remove_project(project_id)
 
     def project_context(self, project_id: str | None) -> str:
         """Describe the selected workspace without granting filesystem access."""
@@ -638,6 +681,63 @@ class GroundSpaceApp:
             threading.Thread(target=self._process_group, args=([task_id],), daemon=True).start()
         return updated
 
+    def decide_direct_proposal_task(self, body: dict[str, Any], *, approve: bool) -> dict[str, Any]:
+        """Owner decision for one queued direct-chat proposal task.
+
+        This is intentionally narrower than a generic task approval API.  The
+        task must already belong to a persisted, non-group Qwen conversation,
+        must retain proposal-only permissions, and must map to the registered
+        local worker that created it.  Legacy qwen-proposal records predate the
+        payload model field, so that one exact worker maps to its historic model.
+        """
+        task_id = body.get("task_id")
+        if not isinstance(task_id, str) or not task_id.startswith("GS-"):
+            raise ValueError("Valid proposal task ID required")
+        with self.lock:
+            task = self.administrator.status(task_id)
+            payload = task.get("payload", {})
+            conversation_id = payload.get("conversation_id")
+            project_id = payload.get("project_id")
+            worker_id = task.get("requested_worker")
+            model = payload.get("model")
+            if worker_id == "qwen-proposal" and not model:
+                model = "qwen2.5-coder:3b"
+            expected_worker = self.worker_id(model) if isinstance(model, str) else None
+            messages = self.conversations.get(conversation_id, []) if isinstance(conversation_id, str) else []
+            source = next((item for item in messages if item.get("task_id") == task_id), None)
+            group_conversations = {
+                item.get("conversation_id") for item in self.workspaces.snapshot().get("groups", [])
+            }
+            valid_project = project_id is None
+            if project_id is not None:
+                try:
+                    valid_project = self.workspaces.validate_project(project_id) == project_id
+                except ValueError:
+                    valid_project = False
+            if (task.get("source") != "ground_space" or
+                task.get("status") != "queued" or
+                task.get("approval", {}).get("status") != "pending" or
+                payload.get("group_id") or
+                conversation_id in group_conversations or
+                not source or source.get("agent") != "qwen" or
+                source.get("project_id") != project_id or
+                not valid_project or
+                worker_id != expected_worker or
+                set(task.get("required_permissions", [])) != {"read", "propose"}):
+                raise ValueError("Only a pending read-only reply in its original direct conversation may be decided")
+            if approve:
+                updated = self.administrator.approve(task_id, owner="ground-space-direct-owner")
+            else:
+                updated = self.administrator.queue.transition(
+                    task, "queued", approval={
+                        "status": "rejected", "owner": "ground-space-direct-owner",
+                        "decided_at": utc_timestamp(), "method": "manual",
+                    }
+                )
+        if approve:
+            threading.Thread(target=self._process_group, args=([task_id],), daemon=True).start()
+        return updated
+
     def _process_group(self, task_ids: list[str]) -> None:
         # Single laptop GPU: avoid parallel simultaneous Ollama generations.
         with self.group_dispatch_lock:
@@ -900,6 +1000,7 @@ class GroundSpaceApp:
                     "enabled":self.chatgpt_connection.enabled(),
                     "login_state":self.chatgpt_connection.login_state},
                 "backend_release": BACKEND_RELEASE,
+                "capabilities": {"project_remove": True, "project_folder_picker": True},
                 "security": security_posture(),
                 "paid_api_usage_aud": 0}
 
@@ -1021,6 +1122,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
             if path == "/api/projects/add":
                 self._json(HTTPStatus.CREATED, self.app.add_project(body))
                 return
+            if path == "/api/projects/remove":
+                self._json(HTTPStatus.OK, self.app.remove_project(body))
+                return
             if path == "/api/groups/create":
                 self._json(HTTPStatus.CREATED, self.app.create_group(body))
                 return
@@ -1032,6 +1136,12 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/groups/reject":
                 self._json(HTTPStatus.OK, self.app.decide_group_task(body, approve=False))
+                return
+            if path == "/api/tasks/approve":
+                self._json(HTTPStatus.OK, self.app.decide_direct_proposal_task(body, approve=True))
+                return
+            if path == "/api/tasks/reject":
+                self._json(HTTPStatus.OK, self.app.decide_direct_proposal_task(body, approve=False))
                 return
             if path == "/api/groups/send":
                 self._json(HTTPStatus.CREATED, self.app.submit_group(body))

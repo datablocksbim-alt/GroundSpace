@@ -23,6 +23,11 @@ const agentConfigs={};
 const conversations = {};
 const codex = {default_mode:'manual',project_modes:{},jobs:[]};
 const state = {csrf:'functional-test-token'};
+tasks.push({task_id:'GS-PENDING-DIRECT',status:'queued',requested_worker:'qwen-proposal',
+  payload:{conversation_id:'direct-pending',model:'qwen2.5-coder:3b',project_id:null},
+  required_permissions:['read','propose'],approval:{status:'pending'}});
+conversations['direct-pending']=[{role:'user',agent:'qwen',content:'Pending owner review',
+  timestamp:new Date().toISOString(),task_id:'GS-PENDING-DIRECT',project_id:null}];
 // Migration-free navigation fixture: stored group IDs, messages and approvals must survive.
 projects.push({id:'project-existing',name:'Existing Ground Space',
   path:'D:\\000_AI Project\\Existing Ground Space'});
@@ -184,6 +189,18 @@ const server=createServer(async(req,res)=>{
         const item={id:'project-'+(projects.length+1),name:body.name||'Demo',path:body.path};
         projects.push(item);return json(res,201,item);
       }
+      if(path==='/api/projects/remove'){
+        const index=projects.findIndex(x=>x.id===body.project_id);
+        if(index<0||body.confirm_name!==projects[index].name)
+          return json(res,400,{error:'Project confirmation mismatch'});
+        const item=projects[index];
+        const linked=groups.filter(x=>x.project_id===item.id);
+        const result={removed:item.id,name:item.name,unassigned_chats:linked.length,folder_deleted:false};
+        projects.splice(index,1);
+        for(const group of linked)group.project_id=null;
+        return json(res,200,result);
+      }
+
       if(path==='/api/models/add'){
         const i=discovered.indexOf(body.model);
         if(i<0)return json(res,400,{error:'Model must already be installed in local Ollama'});
@@ -241,6 +258,12 @@ const server=createServer(async(req,res)=>{
         task.approval.status=path.endsWith('/approve')?'approved':'rejected';
         return json(res,200,task);
       }
+      if(path==='/api/tasks/approve'||path==='/api/tasks/reject'){
+        const task=tasks.find(t=>t.task_id===body.task_id&&!t.payload.group_id);
+        if(!task||task.approval.status!=='pending')return json(res,400,{error:'Pending direct task not found'});
+        task.approval.status=path.endsWith('/approve')?'approved':'rejected';
+        return json(res,200,task);
+      }
       if(path==='/api/chat'){
         const id=body.conversation_id||'chat';
         if(body.agent==='codex'){
@@ -274,6 +297,7 @@ try{
     const label=viewport.mobile?'mobile':'desktop';
     registered.splice(0,registered.length,{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only',provider:'ollama'});
     discovered.splice(0,discovered.length,'granite4:3b','codex');
+    tasks.find(task=>task.task_id==='GS-PENDING-DIRECT').approval.status='pending';
     const context=await browser.newContext({viewport:{width:viewport.width,height:viewport.height},isMobile:viewport.mobile,hasTouch:viewport.mobile});
     const page=await context.newPage();
     const exceptions=[];
@@ -431,25 +455,50 @@ try{
     await page.locator('.nav-button[data-view="chat"]').click();
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
     await page.locator('#addProjectButton').click();
-    await page.locator('#browseRoots').click();
-    await page.locator('#folderEntries button.folder-entry').first().click();
-    await page.locator('#folderEntries button.folder-entry').first().click();
-    await page.locator('#folderEntries button.folder-use').click();
-    await page.locator('#projectName').fill(label+' Demo');
-    await page.locator('#saveProject').click();
+    const picker=page.locator('#projectDialog');
+    await picker.locator('#folderEntries .folder-entry').first().waitFor({state:'visible'});
+    assert.equal(await picker.locator('#projectPath').getAttribute('type'),'hidden');
+    assert.equal(await picker.locator('#saveProject').isDisabled(),true,
+      'folder must be chosen before creating project');
+    assert.equal(await picker.locator('#folderPicker').isVisible(),true);
+    await picker.locator('#folderEntries .folder-entry').first().click();
+    assert.equal(await picker.locator('#folderEntries .folder-use').count(),0,
+      'allowed root itself must not be selectable');
+    await picker.locator('#folderEntries .folder-entry').first().click();
+    await picker.locator('#folderEntries .folder-use').click();
+    assert.equal(await picker.locator('#saveProject').isEnabled(),true);
+    assert.equal(await picker.locator('#selectedProjectFolder').isVisible(),true);
+    assert.equal(await picker.locator('#folderPicker').isVisible(),false);
+    assert.match(await picker.locator('#selectedFolderPath').innerText(),/Demo/);
+    await picker.locator('#changeProjectFolder').click();
+    assert.equal(await picker.locator('#saveProject').isDisabled(),true,
+      'changing selected folder must clear old selection');
+    await picker.locator('#folderEntries .folder-entry').first().click();
+    await picker.locator('#folderEntries .folder-entry').first().click();
+    await picker.locator('#folderEntries .folder-use').click();
+    await picker.locator('#projectName').fill(label+' Demo');
+    await picker.locator('#saveProject').click();
     await page.locator('#projectDialog').waitFor({state:'hidden'});
     await page.waitForFunction(name=>
       [...document.querySelectorAll('#projectSelect option')].some(el=>el.textContent===name),
       label+' Demo');
     assert.equal(exceptions.length,0,label+' project error: '+exceptions.join(', '));
 
-    // Open again and confirm invalid submissions produce a visible inline error.
+    // New project dialog never asks for a typed path; backend still rejects unsafe API paths.
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
     await page.locator('#addProjectButton').click();
-    await page.locator('#projectPath').fill('D:\\000_AI Project\\Forbidden');
-    await page.locator('#saveProject').click();
-    await page.locator('#projectDialogError').waitFor({state:'visible'});
-    assert.match(await page.locator('#projectDialogError').innerText(),/allowed project root/);
+    await page.locator('#folderEntries .folder-entry').first().waitFor({state:'visible'});
+    assert.equal(await page.locator('#saveProject').isDisabled(),true);
+    assert.equal(await page.locator('input#projectPath').isVisible(),false);
+    const outside=await page.evaluate(async()=>{
+      const response=await fetch('/api/projects/add',{
+        method:'POST',headers:{'Content-Type':'application/json',
+          'X-Ground-Space-CSRF':'functional-test-token'},
+        body:JSON.stringify({path:'D:\\\\Forbidden',name:'Unsafe'})});
+      return {status:response.status,data:await response.json()};
+    });
+    assert.equal(outside.status,400);
+    assert.match(outside.data.error,/allowed project root/);
     await page.locator('#cancelProject').click();
     if(viewport.mobile)await page.locator('#mobileRailToggle').click();
     const createdProject=projects[projects.length-1].id;
@@ -541,6 +590,10 @@ try{
     const maxScroll=await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
     assert.ok(maxScroll<=2,label+' task table must not overflow horizontally: '+maxScroll);
     assert.equal(await page.locator('#taskRows .task-name').first().isVisible(),true);
+    const directRow=page.locator('#taskRows tr[data-task="GS-PENDING-DIRECT"]');
+    await directRow.locator('button[data-task-decision="approve"]:visible').click();
+    await page.waitForFunction(()=>!document.querySelector('tr[data-task="GS-PENDING-DIRECT"] button[data-task-decision]'));
+    assert.equal(tasks.find(task=>task.task_id==='GS-PENDING-DIRECT').approval.status,'approved');
     await page.locator('.nav-button[data-view="agents"]').click();
     await page.locator('#codexAdvanced > summary').click();
     assert.equal(await page.locator('#codexAgentSettings').isVisible(),true);
@@ -563,7 +616,37 @@ try{
     await page.waitForFunction(()=>document.querySelector('#codexJobList')?.textContent.includes('running'));
     assert.equal(codex.jobs[codex.jobs.length-1].status,'running');
     assert.equal(exceptions.length,0,label+' Codex settings and approvals: '+exceptions.join(', '));
-    console.log('PASS: '+label+' buttons, project add, Codex added in Agents, Codex approvals, group chat and layout');
+    // Owner project removal must be subtle, explicitly confirmed and metadata-only.
+    await page.locator('.nav-button[data-view="chat"]').click();
+    if(viewport.mobile)await page.locator('#mobileRailToggle').click();
+    // The project created within each viewport's run can safely be unlinked
+    // without invalidating the original seeded fixture for the next viewport.
+    const existing=page.locator('[data-project-cluster="'+createdProject+'"]');
+    const groupToPreserve=groups.find(g=>g.project_id===createdProject);
+    const preservedChatId=groupToPreserve.conversation_id;
+    const preservedApproval=groupToPreserve.approval_modes['qwen2.5-coder:3b'];
+    await existing.locator('[data-project-menu]').click();
+    assert.equal(await page.locator('#removeProjectDialog').isVisible(),true);
+    assert.match(await page.locator('#removeProjectDialog').innerText(),/will not be deleted/);
+    assert.match(await page.locator('#removeProjectChatNotice').innerText(),/1 existing project chat/);
+    await page.locator('#cancelRemoveProject').click();
+    assert.ok(projects.some(p=>p.id===createdProject),'Cancel must preserve the project');
+    await existing.locator('[data-project-menu]').click();
+    await page.locator('#confirmRemoveProject').click();
+    await page.waitForFunction(id=>!document.querySelector('[data-project-cluster="'+id+'"]'),createdProject);
+    assert.equal(projects.some(p=>p.id===createdProject),false,'project unregistered');
+    const preserved=groups.find(g=>g.id===groupToPreserve.id);
+    assert.equal(preserved.project_id,null,'group moved to unassigned');
+    assert.equal(preserved.conversation_id,preservedChatId,'conversation ID stays');
+    assert.equal(preserved.approval_modes['qwen2.5-coder:3b'],preservedApproval);
+    assert.ok(conversations[preservedChatId].length>0,'conversation history retained');
+    const unassignedFolder=page.locator('[data-project-cluster="__unassigned__"]');
+    if(await unassignedFolder.locator('.project-chat-list').isHidden()){
+      await unassignedFolder.locator('[data-project-toggle]').click();
+    }
+    assert.equal(await unassignedFolder.locator('[data-group="'+preserved.id+'"]').isVisible(),true);
+    assert.equal(exceptions.length,0,label+' project removal: '+exceptions.join(', '));
+    console.log('PASS: '+label+' buttons, project add/remove, preserved chats, Codex and mobile layout');
     await context.close();
   }
 } finally{
