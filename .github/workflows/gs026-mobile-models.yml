@@ -27,13 +27,15 @@ jobs:
         run: node --check web/public/app.js
       - name: Chromium test JS syntax
         run: node --check tools/test_gs015_browser.mjs
-      - name: Guarded restart PowerShell syntax
+      - name: Preview and guarded restart PowerShell syntax
         shell: pwsh
         run: |
-          $tokens = $null
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile('tools/restart_gs016_codex.ps1', [ref]$tokens, [ref]$errors) | Out-Null
-          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+          foreach ($file in @('tools/prepare_gs026_preview.ps1', 'tools/restart_gs016_codex.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+          }
   browser:
     name: iPhone + desktop Chromium click-through
     runs-on: ubuntu-latest
