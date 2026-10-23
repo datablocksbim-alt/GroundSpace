@@ -286,6 +286,8 @@ class GroundSpaceApp:
                 raise ValueError("Group project changed; workflow requires review")
             if run["state"]=="proposal_pending":
                 task=self.administrator.status(run["proposal_task_id"])
+                if task.get("status") in ("failed","blocked","cancelled"):
+                    return self.collaborations.fail(flow_id,"Qwen proposal did not complete")
                 if task.get("status")!="completed":
                     return dict(run,waiting_for="Qwen proposal: "+str(task.get("status")))
                 if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex")=="disabled":
@@ -310,6 +312,8 @@ class GroundSpaceApp:
                 return flow
             if run["state"]=="codex_pending":
                 job=self.codex.get(run["codex_job_id"])
+                if job["status"] in ("failed","rejected","interrupted"):
+                    return self.collaborations.fail(flow_id,"Codex implementation did not complete")
                 if job["status"]!="completed":
                     return dict(run,waiting_for="Codex: "+str(job["status"]))
                 if run["granite_model"] not in group["models"] or group.get("approval_modes",{}).get(run["granite_model"])=="disabled":
@@ -329,6 +333,8 @@ class GroundSpaceApp:
                     state="review_pending",link_name="review_task_id",link_id=tasks[0])
             if run["state"]=="review_pending":
                 review=self.administrator.status(run["review_task_id"])
+                if review.get("status") in ("failed","blocked","cancelled"):
+                    return self.collaborations.fail(flow_id,"Granite review did not complete")
                 if review.get("status")!="completed":
                     return dict(run,waiting_for="Granite report review: "+str(review.get("status")))
                 return self.collaborations.finish(flow_id)
