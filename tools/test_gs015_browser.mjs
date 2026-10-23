@@ -591,9 +591,9 @@ try{
     await page.locator('#groupDialog').waitFor({state:'hidden'});
     await page.locator('#prompt').fill('Build a small Python inventory');
     await page.locator('#startCollaborationButton').click();
-    await page.locator('#messages .collaboration-card').first().waitFor({state:'visible'});
+    await page.locator('#messages .collaboration-card').last().waitFor({state:'visible'});
     assert.equal(collaborations[collaborations.length-1].state,'proposal_pending');
-    await page.locator('#messages button[data-flow-advance]').first().click();
+    await page.locator('#messages button[data-flow-advance]').last().click();
     await page.waitForFunction(()=>document.querySelector('#messages')?.textContent.includes('codex_pending'));
     assert.equal(collaborations[collaborations.length-1].state,'codex_pending');
     assert.equal(codex.jobs[codex.jobs.length-1].reasoning_effort,'medium');
