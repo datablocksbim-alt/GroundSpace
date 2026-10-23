@@ -382,6 +382,7 @@ try{
     assert.equal(await page.locator('#projectList').evaluate(x=>
       Boolean(x.compareDocumentPosition(document.querySelector('#privateChannelMenu')) &
         Node.DOCUMENT_POSITION_FOLLOWING)),true);
+    if(viewport.mobile)await page.locator('#mobileRailToggle').click();
     const preservedProject=page.locator('[data-project-cluster="project-existing"]');
     assert.equal(await preservedProject.count(),1,'existing project appears');
     await preservedProject.locator('[data-project-toggle]').click();
