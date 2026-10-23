@@ -740,3 +740,25 @@
   #view-agents .agent-mini-button{padding:7px 7px;font-size:10.5px}
   #view-agents .agent-small-actions .save-agent-config{padding:7px 8px;font-size:10.5px}
 }
+
+
+/* GS-027: small, accessible check-only save action with inline confirmation. */
+#view-agents .agent-small-actions .save-agent-config{
+  width:31px;min-width:31px;height:29px;min-height:29px;
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:0!important;font:700 16px/1 Inter,"Segoe UI",sans-serif;
+  border-radius:7px;flex:0 0 31px;
+}
+#view-agents .agent-small-actions .save-agent-config:disabled{
+  background:#f6f4fb;color:#9c96ae;border-color:#e4e0eb;opacity:1;
+}
+#view-agents .agent-small-actions .save-agent-config:not(:disabled){
+  background:#715ad2;color:#fff;border-color:#715ad2;
+}
+#view-agents .agent-config-feedback.saved{color:#347c60;font-weight:650}
+@media(max-width:760px){
+  #view-agents .agent-small-actions .save-agent-config{
+    width:36px;min-width:36px;height:36px;min-height:36px;flex-basis:36px;
+    font-size:17px;
+  }
+}
