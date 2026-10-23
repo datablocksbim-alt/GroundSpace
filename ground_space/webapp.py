@@ -25,6 +25,7 @@ from .collaboration import CollaborationLedger
 from .chatgpt_connection import CodexAppServerClient
 from .security import assert_private_owner_mode, security_posture, RequestRateLimit
 from .model_profiles import ModelProfiles
+from .agent_configs import AgentConfigs, validate_config
 from .messages import utc_timestamp
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
@@ -127,6 +128,7 @@ class GroundSpaceApp:
         self.conversations = self._load_history()
         self.codex = CodexPilot(self.state_dir / "private", self.workspaces)
         self.model_profiles = ModelProfiles(self.state_dir / "private" / "agent_model_profiles.json")
+        self.agent_configs = AgentConfigs(self.state_dir / "private" / "agent_configs.json")
         self.collaborations = CollaborationLedger(self.state_dir / "private" / "collaborations.json")
         self.chatgpt_connection = CodexAppServerClient()
         self.collaboration_lock = threading.RLock()
@@ -242,9 +244,49 @@ class GroundSpaceApp:
             "claim to have inspected, changed, or executed files in this folder.\n"
         )
 
+    def agent_config(self, agent_id: str) -> dict[str, Any]:
+        configs = getattr(self, "agent_configs", None)
+        return configs.get(agent_id) if configs else (
+            {"model_id": "", "level": "", "access": ["read", "review", "workspace_write"], "approval": "manual"}
+            if agent_id == "codex" else
+            {"model_id": agent_id, "level": "balanced",
+             "access": ["chat", "read", "propose", "review"], "approval": "auto_read_only"}
+        )
+
+    def require_agent_access(self, agent_id: str, *, write: bool = False,
+                             request_type: str = "explanation") -> dict[str, Any]:
+        cfg = self.agent_config(agent_id)
+        if cfg["approval"] == "disabled":
+            raise ValueError("This agent is disabled in Agents")
+        required = "workspace_write" if write else ("review" if request_type == "assessment" else
+                   "propose" if request_type == "code_proposal" else "read")
+        if required not in cfg["access"]:
+            raise ValueError("This agent does not have " + required + " access. Edit Agents settings.")
+        return cfg
+
+    def save_agent_config(self, body: dict[str, Any]) -> dict[str, Any]:
+        agent_id = body.get("agent_id")
+        with self.lock:
+            registered = list(self.registered_models)
+            if agent_id == "codex" and not self.codex.is_registered():
+                raise ValueError("Codex is not registered")
+            cleaned = validate_config(agent_id, {
+                "model_id": body.get("model_id"), "level": body.get("level"),
+                "access": body.get("access"), "approval": body.get("approval"),
+            }, registered)
+            if agent_id == "codex":
+                # Existing Codex policy is the authoritative owner default.
+                # Project-specific policies remain independently restricted.
+                self.codex.set_policy({"mode": cleaned["approval"], "project_id": None})
+            return self.agent_configs.save(agent_id, cleaned, registered)
+
     def codex_selection(self, *, group_id: str | None = None) -> dict[str, str]:
-        profiles=getattr(self,"model_profiles",None)
-        return profiles.get(group_id=group_id) if profiles else {"model_id":"","reasoning_effort":""}
+        profiles = getattr(self, "model_profiles", None)
+        key = "codex:" + ("group:" + group_id if group_id else "direct")
+        if profiles and key in profiles.entries:
+            return profiles.get(group_id=group_id)
+        cfg = self.agent_config("codex")
+        return {"model_id": cfg["model_id"], "reasoning_effort": cfg["level"]}
 
     def set_model_profile(self, body: dict[str, Any]) -> dict[str,str]:
         if body.get("provider")!="codex":
@@ -627,6 +669,7 @@ class GroundSpaceApp:
                 raise ValueError("Add Codex from Agents before sending it a task")
             if not project_id:
                 raise ValueError("Select a registered project before requesting Codex")
+            self.require_agent_access("codex", write=not bool(note))
             item = self.codex.submit({"project_id":project_id, "prompt":prompt,
                                       "scope":"read_only" if note else "workspace_write",
                                       "conversation_id":conversation_id,
@@ -774,6 +817,7 @@ class GroundSpaceApp:
                 "workspaces": self.workspaces.snapshot(), "codex": self.codex.snapshot(),
                 "collaborations": self.collaborations.snapshot(),
                 "model_profiles": self.model_profiles.snapshot(),
+                 "agent_configs": self.agent_configs.snapshot(self.registered_models, self.codex.is_registered()),
                 "chatgpt_connection": {"scope":"single_owner_codex_cli",
                     "enabled":self.chatgpt_connection.enabled(),
                     "login_state":self.chatgpt_connection.login_state},
@@ -923,6 +967,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
             if path == "/api/collaboration/advance":
                 self._json(HTTPStatus.OK, self.app.advance_collaboration(body))
                 return
+            if path == "/api/agents/configure":
+                self._json(HTTPStatus.OK, self.app.save_agent_config(body))
+                return
             if path == "/api/model-profiles/set":
                 self._json(HTTPStatus.OK, self.app.set_model_profile(body))
                 return
@@ -934,6 +981,7 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 # direct Codex profile. Browser-provided model overrides are not
                 # trusted when submitting a review.
                 request={**body,**self.app.codex_selection()}
+                self.app.require_agent_access("codex", write=request.get("scope") == "workspace_write")
                 self._json(HTTPStatus.CREATED, self.app.codex.submit(request))
                 return
             if path == "/api/codex/approve":
