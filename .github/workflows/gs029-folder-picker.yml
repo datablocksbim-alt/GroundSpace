@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Regressions including GS-027 persistence/security
-        run: python -m unittest tests.test_gs029_qwen_greeting_approval tests.test_gs029_folder_picker tests.test_gs027_agent_configs tests.test_gs026_model_controls tests.test_gs025_public_security tests.test_gs024_device_login tests.test_gs023_collaboration tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
+        run: python -m unittest tests.test_gs029_project_removal tests.test_gs029_qwen_greeting_approval tests.test_gs029_folder_picker tests.test_gs027_agent_configs tests.test_gs026_model_controls tests.test_gs025_public_security tests.test_gs024_device_login tests.test_gs023_collaboration tests.test_gs018_codex_agent tests.test_gs017_group_approvals tests.test_gs016_codex tests.test_gs015_controls tests.test_gs014_mobile_ui tests.test_gs013_mobile_tailnet tests.test_gs010_coordinator tests.test_gs008_planning -v
       - name: Isolated preview PowerShell syntax
         shell: pwsh
         run: |
