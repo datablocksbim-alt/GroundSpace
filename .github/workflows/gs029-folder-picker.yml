@@ -28,6 +28,23 @@ jobs:
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile('tools/prepare_gs029_preview.ps1', [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+      - name: GS-029 production cutover PowerShell syntax and safety guards
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $script = 'tools/activate_gs029_asus.ps1'
+          [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+          $source = Get-Content $script -Raw
+          foreach ($check in @('Assert-UnchangedFiles', 'backup_ground_space_state.ps1',
+              'GS-029', 'GS-028', 'GS-027', 'GS-026', 'SafeJobs',
+              'StartApp $repo $canaryPort', 'Stop-Process -Id $oldPid')) {
+            if (-not $source.Contains($check)) { throw "Missing GS-029 release safeguard: $check" }
+          }
+          if ($source -match '(?m)^[^#]*tailscale serve (?:--bg|--https|--tcp|--set-path|--service|reset)') {
+            throw 'Cutover helper must never alter Tailscale Serve settings.'
+          }
       - name: JS syntax
         run: node --check web/public/app.js
       - name: Browser smoke syntax
