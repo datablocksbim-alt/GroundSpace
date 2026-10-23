@@ -90,6 +90,7 @@ class BootstrapAvailabilityTests(unittest.TestCase):
         app.codex = SimpleNamespace(snapshot=Mock(return_value={"scope": "single_owner_pilot"}))
         app.collaborations = SimpleNamespace(snapshot=Mock(return_value=[]))
         app.chatgpt_connection = SimpleNamespace(enabled=Mock(return_value=False), login_state="not_started")
+        app.model_profiles = SimpleNamespace(snapshot=Mock(return_value={"provider":"codex_cli","profiles":{}}))
         availability = {"available": False, "models": [], "reason": "offline"}
 
         with patch("ground_space.webapp.probe_ollama", return_value=availability) as probe:
