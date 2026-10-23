@@ -368,7 +368,9 @@ function renderAgentCard(item, all){
     '<div class="agent-small-actions" role="group" aria-label="'+esc(item.model)+' settings">'+
     [['model_id','Model'],['access','Access'],['level','Level'],['approval','Approval']].map(([key,label])=>
       '<button class="agent-mini-button" type="button" data-agent-menu="'+key+'" aria-expanded="false">'+label+'</button>').join('')+
-    '<button type="button" class="save-agent-config" data-agent="'+esc(item.model)+'" disabled>Save</button></div>'+
+    '<button type="button" class="save-agent-config" data-agent="'+esc(item.model)+'"'+
+    ' aria-label="Save configuration for '+esc(item.model)+'" title="Save configuration" disabled>'+
+    '<span aria-hidden="true">✓</span></button></div>'+
     '<div class="agent-menu-content">'+
       menu('model_id','Model',field('model_id','Execution model',models,profile.model_id))+
       menu('access','Access', '<div class="agent-access-grid">'+checks+'</div>'+
@@ -829,18 +831,37 @@ $('#registeredModels').addEventListener('click',event=>{
   closeAgentMenus(root);
   setAgentMenu(root,'loadable',next);
 });
+function agentDraft(root){
+  const select=key=>root.querySelector('[data-agent-field="'+key+'"]').value;
+  return {model_id:select('model_id'),level:select('level'),
+    approval:select('approval'),
+    access:[...root.querySelectorAll('input[data-agent-access]:checked')]
+      .map(x=>x.value).sort()};
+}
+function agentDraftChanged(root){
+  const saved=state.data?.agent_configs?.profiles?.[root.dataset.agentItem];
+  if(!saved)return true;
+  const draft=agentDraft(root);
+  return draft.model_id!==saved.model_id||draft.level!==saved.level||
+    draft.approval!==saved.approval||
+    JSON.stringify(draft.access)!==JSON.stringify([...(saved.access||[])].sort());
+}
 $('#registeredModels').addEventListener('change',event=>{
   const root=event.target.closest('[data-agent-item]');
   if(!root)return;
+  const dirty=agentDraftChanged(root);
   const save=root.querySelector('.save-agent-config');
-  if(save)save.disabled=false;
-  root.querySelector('.agent-config-feedback').textContent='Unsaved changes';
+  if(save)save.disabled=!dirty;
+  const feedback=root.querySelector('.agent-config-feedback');
+  feedback.textContent=dirty?'Unsaved changes':'';
+  feedback.classList.remove('saved');
   // Single-choice menus close as soon as the user selects a value.
   // Keep Access open for multi-select until another button or outside tap.
   if(event.target.matches('select[data-agent-field]')){
     setAgentMenu(root,'loadable',null);
   }
 });
+
 $('#agentGrid').addEventListener('click',event=>{
   const button=event.target.closest('button[data-builtin-menu]');
   if(!button)return;
@@ -858,26 +879,41 @@ document.addEventListener('keydown',event=>{
 
 $('#registeredModels').addEventListener('click',async event=>{
   const button=event.target.closest('button.save-agent-config');
-  if(!button)return;
+  if(!button||button.disabled)return;
   const root=button.closest('[data-agent-item]');
   const agent_id=button.dataset.agent;
-  const select=key=>root.querySelector('[data-agent-field="'+key+'"]').value;
-  const access=[...root.querySelectorAll('input[data-agent-access]:checked')].map(x=>x.value);
+  const draft=agentDraft(root);
   button.disabled=true;
   const feedback=root.querySelector('.agent-config-feedback');
+  feedback.classList.remove('saved');
   feedback.textContent='Saving…';
+  let persisted=false;
   try{
     await api('/api/agents/configure',{method:'POST',
-      body:JSON.stringify({agent_id,model_id:select('model_id'),level:select('level'),
-        approval:select('approval'),access})});
+      body:JSON.stringify({agent_id,...draft})});
+    persisted=true;
     if(state.agent==='qwen'&&state.selectedModel===agent_id){
-      // Keep stable agent identity in chat; the backend resolves its saved model.
+      // Keep the stable agent identity in chat; backend resolves the saved model.
       localStorage.setItem('gs_model',agent_id);
     }
-    feedback.textContent='Saved for future direct, group and Co-work tasks';
     await refresh();
-    toast('Agent configuration saved');
-  }catch(error){feedback.textContent=error.message;button.disabled=false;}
+    const row=[...document.querySelectorAll('#registeredModels [data-agent-item]')]
+      .find(node=>node.dataset.agentItem===agent_id);
+    const confirmation=row?.querySelector('.agent-config-feedback');
+    if(confirmation){
+      confirmation.classList.add('saved');
+      confirmation.textContent='Saved';
+      setTimeout(()=>{
+        if(confirmation.isConnected&&confirmation.textContent==='Saved'){
+          confirmation.textContent='';
+          confirmation.classList.remove('saved');
+        }
+      },2500);
+    }
+  }catch(error){
+    feedback.textContent=persisted?'Saved; refresh to verify':error.message;
+    button.disabled=!agentDraftChanged(root);
+  }
 });
 
 $('#registeredModels').addEventListener('click',async event=>{
