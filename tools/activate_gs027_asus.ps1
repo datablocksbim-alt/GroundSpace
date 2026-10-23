@@ -68,7 +68,9 @@ function StartApp([string]$dir,[int]$port,[string]$root,[string]$origin,[string]
   $logs=Join-Path $env:LOCALAPPDATA 'GroundSpace\logs'
   New-Item -ItemType Directory -Force -Path $logs | Out-Null
   $stamp=(Get-Date -Format 'yyyyMMdd-HHmmss')+'-'+$port
-  $argsList=@($prefix)+@('-m','ground_space.webapp','--port',"$port",'--state-dir',$root,'--no-browser')
+  # PowerShell Start-Process joins ArgumentList items; quote state paths containing spaces.
+  $quotedRoot='"'+($root -replace '"','')+'"'
+  $argsList=@($prefix)+@('-m','ground_space.webapp','--port',"$port",'--state-dir',$quotedRoot,'--no-browser')
   Start-Process -FilePath $python -ArgumentList $argsList -WorkingDirectory $dir -PassThru -RedirectStandardOutput (Join-Path $logs "$name-$stamp-out.log") -RedirectStandardError (Join-Path $logs "$name-$stamp-err.log")
 }
 function Healthy($proc,[int]$port,[string]$release,$baseline) {
