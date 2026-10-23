@@ -277,7 +277,10 @@ function openGroupEditor(groupId=''){
   $('#saveGroup').textContent=group?'Save changes':'Create group';
   $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
   $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>{
-    const mode=group?.approval_modes?.[item.model]||(item.model==='codex'?'manual':'approve_for_me');
+    const savedApproval=state.data?.agent_configs?.profiles?.[item.model]?.approval;
+    const agentDefault=savedApproval==='disabled'?'disabled':
+      savedApproval==='manual'?'manual':'approve_for_me';
+    const mode=group?.approval_modes?.[item.model]||(savedApproval?agentDefault:(item.model==='codex'?'manual':'approve_for_me'));
     const opts=[['manual','Ask me'],['approve_for_me','Approve for me'],['disabled','Off']]
       .map(([value,label])=>'<option value="'+value+'"'+(mode===value?' selected':'')+'>'+label+'</option>').join('');
     return '<div class="group-member-setting"><label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
