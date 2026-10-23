@@ -105,6 +105,14 @@ class ProjectRemovalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pending or active"):
             self.remove()
 
+    def test_live_backend_advertises_project_remove_capability_and_routes_it(self):
+        source = (Path(__file__).resolve().parents[1] /
+                  "ground_space" / "webapp.py").read_text(encoding="utf-8")
+        self.assertIn('"project_remove": True', source)
+        self.assertIn('if path == "/api/projects/remove":', source)
+        self.assertIn('self.app.remove_project(body)', source)
+        self.assertIn("if not self._csrf_valid():", source)
+
     def test_unreadable_queue_file_blocks_removal(self):
         (self.app.queue_dir / "bad.json").write_text("{", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Cannot verify"):
