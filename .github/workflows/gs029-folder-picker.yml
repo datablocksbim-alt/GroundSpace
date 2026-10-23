@@ -45,6 +45,9 @@ jobs:
           if ($source -match '(?m)^[^#]*tailscale serve (?:--bg|--https|--tcp|--set-path|--service|reset)') {
             throw 'Cutover helper must never alter Tailscale Serve settings.'
           }
+      - name: GS-029 safe queue release gate unit tests
+        shell: pwsh
+        run: ./tools/test_gs029_cutover_gate.ps1
       - name: JS syntax
         run: node --check web/public/app.js
       - name: Browser smoke syntax
