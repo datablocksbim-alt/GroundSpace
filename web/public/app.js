@@ -389,7 +389,28 @@ async function copyReply(taskId){
 }
 
 function renderAgents(){const root=$('#agentGrid');root.innerHTML=(state.data?.agents||[]).map(a=>`<article class="agent-card"><header><h2>${esc(a.agent_id.replaceAll('-',' '))}</h2><span class="${a.active?'live':'live offline'}">${a.active?'● ONLINE':'○ INACTIVE'}</span></header><p>${esc(a.role)}${a.model?` · ${esc(a.model)}`:''}</p><div class="chips">${a.permissions.map(p=>`<span>${esc(p)}</span>`).join('')}</div></article>`).join('')}
-function renderTasks(){const rows=$('#taskRows'),tasks=state.data?.tasks||[];rows.innerHTML=tasks.map(t=>`<tr data-task="${esc(t.task_id)}"><td><b>${esc(t.task_id)}</b></td><td>${esc(t.requested_worker)}</td><td>${esc(t.approval?.status||'unknown')}</td><td><span class="badge ${esc(t.status)}">${esc(t.status)}</span></td><td>${new Date(t.updated_at).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="5">No tasks yet.</td></tr>';rows.querySelectorAll('tr[data-task]').forEach(row=>row.onclick=async()=>{$('#taskDetail').textContent=JSON.stringify(await api(`/api/tasks/${row.dataset.task}`),null,2)})}
+function taskLabel(task){
+  const source=task.payload?.prompt||task.payload?.operation||task.payload?.request_type||task.requested_worker||'Task';
+  return String(source).replace(/\\s+/g,' ').trim().slice(0,160);
+}
+function renderTasks(){
+  const rows=$('#taskRows'),tasks=state.data?.tasks||[];
+  rows.innerHTML=tasks.map(t=>{
+    const label=taskLabel(t),time=t.updated_at?new Date(t.updated_at).toLocaleString():'—';
+    return '<tr data-task="'+esc(t.task_id)+'" tabindex="0" aria-label="Inspect '+esc(label)+'">'+
+      '<td class="task-primary"><b class="task-name" title="'+esc(label)+'">'+esc(label)+'</b>'+
+      '<small class="task-short-id" title="'+esc(t.task_id)+'">'+esc(t.task_id)+'</small></td>'+
+      '<td class="task-worker">'+esc(t.requested_worker)+'</td>'+
+      '<td class="task-approval">'+esc(t.approval?.status||'unknown')+'</td>'+
+      '<td class="task-status"><span class="badge '+esc(t.status)+'">'+esc(t.status)+'</span></td>'+
+      '<td class="task-date">'+esc(time)+'</td></tr>';
+  }).join('')||'<tr><td colspan="5">No tasks yet.</td></tr>';
+  for(const row of rows.querySelectorAll('tr[data-task]')){
+    const show=async()=>{$('#taskDetail').textContent=JSON.stringify(await api('/api/tasks/'+encodeURIComponent(row.dataset.task)),null,2)};
+    row.addEventListener('click',()=>show().catch(error=>toast(error.message)));
+    row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();show().catch(error=>toast(error.message));}});
+  }
+}
 const CODEX_MODES={
   manual:'Every Codex review waits for your explicit approval.',
   auto_read_only:'Approve for me: Codex starts read-only reviews automatically. File edits, installs and elevated commands stay blocked.',
