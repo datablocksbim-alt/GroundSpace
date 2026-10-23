@@ -286,7 +286,16 @@ try{
     assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),true);
     assert.equal(await localAgent.locator('[data-agent-pane="model_id"]').isVisible(),false);
     await localAgent.locator('[data-agent-field="level"]').selectOption('detailed');
+    assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),false,
+      'Single-choice Level menu should close automatically');
     assert.equal(await localAgent.locator('.save-agent-config').isEnabled(),true);
+    if(viewport.mobile){
+      const controls=await localAgent.locator('.agent-small-actions button').evaluateAll(buttons=>
+        buttons.map(el=>{const b=el.getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,height:b.height};}));
+      const cardRight=await localAgent.evaluate(el=>el.getBoundingClientRect().right);
+      assert.ok(controls.every(c=>c.right<=cardRight+1),'Buttons must not overflow mobile card');
+      assert.ok(controls.every(c=>c.height>=32&&c.height<=42),'Compact buttons keep usable touch targets');
+    }
     await localAgent.locator('[data-agent-menu="access"]').click();
     assert.equal(await localAgent.locator('[data-agent-pane="level"]').isVisible(),false);
     assert.equal(await localAgent.locator('[data-agent-pane="access"]').isVisible(),true);
