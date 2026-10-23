@@ -221,12 +221,21 @@ function renderWorkspaces(){
     state.expandedProjectId=(groups.find(g=>g.project_id&&known.has(g.project_id))?.project_id||
       projects[0]?.id||(unassigned.length?'__unassigned__':''));
   }
+  const itemMenu=(kind,item)=>
+    '<details class="rail-action-menu"><summary class="project-more"'+
+    ' aria-label="Manage '+esc(kind==='project'?'project ':'chat ')+esc(item.name)+'"'+
+    ' title="Rename or delete">···</summary>'+
+    '<div class="rail-action-choices">'+
+    '<button type="button" data-item-action="rename" data-item-kind="'+kind+'"'+
+    ' data-item-id="'+esc(item.id)+'">Rename</button>'+
+    '<button type="button" class="action-danger" data-item-action="delete"'+
+    ' data-item-kind="'+kind+'" data-item-id="'+esc(item.id)+'">'+
+    (kind==='project'?'Remove project':'Delete chat')+'</button></div></details>';
   const groupRows=items=>items.map(g=>
     '<div class="project-chat-row"><button type="button" class="group-room project-chat-room '+(g.id===state.groupId?'active':'')+
     '" data-group="'+esc(g.id)+'"><span class="room-avatar" aria-hidden="true">◎</span>'+
     '<span class="project-chat-copy"><b>'+esc(g.name)+'</b><small>'+esc(g.models.length+' AI')+
-    '</small></span></button><button type="button" class="project-more" data-chat-menu="'+esc(g.id)+'"'+
-    ' aria-label="Options for chat '+esc(g.name)+'" title="Chat options">···</button></div>'
+    '</small></span></button>'+itemMenu('chat',g)+'</div>'
   ).join('');
   const projectRow=(p,legacy=false)=>{
     const id=legacy?'__unassigned__':p.id;
@@ -244,8 +253,7 @@ function renderWorkspaces(){
       '<span class="project-folder-name">'+esc(p.name)+'</span>'+
       '<span class="project-folder-count" aria-label="'+children.length+' project chats">'+children.length+'</span>'+
       '<span class="project-folder-chevron" aria-hidden="true">'+(expanded?'⌄':'›')+'</span></button>'+
-      (legacy?'':'<button type="button" class="project-more" data-project-menu="'+esc(id)+'"'+
-        ' aria-label="Options for '+esc(p.name)+'" title="Project options">···</button>')+
+      (legacy?'':itemMenu('project',p))+
       '</div>'+
       '<div class="project-chat-list"'+(expanded?'':' hidden')+'>'+
       (childRows||'<p class="rail-empty">No chats in this project</p>')+
@@ -1071,10 +1079,15 @@ $('#groupForm').addEventListener('submit',saveGroup);
 $('#cancelGroup').addEventListener('click',()=>$('#groupDialog').close());
 $('#projectSelect').addEventListener('change',()=>chooseProject($('#projectSelect').value));
 $('#projectList').addEventListener('click',event=>{
-  const more=event.target.closest('button[data-project-menu]');
-  if(more){openManageItem('project',more.dataset.projectMenu);return;}
-  const chatMenu=event.target.closest('button[data-chat-menu]');
-  if(chatMenu){openManageItem('chat',chatMenu.dataset.chatMenu);return;}
+  const action=event.target.closest('button[data-item-action]');
+  if(action){
+    const {itemAction,itemKind,itemId}=action.dataset;
+    action.closest('details')?.removeAttribute('open');
+    if(itemAction==='rename')openManageItem(itemKind,itemId);
+    else if(itemKind==='project')openRemoveProject(itemId);
+    else openRemoveChat(itemId);
+    return;
+  }
   const group=event.target.closest('button[data-group]');
   if(group){selectGroup(group.dataset.group);return;}
   const create=event.target.closest('button[data-new-project-group]');
@@ -1092,13 +1105,12 @@ function openManageItem(kind,id){
   const item=records.find(x=>x.id===id);
   if(!item){toast('Item not found');return;}
   manageItemTarget={kind,id:item.id,originalName:item.name};
-  $('#manageItemTitle').textContent=kind==='project'?'Project options':'Chat options';
+  $('#manageItemTitle').textContent=kind==='project'?'Rename project':'Rename chat';
   $('#manageItemName').value=item.name;
   $('#manageItemName').maxLength=kind==='project'?80:70;
   $('#manageItemHint').textContent=kind==='project'?
     'Renaming changes only the Ground Space label. The ASUS folder stays unchanged.':
     'Renaming keeps the chat messages, AI participants and approval settings.';
-  $('#manageItemRemove').textContent=kind==='project'?'Remove project':'Delete chat';
   $('#manageItemError').hidden=true;
   $('#manageItemSave').disabled=true;
   $('#manageItemDialog').showModal();
@@ -1130,13 +1142,6 @@ $('#manageItemForm').addEventListener('submit',async event=>{
   }catch(error){
     const el=$('#manageItemError');el.textContent=error.message;el.hidden=false;
   }finally{if($('#manageItemDialog').open)button.disabled=false;}
-});
-$('#manageItemRemove').addEventListener('click',()=>{
-  if(!manageItemTarget)return;
-  const {kind,id}=manageItemTarget;
-  $('#manageItemDialog').close();
-  if(kind==='project')openRemoveProject(id);
-  else openRemoveChat(id);
 });
 let removeChatTarget=null;
 function openRemoveChat(id){
