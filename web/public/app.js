@@ -396,7 +396,7 @@ async function copyReply(taskId){
 function renderAgents(){const root=$('#agentGrid');root.innerHTML=(state.data?.agents||[]).map(a=>`<article class="agent-card"><header><h2>${esc(a.agent_id.replaceAll('-',' '))}</h2><span class="${a.active?'live':'live offline'}">${a.active?'● ONLINE':'○ INACTIVE'}</span></header><p>${esc(a.role)}${a.model?` · ${esc(a.model)}`:''}</p><div class="chips">${a.permissions.map(p=>`<span>${esc(p)}</span>`).join('')}</div></article>`).join('')}
 function taskLabel(task){
   const source=task.payload?.prompt||task.payload?.operation||task.payload?.request_type||task.requested_worker||'Task';
-  return String(source).replace(/\\s+/g,' ').trim().slice(0,160);
+  return String(source).replace(/\s+/g,' ').trim().slice(0,160);
 }
 function renderTasks(){
   const rows=$('#taskRows'),tasks=state.data?.tasks||[];
