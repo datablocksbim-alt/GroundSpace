@@ -1,4 +1,6 @@
 const state={agent:'qwen',csrf:'',conversationId:localStorage.getItem('gs_conversation_id')||crypto.randomUUID(),poll:null,data:null,refreshing:false,groupId:null,projectId:localStorage.getItem('gs_project_id')||'',directConversationId:null,selectedModel:localStorage.getItem('gs_model')||'qwen2.5-coder:3b',performance:localStorage.getItem('gs_performance')||'balanced'};
+// Navigation state is local to the UI; group IDs, conversation IDs and memberships are untouched.
+state.expandedProjectId=localStorage.getItem('gs_expanded_project');
 const $=s=>document.querySelector(s);const $$=s=>[...document.querySelectorAll(s)];
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2600)}
 function clearDialogError(id){const el=$(id);el.hidden=true;el.textContent='';}
@@ -66,6 +68,8 @@ function setAgent(agent){
 function selectGroup(groupId){
   const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
   if(!group){toast('Group not found');return;}
+  state.expandedProjectId=group.project_id||'__unassigned__';
+  localStorage.setItem('gs_expanded_project',state.expandedProjectId);
   state.groupId=group.id;state.agent='group';
   state.conversationId=group.conversation_id;
   $$('.agent-choice').forEach(x=>x.classList.remove('active'));
@@ -205,26 +209,65 @@ function renderWorkspaces(){
   const workspace=state.data?.workspaces||{};
   const projects=workspace.projects||[];
   const groups=workspace.groups||[];
-  const names=new Map(projects.map(p=>[p.id,p.name]));
-  $('#groupList').innerHTML=groups.map(g=>
-    '<button type="button" class="group-room '+(g.id===state.groupId?'active':'')+
-    '" data-group="'+esc(g.id)+'"><span class="room-avatar">◎</span><span><b>'+esc(g.name)+
-    '</b><small>'+esc(g.models.length+' AI · '+(names.get(g.project_id)||'General'))+'</small></span></button>'
-  ).join('')||'<p class="rail-empty">No groups yet</p>';
-  $('#projectList').innerHTML=projects.map(p=>
-    '<button type="button" class="project-room '+(p.id===state.projectId&&state.agent!=='group'?'active':'')+
-    '" data-project="'+esc(p.id)+'" title="'+esc(p.path)+'">'+esc(p.name)+'</button>'
-  ).join('')||'<p class="rail-empty">Choose a folder to begin</p>';
+  const known=new Set(projects.map(p=>p.id));
+  const unassigned=groups.filter(g=>!g.project_id||!known.has(g.project_id));
+  if(state.expandedProjectId===null){
+    // First visit: show the project owning an existing chat rather than hiding the conversation.
+    state.expandedProjectId=(groups.find(g=>g.project_id&&known.has(g.project_id))?.project_id||
+      projects[0]?.id||(unassigned.length?'__unassigned__':''));
+  }
+  const groupRows=items=>items.map(g=>
+    '<button type="button" class="group-room project-chat-room '+(g.id===state.groupId?'active':'')+
+    '" data-group="'+esc(g.id)+'"><span class="room-avatar" aria-hidden="true">◎</span>'+
+    '<span class="project-chat-copy"><b>'+esc(g.name)+'</b><small>'+esc(g.models.length+' AI')+
+    '</small></span></button>'
+  ).join('');
+  const projectRow=(p,legacy=false)=>{
+    const id=legacy?'__unassigned__':p.id;
+    const expanded=id===state.expandedProjectId;
+    const children=legacy?unassigned:groups.filter(g=>g.project_id===id);
+    const childRows=groupRows(children);
+    return '<section class="project-cluster" data-project-cluster="'+esc(id)+'">'+
+      '<button type="button" class="project-room project-folder '+
+      ((id===state.projectId&&state.agent!=='group')||(state.agent==='group'&&
+        children.some(g=>g.id===state.groupId))?'active':'')+
+      '" data-project-toggle="'+esc(id)+'" aria-expanded="'+expanded+'"'+
+      (legacy?'':' title="'+esc(p.path)+'"')+'>'+
+      '<span class="project-folder-icon" aria-hidden="true">▱</span>'+
+      '<span class="project-folder-name">'+esc(p.name)+'</span>'+
+      '<span class="project-folder-count" aria-label="'+children.length+' project chats">'+children.length+'</span>'+
+      '<span class="project-folder-chevron" aria-hidden="true">'+(expanded?'⌄':'›')+'</span></button>'+
+      '<div class="project-chat-list"'+(expanded?'':' hidden')+'>'+
+      (childRows||'<p class="rail-empty">No chats in this project</p>')+
+      (legacy?'':'<button type="button" class="new-project-chat" data-new-project-group="'+esc(id)+'">'+
+        '<span aria-hidden="true">＋</span> New chat</button>')+
+      '</div></section>';
+  };
+  const signature=JSON.stringify({
+    projects:projects.map(p=>[p.id,p.name,p.path]),
+    groups:groups.map(g=>[g.id,g.project_id,g.name,g.models.length]),
+    activeGroup:state.groupId,project:state.projectId,agent:state.agent,
+    expanded:state.expandedProjectId,
+  });
+  const list=$('#projectList');
+  if(list.dataset.signature!==signature){
+    // Avoid tearing out the currently focused row during periodic 2.5s status refresh.
+    list.innerHTML=projects.map(p=>projectRow(p)).join('')+
+      (unassigned.length?projectRow({name:'General · unassigned'},true):'')||
+      '<p class="rail-empty">Add a project to begin</p>';
+    list.dataset.signature=signature;
+  }
   const selector=$('#projectSelect');
   const current=state.agent==='group'?(groups.find(g=>g.id===state.groupId)?.project_id||''):state.projectId;
-  const signature=JSON.stringify(projects.map(p=>[p.id,p.name]));
-  if(selector.dataset.optionsKey!==signature){
+  const selectSignature=JSON.stringify(projects.map(p=>[p.id,p.name]));
+  if(selector.dataset.optionsKey!==selectSignature){
     selector.innerHTML='<option value="">No project</option>'+
       projects.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
-    selector.dataset.optionsKey=signature;
+    selector.dataset.optionsKey=selectSignature;
   }
   selector.value=current;
 }
+
 function activeAgentEntry(name,detail,available=true,kind='model'){
   const initials=kind==='coordinator'?'CO':name.split(/[^A-Za-z0-9]+/).filter(Boolean).map(part=>part[0]).join('').slice(0,2).toUpperCase()||'AI';
   return '<div class="active-agent '+esc(kind)+'"><span class="active-agent-avatar">'+esc(initials)+
@@ -267,16 +310,17 @@ function projectOptions(selected){
     (state.data?.workspaces?.projects||[]).map(p=>'<option value="'+esc(p.id)+'"'+
       (p.id===selected?' selected':'')+'>'+esc(p.name)+'</option>').join('');
 }
-function openGroupEditor(groupId=''){
+function openGroupEditor(groupId='',contextProjectId=null){
   setMobileRail(false);
   clearDialogError('#groupDialogError');
   const group=(state.data?.workspaces?.groups||[]).find(g=>g.id===groupId);
   $('#groupForm').dataset.editGroup=group?.id||'';
-  $('#groupDialogTitle').textContent=group?'Edit group':'New group chat';
+  $('#groupDialogTitle').textContent=group?'Edit chat':'New project chat';
   $('#groupName').value=group?.name||'';
   $('#groupName').disabled=!!group;
-  $('#saveGroup').textContent=group?'Save changes':'Create group';
-  $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
+  $('#saveGroup').textContent=group?'Save changes':'Create chat';
+  $('#groupProject').innerHTML=projectOptions(group?.project_id||contextProjectId||state.projectId);
+  $('#groupProject').required=!group;
   $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>{
     const savedApproval=state.data?.agent_configs?.profiles?.[item.model]?.approval;
     const agentDefault=savedApproval==='disabled'?'disabled':
@@ -959,7 +1003,7 @@ $('#openModelSettings').addEventListener('click',openModelSettings);
 $('#cancelModelSettings').addEventListener('click',()=>$('#modelSettingsDialog').close());
 $('#codexModelChoice').addEventListener('change',updateCustomModelVisibility);
 $('#modelSettingsForm').addEventListener('submit',saveModelSettings);
-$('#newGroupButton').addEventListener('click',()=>openGroupEditor());
+
 $('#editGroupButton').addEventListener('click',()=>openGroupEditor(state.groupId));
 $('#startCollaborationButton').addEventListener('click',async()=>{
   if(state.agent!=='group'||!state.groupId){toast('Select a group');return;}
@@ -976,14 +1020,18 @@ $('#startCollaborationButton').addEventListener('click',async()=>{
 });
 $('#groupForm').addEventListener('submit',saveGroup);
 $('#cancelGroup').addEventListener('click',()=>$('#groupDialog').close());
-$('#groupList').addEventListener('click',event=>{
-  const button=event.target.closest('button[data-group]');
-  if(button)selectGroup(button.dataset.group);
-});
 $('#projectSelect').addEventListener('change',()=>chooseProject($('#projectSelect').value));
 $('#projectList').addEventListener('click',event=>{
-  const button=event.target.closest('button[data-project]');
-  if(button){if(state.agent==='group')setAgent('qwen');chooseProject(button.dataset.project);}
+  const group=event.target.closest('button[data-group]');
+  if(group){selectGroup(group.dataset.group);return;}
+  const create=event.target.closest('button[data-new-project-group]');
+  if(create){openGroupEditor('',create.dataset.newProjectGroup);return;}
+  const folder=event.target.closest('button[data-project-toggle]');
+  if(!folder)return;
+  const id=folder.dataset.projectToggle;
+  state.expandedProjectId=state.expandedProjectId===id?'':id;
+  localStorage.setItem('gs_expanded_project',state.expandedProjectId);
+  renderWorkspaces();
 });
 $('#addProjectButton').addEventListener('click',()=>{
   setMobileRail(false);
