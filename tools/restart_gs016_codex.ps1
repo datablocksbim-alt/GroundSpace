@@ -1,8 +1,8 @@
-[CmdletBinding()] param([switch]$Restart, [switch]$EnableCodexWrite)
+[CmdletBinding()] param([switch]$Restart, [switch]$EnableCodexWrite, [switch]$EnableChatGPTConnect)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$expected = 'feature/gs-021-codex-execution'
+$expected = 'feature/gs-025-security-boundaries'
 $branch = (& git -C $repo branch --show-current).Trim()
 if ($branch -ne $expected) { throw "Expected checkout $expected; current: $branch" }
 $dirty = & git -C $repo status --porcelain
@@ -48,6 +48,17 @@ foreach ($processId in $serverPids) { Stop-Process -Id $processId -ErrorAction S
 Start-Sleep -Milliseconds 500
 if (Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 8765 is still occupied' }
 $env:GROUND_SPACE_TAILSCALE_ORIGIN = $origin
+$env:GROUND_SPACE_DEPLOYMENT_MODE = 'owner_private'
+foreach ($publicVar in @('GROUND_SPACE_PUBLIC_USERS','GROUND_SPACE_ENABLE_MULTI_USER','GROUND_SPACE_PUBLIC_HOSTING')) {
+    Remove-Item ('Env:'+ $publicVar) -ErrorAction SilentlyContinue
+}
+if ($EnableChatGPTConnect) {
+    $env:GROUND_SPACE_OWNER_CHATGPT_LINK_ENABLED = '1'
+    Write-Host 'Owner-only ChatGPT device login enabled. This is NOT multi-user authentication.' -ForegroundColor Yellow
+} else {
+    Remove-Item Env:GROUND_SPACE_OWNER_CHATGPT_LINK_ENABLED -ErrorAction SilentlyContinue
+}
+
 if ($EnableCodexWrite) {
     $env:GROUND_SPACE_CODEX_WRITE_ENABLED = '1'
     Write-Host 'Codex workspace-write explicitly ENABLED for owner-approved project jobs.' -ForegroundColor Yellow
@@ -67,7 +78,7 @@ for ($attempt=0; $attempt -lt 25; $attempt++) {
     Start-Sleep -Milliseconds 450
     try {
         $data=Invoke-RestMethod 'http://127.0.0.1:8765/api/bootstrap' -TimeoutSec 3
-        if ($data.codex.scope -eq 'single_owner_pilot' -and $data.backend_release -eq 'GS-021') { $ready=$true; break }
+        if ($data.codex.scope -eq 'single_owner_pilot' -and $data.backend_release -eq 'GS-025') { $ready=$true; break }
     } catch { if ($process.HasExited) { break } }
 }
 if (-not $ready) { throw "Ground Space/Codex failed healthcheck. Check $stderr (Tailscale routes unchanged)." }
