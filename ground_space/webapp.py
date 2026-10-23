@@ -930,7 +930,11 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, self.app.codex.set_policy(body))
                 return
             if path == "/api/codex/submit":
-                self._json(HTTPStatus.CREATED, self.app.codex.submit(body))
+                # The owner-facing Agents review panel uses the same persisted
+                # direct Codex profile. Browser-provided model overrides are not
+                # trusted when submitting a review.
+                request={**body,**self.app.codex_selection()}
+                self._json(HTTPStatus.CREATED, self.app.codex.submit(request))
                 return
             if path == "/api/codex/approve":
                 self._json(HTTPStatus.OK, self.app.codex.approve(body))
