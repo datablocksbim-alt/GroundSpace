@@ -198,6 +198,12 @@ class CodexPilot:
         )):
             return ("Codex CLI authentication is unavailable to Ground Space (exit "
                     + str(status) + "). On the ASUS run codex login status, then codex login.")
+        if ("model is not supported" in error or "unsupported model" in error or
+                "unknown model" in error or
+                ("model metadata" in error and "not found" in error)):
+            return ("The selected Codex model is not supported by the signed-in account "
+                    "or installed CLI (exit " + str(status) + "). Choose a verified model "
+                    "ID or use Codex CLI default. Ground Space did not switch models.")
         if "sandbox" in error or "permission denied" in error or "access is denied" in error:
             return ("Codex CLI sandbox or project permission failed (exit "
                     + str(status) + "). Verify the local Windows sandbox and registered project folder.")
