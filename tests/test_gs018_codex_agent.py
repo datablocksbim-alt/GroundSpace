@@ -224,6 +224,18 @@ class WorkspaceAgentTests(unittest.TestCase):
         self.assertNotIn("user@example.com",failed["error"])
         self.assertNotIn("Bearer secret",failed["error"])
 
+    def test_unsupported_model_error_does_not_look_like_sandbox_failure(self):
+        completed = SimpleNamespace(
+            returncode=1,
+            stderr=("Unknown model made-up-model is used. sandbox: read-only. "
+                    "The 'made-up-model' model is not supported when using Codex "
+                    "with a ChatGPT account."),
+        )
+        message = CodexPilot._diagnose_cli_failure(completed)
+        self.assertIn("selected Codex model is not supported",message)
+        self.assertIn("did not switch models",message)
+        self.assertNotIn("sandbox or project permission failed",message)
+
     def test_codex_does_not_accept_unknown_paths_or_permissions(self):
         self.codex.set_registered(True)
         with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}):

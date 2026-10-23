@@ -5,7 +5,10 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {chromium} from 'playwright';
+import {pathToFileURL} from 'node:url';
+
+const playwrightModule=process.env.GROUND_SPACE_PLAYWRIGHT_MODULE;
+const {chromium}=await import(playwrightModule?pathToFileURL(playwrightModule).href:'playwright');
 
 const ROOT = resolve(import.meta.dirname, '..');
 const registered = [{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only'}];
@@ -15,6 +18,7 @@ const groups = [];
 const tasks = [];
 const collaborations = [];
 const chatgptStatus={connected:false,login_state:"not_started",auth_mode:null,plan_type:null};
+const modelProfiles={};
 const conversations = {};
 const codex = {default_mode:'manual',project_modes:{},jobs:[]};
 const state = {csrf:'functional-test-token'};
@@ -46,6 +50,8 @@ const bootstrap = () => ({
     registered:registered.some(x=>x.model==='codex'),write_enabled:true,max_permission:'workspace_write_if_owner_approved',
     default_mode:codex.default_mode,project_modes:{...codex.project_modes},jobs:[...codex.jobs].reverse()},
   collaborations:collaborations.map(x=>({...x})),
+  model_profiles:{provider:'codex_cli',supported_efforts:['low','medium','high'],
+    other_cloud_providers_connected:false,profiles:{...modelProfiles}},
   chatgpt_connection:{scope:'single_owner_codex_cli',enabled:true,login_state:chatgptStatus.login_state},
   security:{deployment:'owner_private',public_ready:false,multi_user_accounts:false},
   paid_api_usage_aud:0,
@@ -77,6 +83,15 @@ const server=createServer(async(req,res)=>{
     if(req.method==='POST'){
       assert.equal(req.headers['x-ground-space-csrf'],state.csrf,'CSRF token missing');
       const body=await reqBody(req);
+      if(path==='/api/model-profiles/set'){
+        if(body.provider!=='codex')return json(res,400,{error:'Provider not connected'});
+        if(!['','low','medium','high'].includes(body.reasoning_effort))return json(res,400,{error:'Invalid effort'});
+        if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(body.model_id||'')&&body.model_id!=='')
+          return json(res,400,{error:'Invalid model identifier'});
+        const key=body.group_id?'codex:group:'+body.group_id:'codex:direct';
+        modelProfiles[key]={model_id:body.model_id,reasoning_effort:body.reasoning_effort};
+        return json(res,200,modelProfiles[key]);
+      }
       if(path==='/api/auth/chatgpt/device/start'){
         chatgptStatus.login_state='pending';
         return json(res,200,{verification_url:'https://auth.openai.com/codex/device',
@@ -104,7 +119,8 @@ const server=createServer(async(req,res)=>{
           const group=groups.find(g=>g.id===flow.group_id);
           const item={id:'CODEX-'+(codex.jobs.length+1),project_id:flow.project_id,
             project_name:'Demo',prompt:flow.goal,status:'pending_approval',
-            scope:'workspace_write',mode_at_submission:'manual',answer:'',error:''};
+            scope:'workspace_write',mode_at_submission:'manual',answer:'',error:'',
+            ...(modelProfiles['codex:group:'+group.id]||{})};
           codex.jobs.push(item);
           flow.codex_job_id=item.id;flow.state='codex_pending';
           conversations[group.conversation_id].push({role:'note',agent:'group',content:'Co-work: Codex implementation',
@@ -166,7 +182,8 @@ const server=createServer(async(req,res)=>{
           const item={id:'CODEX-'+(codex.jobs.length+1),project_id:group.project_id,
             group_id:group.id,conversation_id:group.conversation_id,project_name:'Demo',
             prompt:body.prompt,mode_at_submission:'manual',status:'pending_approval',
-            scope:'workspace_write',answer:'',error:''};
+            scope:'workspace_write',answer:'',error:'',
+            ...(modelProfiles['codex:group:'+group.id]||{})};
           codex.jobs.push(item);
           const entry={role:'user',agent:'group',content:body.prompt,
             timestamp:new Date().toISOString(),codex_job_ids:[item.id],task_ids:[]};
@@ -220,7 +237,8 @@ let browser;
 try{
   await new Promise(ok=>server.listen(0,'127.0.0.1',ok));
   const url='http://127.0.0.1:'+server.address().port;
-  browser=await chromium.launch({headless:true});
+  const executablePath=process.env.GROUND_SPACE_CHROMIUM_EXECUTABLE||undefined;
+  browser=await chromium.launch({headless:true,...(executablePath?{executablePath}:{})});
   for(const viewport of [{width:390,height:844,mobile:true},{width:1280,height:800,mobile:false}]){
     const label=viewport.mobile?'mobile':'desktop';
     registered.splice(0,registered.length,{model:'qwen2.5-coder:3b',available:true,label:'Qwen',role:'proposal-only',provider:'ollama'});
@@ -240,6 +258,37 @@ try{
     }
     assert.equal(exceptions.length,0,label+' startup errors: '+exceptions.join(', '));
 
+    // Regression: GS-026 originally reapplied a desktop two-column grid after
+    // the mobile breakpoint. This silently reduced iPhone chat to ~55% width.
+    const geometry = await page.evaluate(() => {
+      const width = window.innerWidth;
+      const rect = selector => {
+        const r = document.querySelector(selector).getBoundingClientRect();
+        return {width:r.width,left:r.left,right:r.right};
+      };
+      return {width,
+        chat:rect('.chat-layout'),conversation:rect('.conversation'),
+        head:rect('.conversation-head'),messages:rect('#messages'),
+        composer:rect('#chatForm'),
+        columns:getComputedStyle(document.querySelector('.chat-layout')).gridTemplateColumns};
+    });
+    if(viewport.mobile){
+      for(const [element,rect] of Object.entries({
+        chat:geometry.chat,conversation:geometry.conversation,
+        head:geometry.head,messages:geometry.messages,composer:geometry.composer
+      })){
+        assert.ok(rect.width >= geometry.width*0.92,
+          label+' '+element+' must use full viewport width: '+JSON.stringify(geometry));
+        assert.ok(rect.right <= geometry.width+2,
+          label+' '+element+' must not overflow viewport: '+JSON.stringify(geometry));
+      }
+    }
+
+
+    // Primary workspace items must appear before compact private AI chats.
+    assert.equal(await page.locator('#privateChannelMenu').evaluate(x=>x.open),false);
+    assert.equal(await page.locator('#groupList').evaluate(x=>x.compareDocumentPosition(document.querySelector('#privateChannelMenu')) & Node.DOCUMENT_POSITION_FOLLOWING ? true:false),true);
+    assert.equal(await page.locator('#projectList').evaluate(x=>x.compareDocumentPosition(document.querySelector('#privateChannelMenu')) & Node.DOCUMENT_POSITION_FOLLOWING ? true:false),true);
     // Navigation is the previously broken startup handler.
     await page.locator('.nav-button[data-view="agents"]').click();
     assert.equal(await page.locator('#view-agents').evaluate(el=>el.classList.contains('active')),true,label+' Agents click');
@@ -320,11 +369,21 @@ try{
     await page.locator('#saveGroup').click();
     await page.locator('#groupDialog').waitFor({state:'hidden'});
     assert.equal(groups[groups.length-1].approval_modes.codex,'manual');
+    await page.locator('#openModelSettings').click();
+    await page.locator('#modelSettingsDialog').waitFor({state:'visible'});
+    assert.equal(await page.locator('#modelProviderChoice option[value="claude"]').isDisabled(),true);
+    await page.locator('#codexModelChoice').selectOption('gpt-5.6-sol');
+    await page.locator('#codexReasoningEffort').selectOption('medium');
+    await page.locator('#saveModelSettings').click();
+    await page.locator('#modelSettingsDialog').waitFor({state:'hidden'});
+    assert.equal(modelProfiles['codex:group:'+groups[groups.length-1].id].model_id,'gpt-5.6-sol');
+    assert.equal(modelProfiles['codex:group:'+groups[groups.length-1].id].reasoning_effort,'medium');
     await page.locator('#prompt').fill('@Codex create a basic test module');
     await page.locator('#sendButton').click();
     await page.locator('#messages button[data-codex-decision="approve"]').last().waitFor({state:'visible'});
     assert.equal(codex.jobs[codex.jobs.length-1].scope,'workspace_write');
     assert.equal(codex.jobs[codex.jobs.length-1].status,'pending_approval');
+    assert.equal(codex.jobs[codex.jobs.length-1].model_id,'gpt-5.6-sol');
     await page.locator('#messages button[data-codex-decision="approve"]').last().click();
     await page.waitForFunction(()=>document.querySelector('#messages')?.textContent.includes('running'));
     assert.equal(codex.jobs[codex.jobs.length-1].status,'running');
@@ -339,6 +398,7 @@ try{
     await page.locator('#messages button[data-flow-advance]').first().click();
     await page.waitForFunction(()=>document.querySelector('#messages')?.textContent.includes('codex_pending'));
     assert.equal(collaborations[collaborations.length-1].state,'codex_pending');
+    assert.equal(codex.jobs[codex.jobs.length-1].reasoning_effort,'medium');
     await page.locator('#messages button[data-codex-decision="approve"]').last().waitFor({state:'visible'});
     if(viewport.mobile){
       assert.equal(await page.locator('#mobileRailBackdrop').isVisible(),false,'Drawer must close after group selection');
@@ -348,6 +408,10 @@ try{
       assert.equal(await page.locator('#chatOptions').isVisible(),true,'Model options toggle');
     }
     // Codex per-project owner approval options must work in desktop and mobile view.
+    await page.locator('.nav-button[data-view="tasks"]').click();
+    const maxScroll=await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
+    assert.ok(maxScroll<=2,label+' task table must not overflow horizontally: '+maxScroll);
+    assert.equal(await page.locator('#taskRows .task-name').first().isVisible(),true);
     await page.locator('.nav-button[data-view="agents"]').click();
     assert.equal(await page.locator('#codexAgentSettings').isVisible(),true);
     assert.equal(await page.locator('#codexAgentChannel').isVisible(),false);

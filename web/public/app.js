@@ -48,11 +48,13 @@ function conversationFor(agent,projectId){
 }
 function setAgent(agent){
   state.agent=agent;state.groupId=null;
+  $('#privateChannelMenu').open=false;
   state.conversationId=conversationFor(agent,state.projectId);
   $$('.agent-choice').forEach(x=>x.classList.toggle('active',x.dataset.agent===agent));
   $('#conversationTitle').textContent=agent==='qwen'?'Local AI channel':agent==='codex'?'Codex workspace agent':'Administrator channel';
   $('#editGroupButton').hidden=true;
   $('#startCollaborationButton').hidden=true;
+  $('#openModelSettings').hidden=agent!=='codex';
   $('#projectSelect').disabled=false;
   $('#modelControls').hidden=agent!=='qwen';
   $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
@@ -70,6 +72,8 @@ function selectGroup(groupId){
   $('#conversationTitle').textContent=group.name;
   $('#editGroupButton').hidden=false;
   $('#startCollaborationButton').hidden=false;
+  $('#openModelSettings').hidden=!group.models.includes('codex');
+  $('#privateChannelMenu').open=false;
   $('#projectSelect').disabled=true;
   $('#modelControls').hidden=true;
   $('#requestType').hidden=false;
@@ -133,7 +137,9 @@ function renderMessages(){
         '<button type="button" data-codex-decision="approve" data-job-id="'+esc(job.id)+'">Approve workspace task</button>'+
         '<button type="button" data-codex-decision="reject" data-job-id="'+esc(job.id)+'">Reject</button></span>':'';
       return '<span class="group-task-status">Codex · '+esc(job.status)+' · '+
-        esc(job.scope==='workspace_write'?'Can change project files':'Read-only')+actions+'</span>';
+        esc(job.scope==='workspace_write'?'Can change project files':'Read-only')+
+        (job.model_id?' · '+esc(job.model_id):' · CLI default')+
+        (job.reasoning_effort?' · '+esc(job.reasoning_effort):'')+actions+'</span>';
     }).join('');
     const groupProgress=groupTasks.map(t=>{
       const pending=t.status==='queued'&&t.approval?.status==='pending';
@@ -324,6 +330,7 @@ function renderModels(){
   const online=registered.filter(item=>item.available&&item.provider==='ollama');
   const chatModels=registered.filter(item=>item.provider==='ollama');
   $('#codexAgentChannel').hidden=!registered.some(item=>item.model==='codex');
+  $('#privateChannelMenu .private-channel-count').textContent=String(2+(registered.some(item=>item.model==='codex')?1:0));
   const choices=$('#modelSelect');
   const choicesKey=JSON.stringify(chatModels.map(item=>[item.model,item.available]));
   if(choices.dataset.optionsKey!==choicesKey){
@@ -389,7 +396,28 @@ async function copyReply(taskId){
 }
 
 function renderAgents(){const root=$('#agentGrid');root.innerHTML=(state.data?.agents||[]).map(a=>`<article class="agent-card"><header><h2>${esc(a.agent_id.replaceAll('-',' '))}</h2><span class="${a.active?'live':'live offline'}">${a.active?'● ONLINE':'○ INACTIVE'}</span></header><p>${esc(a.role)}${a.model?` · ${esc(a.model)}`:''}</p><div class="chips">${a.permissions.map(p=>`<span>${esc(p)}</span>`).join('')}</div></article>`).join('')}
-function renderTasks(){const rows=$('#taskRows'),tasks=state.data?.tasks||[];rows.innerHTML=tasks.map(t=>`<tr data-task="${esc(t.task_id)}"><td><b>${esc(t.task_id)}</b></td><td>${esc(t.requested_worker)}</td><td>${esc(t.approval?.status||'unknown')}</td><td><span class="badge ${esc(t.status)}">${esc(t.status)}</span></td><td>${new Date(t.updated_at).toLocaleString()}</td></tr>`).join('')||'<tr><td colspan="5">No tasks yet.</td></tr>';rows.querySelectorAll('tr[data-task]').forEach(row=>row.onclick=async()=>{$('#taskDetail').textContent=JSON.stringify(await api(`/api/tasks/${row.dataset.task}`),null,2)})}
+function taskLabel(task){
+  const source=task.payload?.prompt||task.payload?.operation||task.payload?.request_type||task.requested_worker||'Task';
+  return String(source).replace(/\s+/g,' ').trim().slice(0,160);
+}
+function renderTasks(){
+  const rows=$('#taskRows'),tasks=state.data?.tasks||[];
+  rows.innerHTML=tasks.map(t=>{
+    const label=taskLabel(t),time=t.updated_at?new Date(t.updated_at).toLocaleString():'—';
+    return '<tr data-task="'+esc(t.task_id)+'" tabindex="0" aria-label="Inspect '+esc(label)+'">'+
+      '<td class="task-primary"><b class="task-name" title="'+esc(label)+'">'+esc(label)+'</b>'+
+      '<small class="task-short-id" title="'+esc(t.task_id)+'">'+esc(t.task_id)+'</small></td>'+
+      '<td class="task-worker">'+esc(t.requested_worker)+'</td>'+
+      '<td class="task-approval">'+esc(t.approval?.status||'unknown')+'</td>'+
+      '<td class="task-status"><span class="badge '+esc(t.status)+'">'+esc(t.status)+'</span></td>'+
+      '<td class="task-date">'+esc(time)+'</td></tr>';
+  }).join('')||'<tr><td colspan="5">No tasks yet.</td></tr>';
+  for(const row of rows.querySelectorAll('tr[data-task]')){
+    const show=async()=>{$('#taskDetail').textContent=JSON.stringify(await api('/api/tasks/'+encodeURIComponent(row.dataset.task)),null,2)};
+    row.addEventListener('click',()=>show().catch(error=>toast(error.message)));
+    row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();show().catch(error=>toast(error.message));}});
+  }
+}
 const CODEX_MODES={
   manual:'Every Codex review waits for your explicit approval.',
   auto_read_only:'Approve for me: Codex starts read-only reviews automatically. File edits, installs and elevated commands stay blocked.',
@@ -436,6 +464,50 @@ async function startChatGPTDeviceLogin(){
     renderChatGPTConnection();
   }catch(error){toast(error.message);}
   finally{renderChatGPTConnection();}
+}
+function modelProfileKey(){
+  return state.agent==='group'&&state.groupId?'codex:group:'+state.groupId:'codex:direct';
+}
+function currentCodexProfile(){
+  return state.data?.model_profiles?.profiles?.[modelProfileKey()]||{model_id:'',reasoning_effort:''};
+}
+function updateCustomModelVisibility(){
+  const custom=$('#codexModelChoice').value==='_custom';
+  $('#codexCustomModel').hidden=!custom;
+  $('#codexCustomModelLabel').hidden=!custom;
+  $('#codexCustomModel').required=custom;
+}
+function openModelSettings(){
+  if($('#openModelSettings').hidden)return;
+  const profile=currentCodexProfile();
+  $('#modelSettingsScope').textContent=state.agent==='group'
+    ?'This group’s Codex model and effort will be used for @Codex and Co-work tasks.'
+    :'This private Codex chat uses these model and reasoning settings.';
+  const choice=$('#codexModelChoice');
+  const preset=[...choice.options].some(o=>o.value===profile.model_id&&o.value!=='_custom');
+  choice.value=preset?profile.model_id:'_custom';
+  $('#codexCustomModel').value=preset?'':profile.model_id;
+  $('#codexReasoningEffort').value=profile.reasoning_effort||'';
+  updateCustomModelVisibility();
+  clearDialogError('#modelSettingsError');
+  $('#modelSettingsDialog').showModal();
+}
+async function saveModelSettings(event){
+  event.preventDefault();
+  const button=$('#saveModelSettings');
+  button.disabled=true;
+  try{
+    const model_id=$('#codexModelChoice').value==='_custom'
+      ?$('#codexCustomModel').value.trim():$('#codexModelChoice').value;
+    await api('/api/model-profiles/set',{method:'POST',body:JSON.stringify({
+      provider:'codex',group_id:state.agent==='group'?state.groupId:null,
+      model_id,reasoning_effort:$('#codexReasoningEffort').value
+    })});
+    $('#modelSettingsDialog').close();
+    await refresh();
+    toast('Codex model settings saved for future tasks');
+  }catch(error){showDialogError('#modelSettingsError',error);}
+  finally{button.disabled=false;}
 }
 function renderCodex(){
   const codex=state.data?.codex;
@@ -503,6 +575,8 @@ async function refresh(){
     }
     $('#systemState').textContent=(data.models?.registered?.some(x=>x.available))?'Local systems ready':'Ollama unavailable';
     renderModels();renderWorkspaces();renderMessages();renderActiveAgents();renderAgents();renderTasks();renderCodex();renderChatGPTConnection();
+    $('#openModelSettings').hidden=!(state.agent==='codex'||(state.agent==='group'&&
+      (data.workspaces?.groups||[]).some(g=>g.id===state.groupId&&g.models.includes('codex'))));
   }finally{state.refreshing=false;}
 }
 async function submit(event){
@@ -670,6 +744,10 @@ $('#messages').addEventListener('click',event=>{
 });
 
 
+$('#openModelSettings').addEventListener('click',openModelSettings);
+$('#cancelModelSettings').addEventListener('click',()=>$('#modelSettingsDialog').close());
+$('#codexModelChoice').addEventListener('change',updateCustomModelVisibility);
+$('#modelSettingsForm').addEventListener('submit',saveModelSettings);
 $('#newGroupButton').addEventListener('click',()=>openGroupEditor());
 $('#editGroupButton').addEventListener('click',()=>openGroupEditor(state.groupId));
 $('#startCollaborationButton').addEventListener('click',async()=>{

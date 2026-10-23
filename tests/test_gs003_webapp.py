@@ -223,7 +223,11 @@ class GS003WebAppTests(unittest.TestCase):
         self.assertEqual(1, len(roots["folders"]))
         browsing = self.get_json("/api/projects/browse?path=" +
                                  urllib.parse.quote(str(self.state_dir), safe=""))
-        self.assertIn(str(project_dir), [item["path"] for item in browsing["folders"]])
+        # Windows may expose the temporary directory through an 8.3 alias
+        # (for example KARLDA~1) while the folder browser deliberately returns
+        # its canonical long path. Compare canonical paths, not spellings.
+        self.assertIn(str(project_dir.resolve()),
+                      [str(Path(item["path"]).resolve()) for item in browsing["folders"]])
         result = self.post_json("/api/projects/add", {
             "name": "Demo", "path": str(project_dir),
         })

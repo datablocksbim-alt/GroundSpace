@@ -2,11 +2,26 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$expected = 'feature/gs-025-security-boundaries'
-$branch = (& git -C $repo branch --show-current).Trim()
-if ($branch -ne $expected) { throw "Expected checkout $expected; current: $branch" }
+$expected = 'feature/gs-026-mobile-agent-model-controls'
+# The ASUS activation checkout is intentionally a detached Git worktree.
+# Never restart production from the original GS-021 checkout or an unverified ref.
+if (-not (Test-Path -LiteralPath (Join-Path $repo '.git') -PathType Leaf)) {
+    throw 'GS-026 production activation requires the isolated preview Git worktree; never switch the original GS-021 installation.'
+}
+$branchLines = @(& git -C $repo branch --show-current)
+if ($LASTEXITCODE -ne 0) { throw 'Cannot determine GS-026 checkout branch.' }
+$branch = ($branchLines -join '').Trim()  # Empty on a correctly detached HEAD.
+if ($branch -and $branch -ne $expected) {
+    throw "Unexpected GS-026 checkout branch: $branch"
+}
+$head = (& git -C $repo rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Cannot determine GS-026 checkout commit.' }
+$remoteHead = (& git -C $repo rev-parse "refs/remotes/origin/$expected").Trim()
+if ($LASTEXITCODE -ne 0 -or -not $remoteHead -or $head -ne $remoteHead) {
+    throw 'GS-026 worktree commit does not match the fetched remote feature branch; fetch and verify before activation.'
+}
 $dirty = & git -C $repo status --porcelain
-if ($dirty) { throw 'Uncommitted local changes found. Protect your files before restart.' }
+if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Uncommitted local changes or unreadable Git status. Protect files before restart.' }
 $python = 'D:\000_AI Project\AI Agents Datablocks\runtime\python\python.exe'
 if (-not (Test-Path -LiteralPath $python)) {
     $command=Get-Command py -ErrorAction SilentlyContinue
@@ -36,6 +51,12 @@ if ($serverPids.Count -gt 0) {
         $existing = Invoke-RestMethod 'http://127.0.0.1:8765/api/bootstrap' -TimeoutSec 8
     } catch {
         throw 'Cannot inspect running Codex jobs; refusing restart until current server is healthy.'
+    }
+    if ([string]$existing.backend_release -notin @('GS-021', 'GS-025', 'GS-026')) {
+        throw "Unrecognized running Ground Space release '$($existing.backend_release)'; refusing to stop this process."
+    }
+    if (-not $existing.PSObject.Properties['codex'] -or -not $existing.codex.PSObject.Properties['jobs']) {
+        throw 'Codex job status is unavailable; refusing to stop this process.'
     }
     $activeCodex = @($existing.codex.jobs | Where-Object { $_.status -eq 'running' })
     if ($activeCodex.Count -gt 0) {
@@ -78,7 +99,7 @@ for ($attempt=0; $attempt -lt 25; $attempt++) {
     Start-Sleep -Milliseconds 450
     try {
         $data=Invoke-RestMethod 'http://127.0.0.1:8765/api/bootstrap' -TimeoutSec 3
-        if ($data.codex.scope -eq 'single_owner_pilot' -and $data.backend_release -eq 'GS-025') { $ready=$true; break }
+        if ($data.codex.scope -eq 'single_owner_pilot' -and $data.backend_release -eq 'GS-026') { $ready=$true; break }
     } catch { if ($process.HasExited) { break } }
 }
 if (-not $ready) { throw "Ground Space/Codex failed healthcheck. Check $stderr (Tailscale routes unchanged)." }

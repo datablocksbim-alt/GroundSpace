@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from ground_space.collaboration import CollaborationLedger
+from ground_space.model_profiles import ModelProfiles
 from ground_space.webapp import GroundSpaceApp
 
 
@@ -29,6 +30,7 @@ class HandoffTests(unittest.TestCase):
         self.app.history_path=self.path/"history.json"
         self.app.collaboration_lock=threading.RLock()
         self.app.collaborations=CollaborationLedger(self.path/"flows.json")
+        self.app.model_profiles=ModelProfiles(self.path/"agent_model_profiles.json")
         self.app.workspaces=SimpleNamespace(get_group=Mock(side_effect=lambda _:self.group))
         self.app.codex=SimpleNamespace(is_registered=Mock(return_value=True),
             submit=Mock(side_effect=self.submit_codex),
@@ -101,6 +103,15 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual("failed",result["state"])
         retry=self.begin()
         self.assertEqual("proposal_pending",retry["state"])
+
+    def test_cowork_uses_saved_group_codex_model_and_effort(self):
+        self.app.model_profiles.set(group_id="room1",model_id="gpt-5.6-sol",reasoning_effort="high")
+        flow=self.begin()
+        self.tasks["GS-1"]["status"]="completed"
+        self.app.advance_collaboration({"flow_id":flow["id"]})
+        self.assertEqual("gpt-5.6-sol",self.last_codex_payload["model_id"])
+        self.assertEqual("high",self.last_codex_payload["reasoning_effort"])
+        self.assertFalse(self.last_auto)
 
     def test_auto_code_requires_stored_codex_group_policy(self):
         self.group["approval_modes"]["codex"]="approve_for_me"

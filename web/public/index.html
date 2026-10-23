@@ -26,16 +26,7 @@
         <div class="chat-layout">
           <aside class="agent-rail" id="agentRail" aria-label="Chats and projects">
             <div class="mobile-rail-heading"><strong>Chats &amp; projects</strong><button type="button" id="closeMobileRail" aria-label="Close chats and projects">✕</button></div>
-            <p class="eyebrow">Active channel</p>
-            <button class="agent-choice active" data-agent="qwen">
-              <span class="agent-glyph violet">AI</span><span><b>Local AI</b><small>Choose an Ollama model</small></span><em></em>
-            </button>
-            <button class="agent-choice" data-agent="administrator">
-              <span class="agent-glyph amber">A</span><span><b>Administrator</b><small>Task operations</small></span><em></em>
-            </button>
-            <button class="agent-choice" data-agent="codex" id="codexAgentChannel" hidden>
-              <span class="agent-glyph violet">CX</span><span><b>Codex</b><small>Workspace coding agent</small></span><em></em>
-            </button>
+
             <section class="group-rail" aria-label="Group chats">
               <div class="group-rail-heading"><span>GROUP CHATS</span><button type="button" id="newGroupButton" title="Create group chat">+ New</button></div>
               <div id="groupList" class="group-list"></div>
@@ -44,6 +35,20 @@
               <div class="group-rail-heading"><span>PROJECTS</span><button type="button" id="addProjectButton" title="Choose a local project folder">+ Folder</button></div>
               <div id="projectList" class="project-list"></div>
             </section>
+            <details class="private-channel-menu" id="privateChannelMenu">
+              <summary aria-label="Open private AI chats"><span class="private-channel-icon" aria-hidden="true">◉</span><span>Private AI chats</span><span class="private-channel-count">3</span></summary>
+              <div class="private-channel-items">
+                <button class="agent-choice active" data-agent="qwen">
+                  <span class="agent-glyph violet">AI</span><span><b>Local AI</b><small>Ollama conversation</small></span>
+                </button>
+                <button class="agent-choice" data-agent="administrator">
+                  <span class="agent-glyph amber">A</span><span><b>Administrator</b><small>Task operations</small></span>
+                </button>
+                <button class="agent-choice" data-agent="codex" id="codexAgentChannel" hidden>
+                  <span class="agent-glyph violet">CX</span><span><b>Codex</b><small>Private coding chat</small></span>
+                </button>
+              </div>
+            </details>
             <div class="rail-note">
               <span>BOUNDARY 01</span>
               <p>Group bots can be set to Ask me, Approve for me or Off. All AI chat is read/propose only; code execution is separately restricted.</p>
@@ -60,6 +65,7 @@
                   <select id="projectSelect" aria-label="Select local project"><option value="">No project</option></select>
                   <button type="button" id="editGroupButton" hidden>Members</button>
                    <button type="button" id="startCollaborationButton" hidden title="Start supervised Qwen → Codex → Granite workflow">Co-work</button>
+                   <button type="button" id="openModelSettings" hidden title="Choose coding model and reasoning effort">Model ⚙</button>
                 </div>
               </div>
               <span class="permission-pill" id="permissionPill">READ · PROPOSE</span>
@@ -96,7 +102,7 @@
               </div>
             </form>
           </div>
-          <aside class="active-agent-panel" aria-label="Active agents">
+          <aside class="active-agent-panel" aria-label="Active agents" hidden>
             <div class="active-agent-heading"><p class="eyebrow">Current channel</p><h2>Active agents</h2></div>
             <div id="activeAgentList" class="active-agent-list"></div>
             <p class="active-agent-note" id="activeAgentNote">Participants available in this conversation.</p>
@@ -189,6 +195,40 @@
     <footer><span>DATA BLOCKS GROUND SPACE</span><span>LOCALHOST · AUD $0</span></footer>
   </div>
 
+  <dialog id="modelSettingsDialog" class="workspace-dialog">
+    <form id="modelSettingsForm">
+      <h2>AI model settings</h2>
+      <p id="modelSettingsScope">Set the model and reasoning effort used for this Codex conversation.</p>
+      <label for="modelProviderChoice">Connected AI</label>
+      <select id="modelProviderChoice" aria-label="AI provider">
+        <option value="codex">Codex · OpenAI CLI</option>
+        <option value="claude" disabled>Claude · not connected yet</option>
+      </select>
+      <label for="codexModelChoice">Model</label>
+      <select id="codexModelChoice" aria-label="Codex model">
+        <option value="">Codex CLI default</option>
+        <option value="gpt-5.6-sol">GPT-5.6 Sol (if supported by CLI)</option>
+        <option value="gpt-5.6-terra">GPT-5.6 Terra (if supported by CLI)</option>
+        <option value="gpt-6.1-sol">GPT-6.1 Sol (if supported by CLI)</option>
+        <option value="_custom">Custom model ID…</option>
+      </select>
+      <label for="codexCustomModel" id="codexCustomModelLabel" hidden>Exact CLI model ID</label>
+      <input type="text" id="codexCustomModel" maxlength="80" autocomplete="off" spellcheck="false" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}" placeholder="e.g. gpt-5.6-sol" hidden>
+      <label for="codexReasoningEffort">Reasoning effort</label>
+      <select id="codexReasoningEffort">
+        <option value="">CLI default</option>
+        <option value="low">Low · faster</option>
+        <option value="medium">Medium · balanced</option>
+        <option value="high">High · more thorough</option>
+      </select>
+      <p class="model-settings-hint">Settings apply to future Codex tasks, including @Codex and Co-work in this group. The CLI verifies model access when a job runs. Claude needs a separate supported connection before these controls can affect it.</p>
+      <p id="modelSettingsError" class="dialog-feedback" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancelModelSettings">Cancel</button>
+        <button type="submit" id="saveModelSettings">Save settings</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="groupDialog" class="workspace-dialog">
     <form id="groupForm">
       <h2 id="groupDialogTitle">New group chat</h2>
