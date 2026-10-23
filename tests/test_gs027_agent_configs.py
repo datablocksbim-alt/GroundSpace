@@ -116,5 +116,59 @@ class AppAgentRoutingTests(unittest.TestCase):
         self.assertEqual(LOCAL[0], self.app.agent_config(LOCAL[0])["model_id"])
 
 
+
+
+class GroupAgentDispatchTests(unittest.TestCase):
+    def setUp(self):
+        from ground_space.workspaces import WorkspaceRegistry
+        from tests.test_gs017_group_approvals import FakeAdministrator
+        t=TemporaryDirectory()
+        self.addCleanup(t.cleanup)
+        self.root=Path(t.name)
+        self.app=GroundSpaceApp.__new__(GroundSpaceApp)
+        self.app.lock=threading.RLock()
+        self.app.group_dispatch_lock=threading.Lock()
+        self.app.ollama_endpoint="http://127.0.0.1:1"
+        self.app.registered_models=list(LOCAL[:2])
+        self.app.codex=SimpleNamespace(is_registered=Mock(return_value=False))
+        self.app.workspaces=WorkspaceRegistry(self.root/"private",[self.root])
+        self.app.agent_configs=AgentConfigs(self.root/"private"/"agent_configs.json")
+        self.app.administrator=FakeAdministrator()
+        self.app.conversations={}
+        self.app.history_path=self.root/"private"/"conversations.json"
+        self.app._register_worker=Mock()
+        self.app.worker_id=GroundSpaceApp.worker_id
+        self.group=self.app.create_group({"name":"Test group",
+          "models":[LOCAL[0]],"project_id":None})
+
+    def test_group_uses_saved_model_and_level_without_changing_agent_identity(self):
+        from unittest.mock import patch
+        self.app.save_agent_config({"agent_id":LOCAL[0],"model_id":LOCAL[1],
+            "level":"fast","access":["chat","read","propose","review"],
+            "approval":"auto_read_only"})
+        with patch("ground_space.webapp.probe_ollama",return_value={"available":False,"models":[]}), \
+             patch("ground_space.webapp.threading.Thread"):
+            result=self.app.submit_group({"group_id":self.group["id"],"prompt":"Hello"})
+        task=self.app.administrator.status(result["task_ids"][0])
+        self.assertEqual(LOCAL[1],task["payload"]["model"])
+        self.assertEqual(LOCAL[0],task["payload"]["agent_id"])
+        self.assertEqual("fast",task["payload"]["performance"])
+        self.assertEqual(GroundSpaceApp.worker_id(LOCAL[1]),task["requested_worker"])
+        self.assertEqual("approved",task["approval"]["status"])
+        self.app.save_agent_config({"agent_id":LOCAL[0],"model_id":LOCAL[0],
+            "level":"detailed","access":["chat","read","propose","review"],
+            "approval":"auto_read_only"})
+        self.assertEqual(LOCAL[1],self.app.administrator.status(task["task_id"])["payload"]["model"])
+
+    def test_disabling_agent_prevents_group_dispatch_without_new_task(self):
+        from unittest.mock import patch
+        self.app.save_agent_config({"agent_id":LOCAL[0],"model_id":LOCAL[0],
+            "level":"balanced","access":["chat","read","propose"],
+            "approval":"disabled"})
+        with patch("ground_space.webapp.probe_ollama",return_value={"available":False,"models":[]}):
+            with self.assertRaisesRegex(ValueError,"disabled"):
+                self.app.submit_group({"group_id":self.group["id"],"prompt":"Hello"})
+        self.assertEqual({},self.app.administrator.tasks)
+
 if __name__ == "__main__":
     unittest.main()
