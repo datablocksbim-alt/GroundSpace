@@ -274,6 +274,19 @@
       </div>
     </form>
   </dialog>
+  <dialog id="removeProjectDialog" class="workspace-dialog remove-project-dialog">
+    <div class="remove-project-content">
+      <h2>Remove project?</h2>
+      <p><strong id="removeProjectName"></strong> will be removed from Ground Space.</p>
+      <p id="removeProjectChatNotice"></p>
+      <p class="remove-project-safety">The actual ASUS folder and files will <strong>not</strong> be deleted. Existing conversation history is retained.</p>
+      <p id="removeProjectError" class="dialog-feedback" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancelRemoveProject">Cancel</button>
+        <button type="button" id="confirmRemoveProject" class="destructive-action">Remove project</button>
+      </div>
+    </div>
+  </dialog>
   <div class="toast" id="toast" role="status"></div>
   <script src="/app.js" defer></script>
 </body>
