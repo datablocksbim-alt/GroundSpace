@@ -1,5 +1,10 @@
 # Data Blocks Ground Space
 
+GS-031 begins the Community Edition foundation. Ground Space now includes its
+own persistent task queue and portable per-user configuration; it no longer
+loads the Data Blocks Administrator source tree at runtime. See
+[docs/GS-031-COMMUNITY-FOUNDATION.md](docs/GS-031-COMMUNITY-FOUNDATION.md).
+
 Ground Space is the communication layer for the existing Data Blocks Administrator and local agents. GS-001 reuses the Administrator's persistent queue and adds structured task messages plus a deterministic read-only Python worker.
 
 See [docs/GS-001.md](docs/GS-001.md) for architecture, safety boundaries, and validation commands.
