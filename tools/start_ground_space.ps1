@@ -5,10 +5,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$python = 'D:\000_AI Project\AI Agents Datablocks\runtime\python\python.exe'
-
-if (-not (Test-Path -LiteralPath $python)) {
-    throw "Data Blocks Python runtime not found: $python"
+$bundled = Join-Path $projectRoot 'runtime\python\python.exe'
+$python = if (Test-Path -LiteralPath $bundled) { $bundled } else {
+    $command = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $command) { $command = Get-Command py -ErrorAction SilentlyContinue }
+    if (-not $command) { throw 'Python is unavailable. Use the future packaged Community Edition build or install Python 3.11+.' }
+    $command.Source
 }
 
 Set-Location -LiteralPath $projectRoot

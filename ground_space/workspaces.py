@@ -32,11 +32,23 @@ def _save(path: Path, value: Any) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def allowed_project_roots(admin_root: Path) -> list[Path]:
-    """Existing configured folders are roots for user-selected project paths."""
-    candidates = [admin_root.parent, Path.home()]
+def allowed_project_roots(private_dir: Path | None = None) -> list[Path]:
+    """Resolve portable roots plus parents of already registered projects."""
+    candidates = [Path.home()]
     extra = os.environ.get("GROUND_SPACE_ALLOWED_PROJECT_ROOTS", "")
     candidates.extend(Path(item.strip()) for item in extra.split(os.pathsep) if item.strip())
+    if private_dir is not None:
+        try:
+            saved = json.loads((private_dir / "projects.json").read_text(encoding="utf-8"))
+            for project in saved.get("projects", []):
+                if isinstance(project, dict) and isinstance(project.get("path"), str):
+                    candidates.append(Path(project["path"]).expanduser().parent)
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, TypeError):
+            # WorkspaceRegistry will report corrupt state without silently
+            # overwriting it; root discovery must not broaden access on error.
+            pass
     roots: list[Path] = []
     for candidate in candidates:
         try:

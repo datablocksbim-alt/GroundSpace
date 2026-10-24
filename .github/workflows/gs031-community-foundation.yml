@@ -1,0 +1,49 @@
+name: GS-031 Community Edition foundation
+on:
+  push:
+    branches: [feature/gs031-community-foundation]
+  pull_request:
+    branches: [feature/gs-030-chat-project-management]
+permissions:
+  contents: read
+jobs:
+  foundation:
+    name: Portable baseline and local-backup syntax (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: GS-031 readiness and prior reliability regressions
+        run: python -m unittest tests.test_gs031_readiness tests.test_gs030_chat_management tests.test_gs029_project_removal tests.test_gs029_qwen_greeting_approval tests.test_gs025_public_security -v
+      - name: Read-only community readiness inventory
+        run: python tools/check_gs031_readiness.py
+      - name: Validate ASUS backup script syntax and safety posture
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $path = 'tools/backup_gs031_current.ps1'
+          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+          $script = Get-Content -LiteralPath $path -Raw
+          foreach ($need in @('backup_ground_space_state.ps1','BACKUP_MANIFEST.json',
+              'Get-FileHash', 'SHA256', 'backend_release', 'GS-030')) {
+            if (-not $script.Contains($need)) { throw "Backup invariant missing: $need" }
+          }
+          foreach ($bad in @('Stop-Process','Remove-Item', 'tailscale serve',
+              'git push', 'Invoke-WebRequest')) {
+            if ($script.Contains($bad)) { throw "Unsafe action in data backup script: $bad" }
+          }
+      - name: Compile Python and validate frontend syntax
+        run: python -m compileall -q ground_space tools/check_gs031_readiness.py
+      - name: Frontend JS syntax
+        run: node --check web/public/app.js
+
+# This workflow validates source/backup code, not the live ASUS private data.
+# Public packaging readiness intentionally remains blocked until missing gates are implemented.

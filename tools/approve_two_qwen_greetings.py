@@ -19,7 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ground_space.bridge import AdministratorAdapter, OrchestratorAdapter
-from ground_space.webapp import ADMIN_ROOT, default_state_dir
+from ground_space.webapp import default_state_dir
 from ground_space.workers import OllamaProposalWorker, probe_ollama
 
 MODEL = "qwen2.5-coder:3b"
@@ -145,7 +145,7 @@ def main() -> int:
 
     state = default_state_dir()
     admin = AdministratorAdapter(
-        ADMIN_ROOT, state / "private" / "queue",
+        None, state / "private" / "queue",
         state / "private" / "audit" / "messages.jsonl",
         retry_delay_seconds=0,
     )

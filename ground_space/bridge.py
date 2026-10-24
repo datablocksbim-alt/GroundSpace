@@ -11,24 +11,31 @@ from typing import Any
 from uuid import uuid4
 
 from .audit import AuditLog
-from .legacy import load_task_queue
 from .messages import message, utc_timestamp
+from .task_queue import PersistentQueue
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    temporary.write_bytes(data)
-    os.replace(temporary, path)
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 class AdministratorAdapter:
     """Thin submission/status facade over the Administrator's queue contract."""
 
-    def __init__(self, administrator_root: Path, queue_dir: Path, audit_path: Path, *,
+    def __init__(self, administrator_root: Path | None, queue_dir: Path, audit_path: Path, *,
                  max_attempts: int = 3, lease_seconds: int = 900, retry_delay_seconds: int = 0):
-        queue_module = load_task_queue(administrator_root)
-        self.queue = queue_module.PersistentQueue(
+        # administrator_root remains as a compatibility-only argument for older
+        # callers.  GS-031 never imports code or data from that location.
+        self.queue = PersistentQueue(
             queue_dir, _atomic_write, audit_path.parent / "worker_failures.jsonl",
             max_attempts=max_attempts, lease_seconds=lease_seconds,
             retry_delay_seconds=retry_delay_seconds,
@@ -39,6 +46,7 @@ class AdministratorAdapter:
                required_permissions: list[str] | None = None, task_id: str | None = None,
                correlation_id: str | None = None, approved: bool = False,
                approval_source: str | None = None,
+               priority: int = 0,
                execution_timeout_seconds: float = 5.0) -> dict[str, Any]:
         task_id = task_id or f"GS-{uuid4().hex}"
         correlation_id = correlation_id or uuid4().hex
@@ -55,6 +63,7 @@ class AdministratorAdapter:
                          "owner": approval_source or "Karl",
                          "method": "automatic" if approved and approval_source else "manual"},
             "execution_timeout_seconds": execution_timeout_seconds,
+            "priority": int(priority),
             "payload": payload,
         }
         self.queue.create(task)
@@ -69,8 +78,8 @@ class AdministratorAdapter:
         if not owner.strip():
             raise ValueError("Approval requires an owner identity")
         task = self.queue.read(task_id)
-        if task.get("status") != "queued":
-            raise ValueError("Only queued tasks can be approved")
+        if task.get("status") != "queued" or task.get("approval", {}).get("status") != "pending":
+            raise ValueError("Only queued tasks awaiting approval can be approved")
         return self.queue.transition(
             task, "queued", approval={"status": "approved", "owner": owner, "approved_at": utc_timestamp()}
         )
