@@ -12,11 +12,11 @@ from tools.check_gs031_readiness import inspect_repository
 
 
 class CommunityReadinessTests(unittest.TestCase):
-    def test_current_source_fails_standalone_dependency_gate(self):
+    def test_current_source_passes_completed_foundation_gates(self):
         root = Path(__file__).resolve().parents[1]
         checks = {x["check"]: x for x in inspect_repository(root)}
-        self.assertEqual(checks["standalone_queue"]["status"], "blocked")
-        self.assertEqual(checks["portable_launcher"]["status"], "blocked")
+        self.assertEqual(checks["standalone_queue"]["status"], "ready")
+        self.assertEqual(checks["portable_launcher"]["status"], "ready")
         self.assertEqual(checks["public_mode_off"]["status"], "ready")
         self.assertEqual(checks["public_license"]["status"], "blocked")
 
@@ -26,7 +26,9 @@ class CommunityReadinessTests(unittest.TestCase):
             (root / "ground_space").mkdir()
             (root / "tools").mkdir()
             (root / "distribution").mkdir()
-            (root / "ground_space" / "legacy.py").write_text("# packaged queue", encoding="utf-8")
+            (root / "ground_space" / "task_queue.py").write_text("# packaged queue", encoding="utf-8")
+            (root / "ground_space" / "bridge.py").write_text(
+                "from .task_queue import PersistentQueue", encoding="utf-8")
             (root / "ground_space" / "security.py").write_text(
                 "def assert_private_owner_mode(): pass", encoding="utf-8")
             (root / "tools" / "start_ground_space.ps1").write_text(

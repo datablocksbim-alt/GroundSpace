@@ -15,11 +15,11 @@ def inspect_repository(root: Path) -> list[dict[str, str]]:
     specs = [
         (
             "standalone_queue",
-            not (
-                (root / "ground_space" / "legacy.py").exists()
-                and "administrator_root.resolve()"
-                in (root / "ground_space" / "legacy.py").read_text(encoding="utf-8")
-            ),
+            ((root / "ground_space" / "task_queue.py").is_file()
+             and (root / "ground_space" / "bridge.py").is_file()
+             and "from .task_queue import PersistentQueue" in
+                 (root / "ground_space" / "bridge.py").read_text(encoding="utf-8")
+             and not (root / "ground_space" / "legacy.py").exists()),
             "Task queue must ship in the app; external Administrator path is not portable.",
         ),
         (
