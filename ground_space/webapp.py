@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from .bridge import AdministratorAdapter, OrchestratorAdapter
+from .config import default_state_dir, ollama_endpoint as configured_ollama_endpoint
 from .coordinator import coordinator_instructions, route_group_message, specialist_instructions
 from .codex_pilot import CodexPilot
 from .collaboration import CollaborationLedger
@@ -34,12 +35,11 @@ from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMA
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "web" / "public"
-ADMIN_ROOT = Path(os.environ.get("DATABLOCKS_ADMIN_ROOT", r"D:\000_AI Project\AI Agents Datablocks"))
 MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
-BACKEND_RELEASE = "GS-030"
+BACKEND_RELEASE = "GS-031"
 
 # A single explicit private HTTPS Origin is opt-in for the owner-only Tailscale
 # Serve pilot. Never derive trusted origins from untrusted Host/forwarded headers.
@@ -93,11 +93,6 @@ def planning_followup_prompt(kind: str, description: str) -> str:
     )
 
 
-def default_state_dir() -> Path:
-    base = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
-    return base / "DataBlocks" / "GroundSpace"
-
-
 def atomic_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
@@ -106,23 +101,26 @@ def atomic_json(path: Path, value: Any) -> None:
 
 
 class GroundSpaceApp:
-    def __init__(self, state_dir: Path, *, ollama_endpoint: str = "http://127.0.0.1:11434"):
+    def __init__(self, state_dir: Path, *, ollama_endpoint: str | None = None):
         self.state_dir = state_dir.resolve()
-        self.ollama_endpoint = ollama_endpoint
+        self.ollama_endpoint = ollama_endpoint or configured_ollama_endpoint()
         self.history_path = self.state_dir / "private" / "conversations.json"
         self.queue_dir = self.state_dir / "private" / "queue"
         self.models_path = self.state_dir / "private" / "chat_models.json"
-        self.workspaces = WorkspaceRegistry(self.state_dir / "private", allowed_project_roots(ADMIN_ROOT))
+        self.workspaces = WorkspaceRegistry(
+            self.state_dir / "private", allowed_project_roots(self.state_dir / "private")
+        )
         self.group_dispatch_lock = threading.Lock()
         self.lock = threading.RLock()
         self.administrator = AdministratorAdapter(
-            ADMIN_ROOT, self.queue_dir, self.state_dir / "private" / "audit" / "messages.jsonl",
+            None, self.queue_dir, self.state_dir / "private" / "audit" / "messages.jsonl",
             retry_delay_seconds=0,
         )
+        self.administrator.queue.recover_interrupted()
         self.orchestrator = OrchestratorAdapter(self.administrator)
         self.orchestrator.register(AdministratorConsoleWorker(str(self.queue_dir)))
         self.registered_models = self._load_registered_models()
-        availability = probe_ollama(ollama_endpoint)
+        availability = probe_ollama(self.ollama_endpoint)
         for model in self.registered_models:
             self._register_worker(model, availability)
         self.conversations = self._load_history()
