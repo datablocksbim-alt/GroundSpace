@@ -14,7 +14,7 @@ from ground_space.bridge import AdministratorAdapter, OrchestratorAdapter
 from ground_space.workers import OllamaProposalWorker, probe_ollama
 
 
-ADMIN_ROOT = Path(r"D:\000_AI Project\AI Agents Datablocks")
+ADMIN_ROOT = None
 ENDPOINT = "http://127.0.0.1:11434"
 MODEL = "qwen2.5-coder:3b"
 

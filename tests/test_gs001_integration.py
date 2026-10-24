@@ -9,7 +9,7 @@ from ground_space.bridge import AdministratorAdapter, OrchestratorAdapter
 from ground_space.workers import DeterministicReadOnlyWorker, WorkerDescriptor
 
 
-ADMIN_ROOT = Path(r"D:\000_AI Project\AI Agents Datablocks")
+ADMIN_ROOT = None
 
 
 class SlowWorker:
