@@ -301,10 +301,17 @@ class GroundSpaceApp:
             # specialists can speak for themselves. This is chat, never job approval.
             route = route_group_message(prompt, models, force_coordinator=annotation_entry is not None)
             # Validate all routed bots before creating any queue tasks.
-            modes = {model: group.get("approval_modes", {}).get(model, "approve_for_me")
-                     for model in route.models}
+            routed_pairs = list(zip(route.models, route.roles, strict=True))
+            if request_type == "workspace_change":
+                # Coordinator may delegate writable work but is never itself a file worker.
+                routed_pairs = [(model, role) for model, role in routed_pairs if role != "coordinator"]
+                if not routed_pairs:
+                    raise ValueError("Name Qwen or Codex when requesting a workspace change through Coordinator")
+            routed_models = [model for model, _role in routed_pairs]
             access_modes = {model: group.get("access_modes", {}).get(model, "chat")
-                            for model in route.models}
+                            for model in routed_models}
+            modes = {model: group.get("approval_modes", {}).get(model, "approve_for_me")
+                     for model in routed_models}
             if any(mode == "disabled" for mode in modes.values()):
                 raise ValueError("An addressed group bot is disabled; edit Members → Approval settings")
             if request_type == "workspace_change":
@@ -324,7 +331,7 @@ class GroundSpaceApp:
             automatic_task_ids = []
             codex_job_ids = []
             timeout = PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
-            for model, role in zip(route.models, route.roles, strict=True):
+            for model, role in routed_pairs:
                 is_coordinator = role == "coordinator"
                 routed_prompt = (
                     coordinator_instructions(
@@ -332,7 +339,9 @@ class GroundSpaceApp:
                         kind=annotation_entry.get("kind") if annotation_entry else None,
                         goal_id=annotation_entry.get("note_id") if annotation_entry else None,
                     )
-                    if is_coordinator else specialist_instructions(prompt, model=model)
+                    if is_coordinator else specialist_instructions(
+                        prompt, model=model, writable=request_type == "workspace_change"
+                    )
                 )
                 prompt_sections = [project_context.rstrip()] if project_context else []
                 if context:

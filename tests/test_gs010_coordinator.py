@@ -63,6 +63,14 @@ class CoordinatorRoutingTests(unittest.TestCase):
         self.assertEqual(("coordinator", "specialist", "specialist"), route.roles)
         self.assertFalse(route.coordinator)
 
+    def test_instruct_is_a_natural_delegation_verb(self):
+        models = ["qwen2.5-coder:3b", "codex"]
+        route = route_group_message(
+            "@Coordinator instruct Qwen to create one folder and Codex to create another", models
+        )
+        self.assertEqual(("qwen2.5-coder:3b", "qwen2.5-coder:3b", "codex"), route.models)
+        self.assertEqual(("coordinator", "specialist", "specialist"), route.roles)
+
     def test_specialist_can_handoff_one_bounded_turn_to_named_member(self):
         models = ["qwen2.5-coder:3b", "codex"]
         route = route_group_message("@Codex say hi to Qwen", models)

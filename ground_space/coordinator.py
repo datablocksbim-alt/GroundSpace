@@ -11,7 +11,7 @@ from dataclasses import dataclass
 MENTION = re.compile(r"(?<![A-Za-z0-9_])@([A-Za-z0-9][A-Za-z0-9._:/-]{0,127})")
 CLOUD_ALIASES = frozenset({"chatgpt", "openai", "claude", "anthropic"})
 DELEGATION = re.compile(
-    r"\b(?:ask|have|let|task|tell|invite|hear\s+from|respond|reply)\b|"
+    r"\b(?:ask|have|let|task|tell|instruct|assign|direct|order|invite|hear\s+from|respond|reply)\b|"
     r"\b(?:say|send|deliver)\b.{0,80}\bto\b|"
     r"\b(?:talk|speak)\b.{0,40}\b(?:to|with)\b|"
     r"\bgreet\b",
@@ -139,15 +139,21 @@ def coordinator_instructions(user_prompt: str, *, group_models: list[str], kind:
     )
 
 
-def specialist_instructions(user_prompt: str, *, model: str) -> str:
+def specialist_instructions(user_prompt: str, *, model: str, writable: bool = False) -> str:
     """Keep each routed model in its own voice instead of simulating the room."""
+    access = (
+        "You are authorized to return a structured plan for create, edit, or delete operations "
+        "inside the selected project only. The server enforces the boundary and applies the plan. "
+        "You have no shell or access to parent folders, .git, credentials, or secrets."
+        if writable else
+        "You have no tools or filesystem access; this is a proposal-only chat response."
+    )
     return (
         f"You are {model}, one individual participant in a Ground Space group chat. "
         "Reply naturally and only as yourself. Do not write responses for Coordinator or any "
         "other model, do not present a simulated transcript, and do not prefix your answer with "
         "another participant's name. Other addressed participants receive their own independent "
         "turn. If another participant is instructed to speak to you, respond to that participant "
-        "as yourself instead of composing or restating their expected words. You have no tools or filesystem access; this is a "
-        "proposal-only chat response.\n\n"
+        f"as yourself instead of composing or restating their expected words. {access}\n\n"
         f"Group message:\n{user_prompt}"
     )

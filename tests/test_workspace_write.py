@@ -129,7 +129,7 @@ class WorkspacePolicyTests(unittest.TestCase):
         app._register_worker = Mock()
         with patch("ground_space.webapp.probe_ollama", return_value={"available": False, "models": []}), \
              patch("ground_space.webapp.threading.Thread") as worker:
-            response = app.submit_group({"group_id": group["id"], "prompt": "Create notes.txt",
+            response = app.submit_group({"group_id": group["id"], "prompt": "@Qwen create notes.txt",
                                          "request_type": "workspace_change"})
         task = app.administrator.status(response["task_ids"][0])
         self.assertEqual("pending", task["approval"]["status"])
@@ -149,7 +149,7 @@ class WorkspacePolicyTests(unittest.TestCase):
         app.conversations, app.history_path = {}, self.root / "history.json"
         with patch("ground_space.webapp.probe_ollama", return_value={"available": False, "models": []}):
             with self.assertRaisesRegex(ValueError, "Enable selected-project full write"):
-                app.submit_group({"group_id": group["id"], "prompt": "Create notes.txt",
+                app.submit_group({"group_id": group["id"], "prompt": "@Qwen create notes.txt",
                                   "request_type": "workspace_change"})
 
 

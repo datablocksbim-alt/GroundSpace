@@ -486,6 +486,8 @@ async function submit(event){
     })});
     if(!isGroup&&state.agent==='qwen')localStorage.setItem('gs_conversation_id',state.conversationId);
     $('#prompt').value='';
+    $('#requestType').value='explanation';
+    syncCapabilitySafety();
     updateSlashMenu();
     await refresh();
     toast(response.codex_job?.status==='pending_approval'?'Codex task waiting for approval':response.entry?(response.task||response.task_ids?'Planning note saved · Coordinator reply queued':'Planning note saved'):isGroup?'Message sent to Coordinator or mentioned specialist':'Task submitted');
@@ -495,6 +497,21 @@ async function submit(event){
 function isSlashAnnotation(){return /^\/(goal|milestone)(\s|$)/i.test($('#prompt').value.trim());}
 function updateComposerAvailability(){
   $('#sendButton').disabled=state.agent==='qwen'&&!state.selectedModel&&!isSlashAnnotation();
+}
+function syncCapabilitySafety(){
+  $('.composer-safety').textContent=(state.agent==='group'&&$('#requestType').value==='workspace_change')
+    ?'Selected project · Workspace change':'Local only · No tools';
+}
+function updateWorkspaceIntent(){
+  if(state.agent!=='group')return;
+  const prompt=$('#prompt').value;
+  const looksWritable=/\b(create|make|add|edit|modify|update|delete|remove|rename|move|write)\b[\s\S]{0,90}\b(file|folder|directory|code|project)\b/i.test(prompt);
+  if(!looksWritable||$('#requestType').value!=='explanation')return;
+  const group=(state.data?.workspaces?.groups||[]).find(item=>item.id===state.groupId);
+  if(!group||!Object.values(group.access_modes||{}).includes('full_write'))return;
+  $('#requestType').value='workspace_change';
+  syncCapabilitySafety();
+  toast('Workspace change selected · project access rules apply');
 }
 function chooseSlash(kind){
   $('#prompt').value='/'+kind+' ';
@@ -559,9 +576,11 @@ function updateSlashMenu(){
   });
   $('#slashMenu').hidden=count===0;
   updateMentionMenu();
+  updateWorkspaceIntent();
   updateComposerAvailability();
 }
 $('#prompt').addEventListener('input',updateSlashMenu);
+$('#requestType').addEventListener('change',syncCapabilitySafety);
 $('#prompt').addEventListener('keydown',event=>{
   if(event.key==='Escape'){$('#slashMenu').hidden=true;$('#mentionMenu').hidden=true;return;}
   if(event.key==='Enter'&&!event.shiftKey&&!$('#mentionMenu').hidden){
