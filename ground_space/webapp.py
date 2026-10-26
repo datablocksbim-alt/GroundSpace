@@ -294,21 +294,22 @@ class GroundSpaceApp:
             automatic_task_ids = []
             codex_job_ids = []
             timeout = PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
-            for model in route.models:
+            for model, role in zip(route.models, route.roles, strict=True):
+                is_coordinator = role == "coordinator"
                 routed_prompt = (
                     coordinator_instructions(
                         prompt, group_models=models,
                         kind=annotation_entry.get("kind") if annotation_entry else None,
                         goal_id=annotation_entry.get("note_id") if annotation_entry else None,
                     )
-                    if route.coordinator else specialist_instructions(prompt, model=model)
+                    if is_coordinator else specialist_instructions(prompt, model=model)
                 )
                 prompt_sections = [project_context.rstrip()] if project_context else []
                 if context:
                     prompt_sections.append(f"Bounded conversation context:\n{context}")
                 prompt_sections.append(f"Current user request:\n{routed_prompt}")
                 full_prompt = "\n\n".join(prompt_sections)
-                speaker = "Coordinator" if route.coordinator else model
+                speaker = "Coordinator" if is_coordinator else model
                 payload = {"request_type": request_type, "prompt": full_prompt,
                            "conversation_id": conversation_id, "model": model,
                            "speaker": speaker,

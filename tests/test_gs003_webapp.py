@@ -360,9 +360,12 @@ class GS003WebAppTests(unittest.TestCase):
                     "prompt": "@Coordinator ask Qwen and Granite to say hello",
                 })
         tasks = [self.app.task(task_id) for task_id in response["task_ids"]]
-        self.assertEqual(group["models"], [task["payload"]["speaker"] for task in tasks])
-        self.assertTrue(all("only as yourself" in task["payload"]["prompt"] for task in tasks))
-        self.assertTrue(all("simulated transcript" in task["payload"]["prompt"] for task in tasks))
+        self.assertEqual(["Coordinator", *group["models"]],
+                         [task["payload"]["speaker"] for task in tasks])
+        self.assertIn("You are Coordinator", tasks[0]["payload"]["prompt"])
+        self.assertIn("Never simulate", tasks[0]["payload"]["prompt"])
+        self.assertTrue(all("only as yourself" in task["payload"]["prompt"] for task in tasks[1:]))
+        self.assertTrue(all("simulated transcript" in task["payload"]["prompt"] for task in tasks[1:]))
 
     def test_group_execution_is_sequential_and_in_member_order(self):
         group = self.post_json("/api/groups/create", {
