@@ -60,6 +60,17 @@ class CoordinatorRoutingTests(unittest.TestCase):
         self.assertEqual((MODELS[0], MODELS[2]), route.models)
         self.assertFalse(route.coordinator)
 
+    def test_specialist_can_handoff_one_bounded_turn_to_named_member(self):
+        models = ["qwen2.5-coder:3b", "codex"]
+        route = route_group_message("@Codex say hi to Qwen", models)
+        self.assertEqual(("codex", "qwen2.5-coder:3b"), route.models)
+        self.assertFalse(route.coordinator)
+
+    def test_incidental_model_name_does_not_trigger_second_reply(self):
+        models = ["qwen2.5-coder:3b", "codex"]
+        route = route_group_message("@Qwen review the Codex architecture", models)
+        self.assertEqual(("qwen2.5-coder:3b",), route.models)
+
     def test_ministral_coordinator_preference(self):
         models = MODELS + ["ministral-3:8b"]
         self.assertEqual(route_group_message("hi", models).models, ("ministral-3:8b",))

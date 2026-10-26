@@ -10,7 +10,13 @@ from dataclasses import dataclass
 
 MENTION = re.compile(r"(?<![A-Za-z0-9_])@([A-Za-z0-9][A-Za-z0-9._:/-]{0,127})")
 CLOUD_ALIASES = frozenset({"chatgpt", "openai", "claude", "anthropic"})
-DELEGATION = re.compile(r"\b(ask|have|let|task|tell|invite|hear\s+from|respond|reply)\b", re.IGNORECASE)
+DELEGATION = re.compile(
+    r"\b(?:ask|have|let|task|tell|invite|hear\s+from|respond|reply)\b|"
+    r"\b(?:say|send|deliver)\b.{0,80}\bto\b|"
+    r"\b(?:talk|speak)\b.{0,40}\b(?:to|with)\b|"
+    r"\bgreet\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -88,6 +94,12 @@ def route_group_message(prompt: str, group_models: list[str], *, force_coordinat
     selected: list[str] = []
     for name in mentions:
         model = resolve_specialist(name, group_models)
+        if model not in selected:
+            selected.append(model)
+    # A direct participant may naturally hand a conversational turn to another
+    # room member (for example, "@Codex say hi to Qwen"). Route each named
+    # participant once; this remains a single bounded turn and cannot recurse.
+    for model in named_participants(prompt, group_models):
         if model not in selected:
             selected.append(model)
     return GroupRoute(tuple(selected), False)
