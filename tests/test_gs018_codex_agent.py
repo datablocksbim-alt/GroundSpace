@@ -86,6 +86,18 @@ class WorkspaceAgentTests(unittest.TestCase):
                 self.assertEqual("running",result["status"])
                 worker.assert_called_once()
 
+    def test_overlapping_read_only_auto_approval_runs_once(self):
+        self.codex.set_registered(True)
+        group=self.workspaces.create_group("Review room",["codex"],self.project["id"],["codex"],
+            {"codex":"approve_for_me"})
+        self.codex.set_policy({"project_id":self.project["id"],"mode":"auto_read_only"})
+        with patch("ground_space.codex_pilot.threading.Thread") as worker:
+            result=self.codex.submit({"project_id":self.project["id"],"prompt":"Say hello",
+                                     "scope":"read_only","group_id":group["id"]},
+                                     group_auto_approval=True)
+            self.assertEqual("running",result["status"])
+            worker.assert_called_once()
+
     def test_group_can_include_codex_and_route_mention(self):
         codex_group=["qwen2.5-coder:3b","codex"]
         group=self.workspaces.create_group("Test group",codex_group,self.project["id"],codex_group,

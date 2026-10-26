@@ -118,6 +118,19 @@ class CodexPilot:
         mode = self.mode(project_id)
         if mode=="disabled": raise ValueError("Codex is disabled for this project")
         if not self.which("codex"): raise ValueError("Codex CLI is not installed or available to Ground Space")
+        # Resolve every automatic-approval source before persisting the job,
+        # then approve at most once. A read-only project policy and an
+        # approve-for-me group policy can legitimately overlap.
+        group_approved = False
+        if group_auto_approval:
+            group_id=body.get("group_id")
+            if not isinstance(group_id,str) or not group_id:
+                raise ValueError("Automatic Codex approval requires a group")
+            group=self.workspaces.get_group(group_id)
+            if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex")!="approve_for_me":
+                raise ValueError("Codex is not automatically approved in this group")
+            group_approved = True
+        should_auto_approve = (mode=="auto_read_only" and scope=="read_only") or group_approved
         with self.lock:
             if sum(job["status"]=="pending_approval" for job in self.jobs)>=10:
                 raise ValueError("Codex review queue is full; approve or reject pending reviews first")
@@ -128,16 +141,9 @@ class CodexPilot:
                       "group_id":body.get("group_id"), "conversation_id":body.get("conversation_id")}
             self.jobs = (self.jobs+[record])[-50:]
             persist(self.jobs_path,self.jobs)
-        if mode=="auto_read_only" and scope=="read_only": self.approve({"job_id":record["id"]})
-        # Only the trusted group dispatcher may grant an auto-approval based
-        # on the persisted per-bot policy. Never use a browser-submitted flag.
-        if group_auto_approval:
-            group_id=record.get("group_id")
-            if not isinstance(group_id,str) or not group_id:
-                raise ValueError("Automatic writable permission requires a group")
-            group=self.workspaces.get_group(group_id)
-            if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex")!="approve_for_me":
-                raise ValueError("Codex is not automatically approved in this group")
+        # Only the trusted dispatcher can supply group_auto_approval, and the
+        # persisted group policy above must independently authorize it.
+        if should_auto_approve:
             self.approve({"job_id":record["id"]})
         return self.get(record["id"])
 
