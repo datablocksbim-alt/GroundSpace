@@ -11,6 +11,7 @@ import urllib.request
 import os
 import secrets
 import stat
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -229,6 +230,88 @@ def administrator_console(spec: dict[str, Any], task: dict[str, Any]) -> dict[st
     }
 
 
+def local_coding_agent(spec: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+    """Run a qualified local agent in one server-authorized project directory."""
+    if spec.get("agent_id") != "qwen-code":
+        raise ValueError("Unknown or unqualified local coding agent")
+    payload = task.get("payload", {})
+    project = Path(str(payload.get("project_path", ""))).resolve(strict=True)
+    if not project.is_dir():
+        raise ValueError("Registered project is unavailable")
+    prompt = str(payload.get("prompt", "")).strip()
+    if not prompt or len(prompt) > 12_000:
+        raise ValueError("Agent request is empty or too long")
+    executable = Path(str(spec.get("executable", ""))).resolve(strict=True)
+    if executable.suffix.casefold() not in {".cmd", ".exe", ""}:
+        raise ValueError("Unsupported Qwen Code launcher")
+    writable = payload.get("request_type") == "workspace_change"
+    approval_mode = str(spec.get("approval_mode", "auto")) if writable else "plan"
+    def snapshot() -> dict[str, tuple[int, int]]:
+        records: dict[str, tuple[int, int]] = {}
+        for item in project.rglob("*"):
+            relative = item.relative_to(project)
+            if ".git" in relative.parts or item.is_symlink() or not item.is_file():
+                continue
+            metadata = item.stat()
+            records[relative.as_posix()] = (metadata.st_size, metadata.st_mtime_ns)
+        return records
+
+    before = snapshot()
+    execution_instruction = (
+        "This is an owner-approved Ground Space task. Perform the requested work now using your "
+        "file and command tools inside the current working directory. Do not merely describe code "
+        "or claim success. Inspect the resulting files and actual command output before concluding. "
+        "Never access parent directories, credentials, system configuration, network services, or git."
+    )
+    command = [str(executable), "--prompt", prompt, "--output-format", "json",
+               "--approval-mode", approval_mode,
+               "--max-session-turns", str(int(spec.get("max_session_turns", 30))),
+               "--max-tool-calls", str(int(spec.get("max_tool_calls", 80))),
+               "--max-wall-time", f"{int(spec.get('request_timeout_seconds', 600))}s",
+               "--channel", "CI", "--chat-recording", "false", "--safe-mode",
+               "--append-system-prompt", execution_instruction]
+    model, base_url = spec.get("model"), spec.get("base_url")
+    if model and base_url:
+        parsed = urllib.parse.urlparse(str(base_url))
+        if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
+            raise ValueError("Qwen Code local backend must use loopback")
+        command.extend(["--auth-type", "openai", "--openai-base-url", str(base_url),
+                        "--openai-api-key", "ground-space-local-ollama", "--model", str(model)])
+    completed = subprocess.run(
+        command, cwd=project, capture_output=True, text=True, shell=False,
+        timeout=float(spec.get("request_timeout_seconds", 600)) + 10,
+        encoding="utf-8", errors="replace")
+    stdout, stderr = completed.stdout or "", completed.stderr or ""
+    if completed.returncode:
+        detail = "\n".join((stderr or stdout).strip().splitlines()[-8:])
+        detail = detail.replace(str(project), "[selected project]")[:1200]
+        raise RuntimeError(f"Qwen Code exited {completed.returncode}: {detail or 'no diagnostic output'}")
+    after = snapshot()
+    changed_paths = sorted(set(before) ^ set(after) |
+                           {path for path in set(before) & set(after) if before[path] != after[path]})
+    if writable and not changed_paths:
+        raise RuntimeError("Qwen Code reported success but produced no verified project file changes")
+    try:
+        response = json.loads(stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Qwen Code returned invalid structured output") from error
+    if isinstance(response, list):
+        response = next((item for item in reversed(response)
+                         if isinstance(item, dict) and item.get("type") == "result"), {})
+    if not isinstance(response, dict):
+        raise RuntimeError("Qwen Code returned an unsupported structured response")
+    answer = str(response.get("response") or response.get("result") or response.get("text") or "").strip()
+    if not answer:
+        answer = "Qwen Code completed the authorized project task."
+    return {"result": {"operation": "local_coding_agent", "agent_id": "qwen-code",
+                       "task_id": task["task_id"], "correlation_id": task["correlation_id"],
+                       "answer": answer[:20_000], "project_scoped": True,
+                       "raw_model": False, "write_authorized": writable,
+                       "changed_paths": changed_paths[:200],
+                       "exit_code": completed.returncode},
+            "progress": [{"stage": "agent_completed", "percent": 100}]}
+
+
 def main() -> int:
     envelope = json.load(sys.stdin)
     spec = envelope["worker"]
@@ -242,6 +325,8 @@ def main() -> int:
         output = ollama_workspace(spec, task)
     elif kind == "administrator_console":
         output = administrator_console(spec, task)
+    elif kind == "local_coding_agent":
+        output = local_coding_agent(spec, task)
     elif kind == "test_sleep":
         time.sleep(float(spec.get("seconds", 1)))
         output = {"result": {"late": True}, "progress": []}

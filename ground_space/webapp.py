@@ -23,6 +23,7 @@ from .coordinator import coordinator_instructions, route_group_message, speciali
 from .codex_pilot import CodexPilot
 from .messages import utc_timestamp
 from .providers import provider_catalog
+from .agent_runtimes import LocalCodingAgentWorker, discover_agent_runtimes
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, OllamaWorkspaceWorker, PERFORMANCE_PRESETS,
                       ollama_descriptors, probe_ollama, valid_model_name)
@@ -35,7 +36,7 @@ MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
-BACKEND_RELEASE = "GS-021"
+BACKEND_RELEASE = "GS-032"
 
 # A single explicit private HTTPS Origin is opt-in for the owner-only Tailscale
 # Serve pilot. Never derive trusted origins from untrusted Host/forwarded headers.
@@ -124,6 +125,8 @@ class GroundSpaceApp:
         self.conversations = self._load_history()
         self.codex = CodexPilot(self.state_dir / "private", self.workspaces)
         self.external_providers = provider_catalog()
+        self.agent_runtimes = self._prepare_agent_runtimes(discover_agent_runtimes(), availability)
+        self._register_agent_runtimes()
 
 
     @staticmethod
@@ -134,7 +137,38 @@ class GroundSpaceApp:
 
     @staticmethod
     def workspace_worker_id(model: str) -> str:
+        if model == "qwen-code":
+            return "agent-runtime-qwen-code"
         return "ollama-workspace-" + hashlib.sha256(model.encode("utf-8")).hexdigest()[:16]
+
+    def _register_agent_runtimes(self) -> None:
+        runtime = next((item for item in self.agent_runtimes
+                        if item["agent_id"] == "qwen-code"), None)
+        if runtime and "qwen-code" in self.registered_models:
+            self.orchestrator.register(LocalCodingAgentWorker(
+                agent_id="qwen-code", executable="qwen",
+                active=bool(runtime["available"]), model=runtime.get("model"),
+                base_url=runtime.get("base_url")))
+
+    def _prepare_agent_runtimes(self, records: list[dict[str, Any]],
+                                availability: dict[str, Any]) -> list[dict[str, Any]]:
+        """Connect Qwen Code to local Ollama without importing credentials."""
+        installed = list(availability.get("models", []))
+        preferred = next((name for prefix in ("qwen3-coder", "qwen3.5", "qwen2.5-coder")
+                          for name in installed if name == prefix or name.startswith(prefix + ":")), None)
+        prepared = []
+        for item in records:
+            value = dict(item)
+            if item["agent_id"] == "qwen-code" and item["installed"] and preferred:
+                value.update(available=True, authenticated=True,
+                             connection="local_ollama", model=preferred,
+                             base_url=self.ollama_endpoint.rstrip("/") + "/v1",
+                             # The installed 3B/4B engines passed chat but failed
+                             # two real tool-use qualifications. Keep the agent
+                             # available for plan/chat while write remains locked.
+                             full_write_available=preferred.startswith("qwen3-coder"))
+            prepared.append(value)
+        return prepared
 
     def _load_registered_models(self) -> list[str]:
         try:
@@ -151,6 +185,8 @@ class GroundSpaceApp:
             raise ValueError("Private model registry is damaged; fix chat_models.json before starting")
 
     def _register_worker(self, model: str, availability: dict[str, Any]) -> None:
+        if model == "qwen-code":
+            return
         self.orchestrator.register(OllamaProposalWorker(
             endpoint=self.ollama_endpoint, model=model,
             agent_id=self.worker_id(model),
@@ -168,20 +204,33 @@ class GroundSpaceApp:
         if availability is None:
             availability = probe_ollama(self.ollama_endpoint)
         installed = sorted(model for model in availability["models"] if valid_model_name(model))
+        runtimes = {item["agent_id"]: item
+                    for item in getattr(self, "agent_runtimes", [])}
         with self.lock:
             registered = list(self.registered_models)
         return {
             "registered": ([
+                {"provider": "local_agent", "model": model,
+                 "worker_id": self.workspace_worker_id(model),
+                 "available": bool(runtimes.get(model, {}).get("available")),
+                 "full_write_available": bool(runtimes.get(model, {}).get("full_write_available")),
+                 "label": runtimes.get(model, {}).get("label", model),
+                 "role": "coding agent · selected-project full write"}
+                for model in registered if model in runtimes
+            ] + [
                 {"provider": "ollama", "model": model, "worker_id": self.worker_id(model),
                  "available": model in installed, "label": model,
+                 "full_write_available": True,
                  "role": ("chat · optional selected-project full write" if model == "qwen2.5-coder:3b"
                           else "experimental chat · optional selected-project full write")}
-                for model in registered
+                for model in registered if model not in runtimes
             ] + ([{"provider":"openai_codex_cli", "model":"codex", "worker_id":"codex-cli",
                    "available":self.codex.available(), "label":"Codex",
                    "role":"workspace coding agent · create/edit/run/delete"}]
                  if self.codex.is_registered() else [])),
             "discovered": ([model for model in installed if model not in registered] +
+                            [item["agent_id"] for item in runtimes.values()
+                             if item["available"] and item["agent_id"] not in registered] +
                             (["codex"] if self.codex.available() and not self.codex.is_registered() else [])),
             "presets": [{"id": key, "label": value["label"],
                          "max_output_tokens": value["num_predict"]}
@@ -192,21 +241,31 @@ class GroundSpaceApp:
                   for item in getattr(self, "external_providers", [])],
             ],
             "external_providers": [dict(item) for item in getattr(self, "external_providers", [])],
+            "agent_runtimes": [dict(item) for item in runtimes.values()],
         }
 
     def refresh_providers(self) -> dict[str, Any]:
         with self.lock:
             self.external_providers = provider_catalog()
+            availability = probe_ollama(self.ollama_endpoint)
+            self.agent_runtimes = self._prepare_agent_runtimes(
+                discover_agent_runtimes(), availability)
+            self._register_agent_runtimes()
         return self.catalog()
 
     def add_model(self, name: str) -> dict[str, Any]:
         if name == "codex":
             self.codex.set_registered(True)
             return self.catalog()
-        if not valid_model_name(name):
-            raise ValueError("Invalid local model name")
         availability = probe_ollama(self.ollama_endpoint)
-        if name not in availability.get("models", []):
+        runtimes = {item["agent_id"]: item for item in self._prepare_agent_runtimes(
+            discover_agent_runtimes(), availability)}
+        if name in runtimes:
+            if not runtimes[name]["available"]:
+                raise ValueError("Install and qualify this local agent runtime before adding it")
+        elif not valid_model_name(name):
+            raise ValueError("Invalid local model name")
+        if name not in runtimes and name not in availability.get("models", []):
             raise ValueError("Model must already be installed in local Ollama")
         with self.lock:
             if name in self.registered_models:
@@ -216,7 +275,11 @@ class GroundSpaceApp:
             updated = self.registered_models + [name]
             atomic_json(self.models_path, {"schema_version": 1, "models": updated})
             self.registered_models = updated
-            self._register_worker(name, availability)
+            if name in runtimes:
+                self.agent_runtimes = list(runtimes.values())
+                self._register_agent_runtimes()
+            else:
+                self._register_worker(name, availability)
         return self.catalog()
 
     def remove_model(self, name: str) -> dict[str, Any]:
@@ -233,6 +296,7 @@ class GroundSpaceApp:
             atomic_json(self.models_path, {"schema_version": 1, "models": updated})
             self.registered_models = updated
             self.orchestrator.workers.pop(self.worker_id(name), None)
+            self.orchestrator.workers.pop(self.workspace_worker_id(name), None)
         return self.catalog()
 
 
@@ -262,6 +326,7 @@ class GroundSpaceApp:
         )
 
     def create_group(self, body: dict[str, Any]) -> dict[str, Any]:
+        self._validate_group_access(body.get("access_modes"))
         with self.lock:
             return self.workspaces.create_group(
                 body.get("name"), body.get("models"), body.get("project_id"),
@@ -270,11 +335,23 @@ class GroundSpaceApp:
             )
 
     def update_group(self, body: dict[str, Any]) -> dict[str, Any]:
+        self._validate_group_access(body.get("access_modes"))
         with self.lock:
             return self.workspaces.update_group(
                 str(body.get("group_id", "")), body.get("models"),
                 body.get("project_id"), list(self.registered_models) + (["codex"] if self.codex.is_registered() else []),
                 body.get("approval_modes"), body.get("access_modes"),
+            )
+
+    def _validate_group_access(self, access_modes: Any) -> None:
+        if not isinstance(access_modes, dict) or access_modes.get("qwen-code") != "full_write":
+            return
+        runtime = next((item for item in getattr(self, "agent_runtimes", [])
+                        if item["agent_id"] == "qwen-code"), None)
+        if not runtime or not runtime.get("full_write_available"):
+            raise ValueError(
+                "Qwen Code full write is not qualified with the current engine; "
+                "connect a tool-capable Qwen coding model and refresh Agents"
             )
 
     def submit_group(self, body: dict[str, Any], *, annotation_entry: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -299,7 +376,7 @@ class GroundSpaceApp:
                 raise ValueError("A group AI model is no longer registered; edit its members")
             availability = probe_ollama(self.ollama_endpoint)
             for model in models:
-                if model != "codex":
+                if model not in {"codex", "qwen-code"}:
                     self._register_worker(model, availability)
             conversation_id = group["conversation_id"]
             context = self.conversation_context(conversation_id)
@@ -334,6 +411,8 @@ class GroundSpaceApp:
                     raise ValueError("Select a registered project before assigning Codex group work")
                 if not self.codex.is_registered():
                     raise ValueError("Add Codex from Agents before mentioning it in a group")
+            if "qwen-code" in route.models and not group.get("project_id"):
+                raise ValueError("Select a registered project before assigning Qwen Code")
 
             group_turn_id = "TURN-" + secrets.token_hex(8)
             task_ids = []
@@ -364,6 +443,8 @@ class GroundSpaceApp:
                            "performance": performance, "group_id": group["id"],
                            "group_turn_id": group_turn_id,
                            "project_id": group["project_id"]}
+                if model == "qwen-code":
+                    payload["project_path"] = self.workspaces.get_project(group["project_id"])["path"]
                 automatic = modes[model] == "approve_for_me"
                 if model == "codex":
                     if not group["project_id"]:
@@ -380,8 +461,14 @@ class GroundSpaceApp:
                     project = self.workspaces.get_project(group["project_id"])
                     payload["project_path"] = project["path"]
                     worker_id = self.workspace_worker_id(model)
-                    permissions = ["read", "propose", "workspace_write"]
+                    permissions = (["read", "propose", "workspace_write", "execute"]
+                                   if model == "qwen-code"
+                                   else ["read", "propose", "workspace_write"])
                     approval_source = "ground-space-group-auto-project-write" if automatic else None
+                elif model == "qwen-code":
+                    worker_id = self.workspace_worker_id(model)
+                    permissions = ["read", "propose"]
+                    approval_source = "ground-space-group-auto-readonly" if automatic else None
                 else:
                     worker_id = self.worker_id(model)
                     permissions = ["read", "propose"]
@@ -389,7 +476,7 @@ class GroundSpaceApp:
                 task = self.administrator.submit(
                     payload, worker_id=worker_id,
                     required_permissions=permissions,
-                    execution_timeout_seconds=timeout, approved=automatic,
+                    execution_timeout_seconds=(610 if model == "qwen-code" else timeout), approved=automatic,
                     approval_source=approval_source,
                 )
                 task_ids.append(task["task_id"])
@@ -427,8 +514,11 @@ class GroundSpaceApp:
             payload = task.get("payload", {})
             model = payload.get("model")
             expected_write = payload.get("request_type") == "workspace_change"
-            expected_worker = (self.workspace_worker_id(model) if expected_write else self.worker_id(model))
-            expected_permissions = ({"read", "propose", "workspace_write"} if expected_write
+            expected_worker = (self.workspace_worker_id(model)
+                               if expected_write or model == "qwen-code" else self.worker_id(model))
+            expected_permissions = (({"read", "propose", "workspace_write", "execute"}
+                                     if model == "qwen-code"
+                                     else {"read", "propose", "workspace_write"}) if expected_write
                                     else {"read", "propose"})
             if (task.get("source") != "ground_space" or
                 task.get("status") != "queued" or
@@ -692,7 +782,12 @@ class GroundSpaceApp:
                "active": bool(availability.get("available") and model in installed),
                "permissions": ["read", "propose", "workspace_write_if_group_authorized"],
                "model": model}
-              for model in registered],
+              for model in registered if model != "qwen-code"],
+            *[{"agent_id": "agent-runtime-qwen-code", "role": "local coding agent",
+               "active": bool(next((r["available"] for r in getattr(self, "agent_runtimes", [])
+                                    if r["agent_id"] == "qwen-code"), False)),
+               "permissions": ["read", "propose", "workspace_write", "execute"],
+               "model": "qwen-code"} for _ in [0] if "qwen-code" in registered],
         ]
 
     def bootstrap(self) -> dict[str, Any]:

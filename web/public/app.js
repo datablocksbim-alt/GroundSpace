@@ -261,15 +261,16 @@ function openGroupEditor(groupId=''){
   $('#saveGroup').textContent=group?'Save changes':'Create group';
   $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
   $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>{
-    const mode=group?.approval_modes?.[item.model]||(item.model==='codex'?'manual':'approve_for_me');
+    const mode=group?.approval_modes?.[item.model]||(['codex','qwen-code'].includes(item.model)?'manual':'approve_for_me');
     const access=group?.access_modes?.[item.model]||'chat';
     const opts=[['manual','Ask me'],['approve_for_me','Approve for me'],['disabled','Off']]
       .map(([value,label])=>'<option value="'+value+'"'+(mode===value?' selected':'')+'>'+label+'</option>').join('');
-    const accessOpts=[['chat','Chat only'],['full_write','Full write · selected project']]
-      .map(([value,label])=>'<option value="'+value+'"'+(access===value?' selected':'')+'>'+label+'</option>').join('');
+    const writeLocked=item.provider==='local_agent'&&!item.full_write_available;
+    const accessOpts=[['chat','Chat only'],['full_write',writeLocked?'Full write · qualification required':'Full write · selected project']]
+      .map(([value,label])=>'<option value="'+value+'"'+(access===value?' selected':'')+(value==='full_write'&&writeLocked?' disabled':'')+'>'+label+'</option>').join('');
     return '<div class="group-member-setting"><label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
       '"'+(group?.models.includes(item.model)?' checked':'')+'><span><b>'+esc(item.model)+
-      '</b><small>'+esc(item.available?(item.model==='codex'?'Available · workspace coding agent':'Available · read/propose only'):'Offline')+
+      '</b><small>'+esc(item.available?(['codex','qwen-code'].includes(item.model)?'Available · workspace coding agent':'Available · chat/proposal agent'):'Offline')+
       '</small></span></label><label class="group-member-policy-label">Bot approval'+
       '<select class="group-member-policy" data-model="'+esc(item.model)+'" aria-label="Approval for '+esc(item.model)+'">'+
       opts+'</select></label><label class="group-member-policy-label">Project access'+
@@ -347,7 +348,7 @@ function renderModels(){
   const keep=available.value;
   const availableKey=JSON.stringify(discovered);
   if(available.dataset.optionsKey!==availableKey){
-    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex — OpenAI coding agent (CLI)':name)+'</option>').join('');
+    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex — OpenAI coding agent (CLI)':name==='qwen-code'?'Qwen Code — local coding agent':name)+'</option>').join('');
     available.dataset.optionsKey=availableKey;
   }
   if(discovered.includes(keep))available.value=keep;
@@ -364,16 +365,18 @@ function renderModels(){
     '</small></span><button type="button" class="remove-model" data-model="'+esc(item.model)+
     '" aria-label="Remove '+esc(item.model)+'">Remove</button></div>'
   ).join('')||'<p>No models registered. Add an installed model above.</p>';
-  const providers=data.external_providers||[];
+  const providers=[...(data.agent_runtimes||[]),...(data.external_providers||[])];
   $('#providerConnections').innerHTML=providers.map(item=>
     '<article class="provider-connection"><header><b>'+esc(item.label)+'</b><span class="'+
-    (item.status==='connected'?'provider-connected':'provider-login')+'">'+
-    esc(item.status==='connected'?'Connected':'Login required')+'</span></header><p>'+esc(
-      item.status==='connected'
+    ((item.available||item.status==='connected')?'provider-connected':'provider-login')+'">'+
+    esc(item.runtime_kind==='coding_agent'?(item.full_write_available?'Ready':item.available?'Chat ready':item.installed&&!item.authenticated?'Login required':item.installed?'Qualification required':'Install required'):(item.status==='connected'?'Connected':'Login required'))+'</span></header><p>'+esc(
+      item.runtime_kind==='coding_agent'
+        ?(item.full_write_available?'Installed and qualified local coding agent.':item.available?'Agent chat is ready; connect a tool-capable engine to qualify full write.':'Install/authenticate locally; execution stays locked until this adapter is qualified.')
+        :item.status==='connected'
         ?'Detected through '+(item.connection==='direct_cli'?'its local CLI':'OpenCode')+'. Full-write registration requires adapter qualification.'
         :'Not connected. Complete setup locally, then refresh.'
     )+'</p><code>'+esc(item.setup_command)+'</code><div class="provider-actions"><button type="button" class="copy-provider-setup" data-command="'+
-    esc(item.setup_command)+'">Copy setup</button><span>'+esc(item.full_write_option?'Full write eligible':'Full write locked')+
+    esc(item.setup_command)+'">Copy setup</button><span>'+esc(item.full_write_available?'Full write ready':item.full_write_option?'Full write option · selected project':'Full write locked')+
     '</span></div></article>'
   ).join('');
   updateComposerAvailability();

@@ -45,6 +45,9 @@ def resolve_specialist(name: str, group_models: list[str]) -> str:
     if not family:
         raise ValueError(f"@{name} is not a registered model in this group")
     if alias == "qwen":
+        agent = next((model for model in family if model.casefold() == "qwen-code"), None)
+        if agent:
+            return agent
         coder = next((model for model in family if model.casefold().startswith("qwen2.5-coder")), None)
         if coder:
             return coder
@@ -62,6 +65,8 @@ def named_participants(prompt: str, group_models: list[str]) -> list[str]:
         family = model.split(":", 1)[0].split("-", 1)[0]
         aliases = {model.casefold(), family.casefold()}
         if model.casefold().startswith("qwen2.5-coder"):
+            aliases.add("qwen")
+        if model.casefold() == "qwen-code":
             aliases.add("qwen")
         if model.casefold().startswith("granite"):
             aliases.add("granite")
