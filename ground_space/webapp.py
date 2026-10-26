@@ -22,6 +22,7 @@ from .bridge import AdministratorAdapter, OrchestratorAdapter
 from .coordinator import coordinator_instructions, route_group_message, specialist_instructions
 from .codex_pilot import CodexPilot
 from .messages import utc_timestamp
+from .providers import provider_catalog
 from .workspaces import WorkspaceRegistry, allowed_project_roots
 from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, OllamaWorkspaceWorker, PERFORMANCE_PRESETS,
                       ollama_descriptors, probe_ollama, valid_model_name)
@@ -122,6 +123,7 @@ class GroundSpaceApp:
             self._register_worker(model, availability)
         self.conversations = self._load_history()
         self.codex = CodexPilot(self.state_dir / "private", self.workspaces)
+        self.external_providers = provider_catalog()
 
 
     @staticmethod
@@ -185,10 +187,17 @@ class GroundSpaceApp:
                          "max_output_tokens": value["num_predict"]}
                         for key, value in PERFORMANCE_PRESETS.items()],
             "future_providers": [
-                {"id": "openai", "label": "ChatGPT / OpenAI", "status": "not_connected"},
-                {"id": "anthropic", "label": "Claude", "status": "not_connected"},
+                {"id": "openai", "label": "ChatGPT / OpenAI", "status": "connected" if self.codex.is_registered() else "not_connected"},
+                *[{"id": item["id"], "label": item["label"], "status": item["status"]}
+                  for item in getattr(self, "external_providers", [])],
             ],
+            "external_providers": [dict(item) for item in getattr(self, "external_providers", [])],
         }
+
+    def refresh_providers(self) -> dict[str, Any]:
+        with self.lock:
+            self.external_providers = provider_catalog()
+        return self.catalog()
 
     def add_model(self, name: str) -> dict[str, Any]:
         if name == "codex":
@@ -839,6 +848,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/models/remove":
                 self._json(HTTPStatus.OK, self.app.remove_model(str(body.get("model", ""))))
+                return
+            if path == "/api/providers/refresh":
+                self._json(HTTPStatus.OK, self.app.refresh_providers())
                 return
             self._error(HTTPStatus.NOT_FOUND, "Endpoint not found")
         except (OSError, ValueError, json.JSONDecodeError) as error:

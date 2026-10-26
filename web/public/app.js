@@ -364,6 +364,18 @@ function renderModels(){
     '</small></span><button type="button" class="remove-model" data-model="'+esc(item.model)+
     '" aria-label="Remove '+esc(item.model)+'">Remove</button></div>'
   ).join('')||'<p>No models registered. Add an installed model above.</p>';
+  const providers=data.external_providers||[];
+  $('#providerConnections').innerHTML=providers.map(item=>
+    '<article class="provider-connection"><header><b>'+esc(item.label)+'</b><span class="'+
+    (item.status==='connected'?'provider-connected':'provider-login')+'">'+
+    esc(item.status==='connected'?'Connected':'Login required')+'</span></header><p>'+esc(
+      item.status==='connected'
+        ?'Detected through '+(item.connection==='direct_cli'?'its local CLI':'OpenCode')+'. Full-write registration requires adapter qualification.'
+        :'Not connected. Complete setup locally, then refresh.'
+    )+'</p><code>'+esc(item.setup_command)+'</code><div class="provider-actions"><button type="button" class="copy-provider-setup" data-command="'+
+    esc(item.setup_command)+'">Copy setup</button><span>'+esc(item.full_write_option?'Full write eligible':'Full write locked')+
+    '</span></div></article>'
+  ).join('');
   updateComposerAvailability();
 }
 async function copyText(value){
@@ -608,6 +620,14 @@ $('#addModelButton').addEventListener('click',async()=>{
   if(!model)return;
   try{await api('/api/models/add',{method:'POST',body:JSON.stringify({model})});await refresh();toast('Model added');}
   catch(error){toast(error.message);}
+});
+$('#refreshProviders').addEventListener('click',async()=>{
+  try{await api('/api/providers/refresh',{method:'POST',body:'{}'});await refresh();toast('Provider status refreshed');}
+  catch(error){toast(error.message)}
+});
+$('#providerConnections').addEventListener('click',async event=>{
+  const button=event.target.closest('.copy-provider-setup');if(!button)return;
+  try{await copyText(button.dataset.command);toast('Setup command copied');}catch(error){toast(error.message)}
 });
 $('#registeredModels').addEventListener('click',async event=>{
   const button=event.target.closest('button.remove-model');

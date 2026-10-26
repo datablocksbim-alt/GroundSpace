@@ -115,7 +115,9 @@
           </div>
           <p id="modelImportStatus" class="model-import-status" role="status" aria-live="polite">Checking local Ollama models…</p>
           <div id="registeredModels" class="registered-models"></div>
-          <p class="provider-note">Codex uses the signed-in CLI on your ASUS, not Ollama. It may consume your ChatGPT allowance or API credits. Other cloud AI providers are not connected.</p>
+          <div class="provider-heading"><h3>External AI connections</h3><button type="button" id="refreshProviders">Refresh</button></div>
+          <p class="provider-note">Provider credentials stay in their own CLI or OpenCode account store. Ground Space never saves them. Full write becomes available only after connection and adapter qualification.</p>
+          <div id="providerConnections" class="provider-connections"></div>
         </section>
         <div class="agent-grid" id="agentGrid"></div>
       <section class="codex-integrated" id="codexAgentSettings" aria-label="Codex agent settings and approvals">
