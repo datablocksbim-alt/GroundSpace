@@ -55,6 +55,8 @@ function setAgent(agent){
   $('#modelControls').hidden=agent!=='qwen';
   $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
   $('#requestType').hidden=agent!=='qwen';
+  $('#requestType').querySelector('option[value="workspace_change"]').disabled=true;
+  if($('#requestType').value==='workspace_change')$('#requestType').value='explanation';
   $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':agent==='codex'?'Ask Codex to create, edit, test or delete project files…':'Try “list tasks” or “status GS-…”';
   renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
   setMobileRail(false);
@@ -70,6 +72,7 @@ function selectGroup(groupId){
   $('#projectSelect').disabled=true;
   $('#modelControls').hidden=true;
   $('#requestType').hidden=false;
+  $('#requestType').querySelector('option[value="workspace_change"]').disabled=false;
   $('#permissionPill').textContent='COORDINATOR · READ / PROPOSE';
   $('#prompt').placeholder='Ask Coordinator, type /goal, or mention @Qwen…';
   renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
@@ -259,14 +262,19 @@ function openGroupEditor(groupId=''){
   $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
   $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>{
     const mode=group?.approval_modes?.[item.model]||(item.model==='codex'?'manual':'approve_for_me');
+    const access=group?.access_modes?.[item.model]||'chat';
     const opts=[['manual','Ask me'],['approve_for_me','Approve for me'],['disabled','Off']]
       .map(([value,label])=>'<option value="'+value+'"'+(mode===value?' selected':'')+'>'+label+'</option>').join('');
+    const accessOpts=[['chat','Chat only'],['full_write','Full write · selected project']]
+      .map(([value,label])=>'<option value="'+value+'"'+(access===value?' selected':'')+'>'+label+'</option>').join('');
     return '<div class="group-member-setting"><label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
       '"'+(group?.models.includes(item.model)?' checked':'')+'><span><b>'+esc(item.model)+
       '</b><small>'+esc(item.available?(item.model==='codex'?'Available · workspace coding agent':'Available · read/propose only'):'Offline')+
       '</small></span></label><label class="group-member-policy-label">Bot approval'+
       '<select class="group-member-policy" data-model="'+esc(item.model)+'" aria-label="Approval for '+esc(item.model)+'">'+
-      opts+'</select></label></div>';
+      opts+'</select></label><label class="group-member-policy-label">Project access'+
+      '<select class="group-member-access" data-model="'+esc(item.model)+'" aria-label="Project access for '+esc(item.model)+'">'+
+      accessOpts+'</select></label></div>';
   }).join('')||'<p>No registered local models. Add them under Agents first.</p>';
   $('#groupDialog').showModal();
 }
@@ -276,10 +284,14 @@ async function saveGroup(event){
   const groupId=$('#groupForm').dataset.editGroup;
   try{
     const approval_modes={};
+    const access_modes={};
     for(const select of $$('.group-member-policy')){
       if(models.includes(select.dataset.model))approval_modes[select.dataset.model]=select.value;
     }
-    const payload={name:$('#groupName').value,models,approval_modes,
+    for(const select of $$('.group-member-access')){
+      if(models.includes(select.dataset.model))access_modes[select.dataset.model]=select.value;
+    }
+    const payload={name:$('#groupName').value,models,approval_modes,access_modes,
       project_id:$('#groupProject').value||null};
     const response=await api(groupId?'/api/groups/update':'/api/groups/create',{
       method:'POST',body:JSON.stringify(groupId?{...payload,group_id:groupId}:payload)

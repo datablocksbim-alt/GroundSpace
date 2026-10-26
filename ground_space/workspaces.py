@@ -20,6 +20,7 @@ MAX_GROUPS = 30
 MAX_GROUP_MODELS = 6
 # These options approve only local read/propose chat, never filesystem or CLI writes.
 GROUP_APPROVAL_MODES = frozenset({'manual', 'approve_for_me', 'disabled'})
+GROUP_ACCESS_MODES = frozenset({'chat', 'full_write'})
 
 
 def _save(path: Path, value: Any) -> None:
@@ -71,7 +72,10 @@ class WorkspaceRegistry:
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
             return {"projects": [dict(p) for p in self.projects],
-                    "groups": [{**g, "approval_modes": dict(g.get("approval_modes", {}))} for g in self.groups],
+                    "groups": [{**g,
+                                "approval_modes": dict(g.get("approval_modes", {})),
+                                "access_modes": dict(g.get("access_modes", {}))}
+                               for g in self.groups],
                     "allowed_project_roots": [str(root) for root in self.allowed_roots]}
 
     def browse_folders(self, path_text: str | None = None) -> dict[str, Any]:
@@ -188,34 +192,57 @@ class WorkspaceRegistry:
             raise ValueError("Invalid group bot approval mode")
         return {model: approvals.get(model, (existing or {}).get(model, "manual" if model == "codex" else "approve_for_me")) for model in members}
 
+    @staticmethod
+    def _validate_access(access: Any, members: list[str], project_id: str | None,
+                         existing: dict[str, str] | None = None) -> dict[str, str]:
+        if access is None:
+            result = {model: (existing or {}).get(model, "chat") for model in members}
+        else:
+            if not isinstance(access, dict) or set(access) - set(members):
+                raise ValueError("Access settings must match selected group members")
+            if any(not isinstance(mode, str) or mode not in GROUP_ACCESS_MODES
+                   for mode in access.values()):
+                raise ValueError("Invalid group bot access mode")
+            result = {model: access.get(model, (existing or {}).get(model, "chat"))
+                      for model in members}
+        if not project_id and any(mode == "full_write" for mode in result.values()):
+            raise ValueError("Select a registered project before enabling full write")
+        return result
+
     def create_group(self, name: str, models: Any, project_id: str | None,
-                     registered: list[str], approval_modes: Any = None) -> dict[str, Any]:
+                     registered: list[str], approval_modes: Any = None,
+                     access_modes: Any = None) -> dict[str, Any]:
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 70:
             raise ValueError("Group name must be 1–70 characters")
         members = self._validate_members(models, registered)
         approvals = self._validate_approvals(approval_modes, members)
         project = self.validate_project(project_id)
+        access = self._validate_access(access_modes, members, project)
         with self.lock:
             if len(self.groups) >= MAX_GROUPS:
                 raise ValueError("Group registry is full")
             group = {"id": "group-" + secrets.token_hex(8),
                      "conversation_id": "room-" + secrets.token_hex(12),
                      "name": name.strip(), "models": members,
-                     "approval_modes": approvals, "project_id": project, "created_at": utc_timestamp(),
-                     "execution": "sequential", "scope": "proposal_only"}
+                     "approval_modes": approvals, "access_modes": access,
+                     "project_id": project, "created_at": utc_timestamp(),
+                     "execution": "sequential", "scope": "project_scoped"}
             updated = [*self.groups, group]
             _save(self.groups_file, {"schema_version": 1, "groups": updated})
             self.groups = updated
             return dict(group)
 
     def update_group(self, group_id: str, models: Any, project_id: str | None,
-                     registered: list[str], approval_modes: Any = None) -> dict[str, Any]:
+                     registered: list[str], approval_modes: Any = None,
+                     access_modes: Any = None) -> dict[str, Any]:
         members = self._validate_members(models, registered)
         project = self.validate_project(project_id)
         with self.lock:
             target = self.get_group(group_id)
             approvals = self._validate_approvals(approval_modes, members, target.get("approval_modes"))
+            access = self._validate_access(access_modes, members, project, target.get("access_modes"))
             updated_group = {**target, "models": members, "approval_modes": approvals,
+                             "access_modes": access,
                              "project_id": project}
             updated = [updated_group if g["id"] == group_id else g for g in self.groups]
             _save(self.groups_file, {"schema_version": 1, "groups": updated})

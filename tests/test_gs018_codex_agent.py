@@ -78,7 +78,7 @@ class WorkspaceAgentTests(unittest.TestCase):
         self.codex.set_registered(True)
         with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}):
             group=self.workspaces.create_group("Agent dev",["codex"],self.project["id"],["codex"],
-                {"codex":"approve_for_me"})
+                {"codex":"approve_for_me"}, {"codex":"full_write"})
             with patch("ground_space.codex_pilot.threading.Thread") as worker:
                 result=self.codex.submit({"project_id":self.project["id"],"prompt":"Implement a unit test",
                                          "scope":"workspace_write","group_id":group["id"]},

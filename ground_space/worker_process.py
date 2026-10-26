@@ -8,13 +8,17 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import os
+import secrets
+import stat
 from pathlib import Path
 from typing import Any
 
 from .workers import PERFORMANCE_PRESETS, valid_model_name
 
 
-ALLOWED_REQUEST_TYPES = {"explanation", "assessment", "code_proposal"}
+ALLOWED_REQUEST_TYPES = {"explanation", "assessment", "code_proposal", "workspace_change"}
+BLOCKED_NAMES = frozenset({".git", ".env", ".ssh", "credentials", "secrets"})
 
 
 def deterministic(task: dict[str, Any]) -> dict[str, Any]:
@@ -101,6 +105,87 @@ def ollama_proposal(spec: dict[str, Any], task: dict[str, Any]) -> dict[str, Any
     }
 
 
+def ollama_workspace(spec: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+    payload = task.get("payload", {})
+    project = Path(str(payload.get("project_path", ""))).resolve(strict=True)
+    if not project.is_dir():
+        raise ValueError("Registered project is unavailable")
+    prompt = str(payload.get("prompt", "")).strip()
+    if not prompt or len(prompt) > 8_000:
+        raise ValueError("Workspace request is empty or too long")
+    model = str(spec.get("model", ""))
+    endpoint = str(spec.get("endpoint", ""))
+    parsed = urllib.parse.urlparse(endpoint)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
+        raise ValueError("Workspace worker refuses non-local Ollama endpoints")
+    system = (
+        "Return ONLY JSON with this schema: {\"summary\":\"...\",\"operations\":["
+        "{\"op\":\"mkdir\",\"path\":\"relative/path\"},"
+        "{\"op\":\"write\",\"path\":\"relative/file\",\"content\":\"full content\"},"
+        "{\"op\":\"delete\",\"path\":\"relative/file\"}]}. "
+        "Use at most 20 operations and only relative project paths. Never target .git, .env, "
+        "credentials or parent paths. Do not include markdown fences or shell commands."
+    )
+    request = urllib.request.Request(endpoint.rstrip("/") + "/api/generate",
+        data=json.dumps({"model": model, "system": system, "prompt": prompt, "stream": False,
+                         "format": "json", "options": {"temperature": 0.1, "num_predict": 1800}}).encode(),
+        headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(request, timeout=min(float(spec.get("request_timeout_seconds",235)),235)) as response:
+        raw = str(json.load(response).get("response", ""))
+    plan = json.loads(raw)
+    operations = plan.get("operations")
+    if not isinstance(operations, list) or len(operations) > 20:
+        raise ValueError("Qwen returned an invalid workspace operation list")
+    prepared = []
+    for operation in operations:
+        if not isinstance(operation, dict) or operation.get("op") not in {"mkdir", "write", "delete"}:
+            raise ValueError("Unsupported workspace operation")
+        relative = Path(str(operation.get("path", "")))
+        if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+            raise ValueError("Workspace path must stay inside the selected project")
+        if any(part.casefold() in BLOCKED_NAMES or part.casefold().endswith(".env") for part in relative.parts):
+            raise ValueError("Sensitive project path is blocked")
+        target = (project / relative).resolve(strict=False)
+        if target != project and not target.is_relative_to(project):
+            raise ValueError("Workspace path escaped the selected project")
+        # Existing symlinks and Windows reparse points could redirect a write
+        # after the lexical boundary check. Refuse either anywhere in the path.
+        cursor = project
+        for part in relative.parts:
+            cursor = cursor / part
+            if not cursor.exists():
+                break
+            metadata = cursor.lstat()
+            if cursor.is_symlink() or getattr(metadata, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+                raise ValueError("Workspace path contains a link or reparse point")
+        content = operation.get("content", "")
+        if operation["op"] == "write" and (not isinstance(content, str) or len(content.encode()) > 250_000):
+            raise ValueError("Generated file is too large")
+        if operation["op"] == "delete" and target.is_dir() and any(target.iterdir()):
+            raise ValueError("Qwen may delete only empty directories")
+        prepared.append((operation["op"], relative, target, content))
+    changed=[]
+    for op, relative, target, content in prepared:
+        if op == "mkdir":
+            target.mkdir(parents=True, exist_ok=True)
+        elif op == "write":
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary=target.with_name("."+target.name+"."+secrets.token_hex(4)+".tmp")
+            temporary.write_text(content,encoding="utf-8")
+            os.replace(temporary,target)
+        elif op == "delete":
+            if target == project:
+                raise ValueError("The selected project root cannot be deleted")
+            if target.is_dir():
+                target.rmdir()
+            else: target.unlink(missing_ok=True)
+        changed.append({"op":op,"path":relative.as_posix()})
+    return {"result":{"operation":"ollama_workspace","task_id":task["task_id"],
+        "correlation_id":task["correlation_id"],"model":model,"answer":str(plan.get("summary") or "Workspace changes applied"),
+        "changes":changed,"project_scoped":True,"shell_executed":False},
+        "progress":[{"stage":"workspace_changes_applied","percent":100}]}
+
+
 def administrator_console(spec: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
     queue_dir = Path(str(spec.get("queue_dir", ""))).resolve()
     if not queue_dir.is_dir():
@@ -153,6 +238,8 @@ def main() -> int:
         output = deterministic(task)
     elif kind == "ollama_proposal":
         output = ollama_proposal(spec, task)
+    elif kind == "ollama_workspace":
+        output = ollama_workspace(spec, task)
     elif kind == "administrator_console":
         output = administrator_console(spec, task)
     elif kind == "test_sleep":

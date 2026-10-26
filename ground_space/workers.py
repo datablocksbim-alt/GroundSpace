@@ -85,6 +85,25 @@ class OllamaProposalWorker:
         }
 
 
+class OllamaWorkspaceWorker(OllamaProposalWorker):
+    """Local Ollama planner with a deterministic, project-scoped file executor."""
+
+    def __init__(self, **kwargs: Any):
+        super().__init__(**kwargs)
+        base = self.descriptor
+        self.descriptor = WorkerDescriptor(
+            agent_id=base.agent_id, role="workspace_file_agent",
+            permissions=frozenset({"read", "propose", "workspace_write"}),
+            active=base.active, provider=base.provider, model=base.model,
+            endpoint=base.endpoint, qualified=base.qualified,
+            metadata={"production_write_authority": True, "project_scoped": True,
+                      "shell_access": False},
+        )
+
+    def execution_request(self) -> dict[str, Any]:
+        return {**super().execution_request(), "kind": "ollama_workspace"}
+
+
 class AdministratorConsoleWorker:
     """Read-only task-management view over the Administrator queue."""
 

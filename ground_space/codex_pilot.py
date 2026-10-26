@@ -129,6 +129,8 @@ class CodexPilot:
             group=self.workspaces.get_group(group_id)
             if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex")!="approve_for_me":
                 raise ValueError("Codex is not automatically approved in this group")
+            if scope == "workspace_write" and group.get("access_modes", {}).get("codex", "chat") != "full_write":
+                raise ValueError("Codex does not have selected-project full write in this group")
             group_approved = True
         should_auto_approve = (mode=="auto_read_only" and scope=="read_only") or group_approved
         with self.lock:
@@ -166,6 +168,9 @@ class CodexPilot:
                 group=self.workspaces.get_group(job["group_id"])
                 if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex","approve_for_me")=="disabled":
                     raise ValueError("Codex approval has been disabled in this group")
+                if (job["scope"] == "workspace_write" and
+                    group.get("access_modes", {}).get("codex", "chat") != "full_write"):
+                    raise ValueError("Codex selected-project full write was revoked in this group")
             if not self.which("codex"): raise ValueError("Codex CLI is unavailable")
             job["status"]="running"
             persist(self.jobs_path,self.jobs)

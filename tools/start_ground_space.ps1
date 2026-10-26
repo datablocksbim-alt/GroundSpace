@@ -8,6 +8,10 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $python = 'D:\000_AI Project\AI Agents Datablocks\runtime\python\python.exe'
 
+# Owner-authorized capability. Ground Space still requires a registered
+# selected project plus the stored per-agent access and approval policies.
+$env:GROUND_SPACE_CODEX_WRITE_ENABLED = '1'
+
 if (-not (Test-Path -LiteralPath $python)) {
     throw "Data Blocks Python runtime not found: $python"
 }

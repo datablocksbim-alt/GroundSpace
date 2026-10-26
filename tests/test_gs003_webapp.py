@@ -223,7 +223,8 @@ class GS003WebAppTests(unittest.TestCase):
         self.assertEqual(1, len(roots["folders"]))
         browsing = self.get_json("/api/projects/browse?path=" +
                                  urllib.parse.quote(str(self.state_dir), safe=""))
-        self.assertIn(str(project_dir), [item["path"] for item in browsing["folders"]])
+        # Windows may expand an 8.3 TEMP alias to its long canonical path.
+        self.assertIn(project_dir.resolve(), [Path(item["path"]).resolve() for item in browsing["folders"]])
         result = self.post_json("/api/projects/add", {
             "name": "Demo", "path": str(project_dir),
         })

@@ -422,7 +422,7 @@
 
 /* GS-017: compact, separately configurable approval for each member. */
 .group-approval-intro{font-size:12px;line-height:1.5;margin:11px 0;color:var(--muted)}
-.group-member-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(126px,165px);
+.group-member-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(126px,165px) minmax(150px,190px);
   gap:10px;align-items:center;border:1px solid #e4e0ed;background:#fbfaff;
   padding:8px 11px;border-radius:12px;margin-bottom:7px}
 .group-member-setting .member-option{min-width:0;margin:0;display:flex;align-items:center;
@@ -430,7 +430,7 @@
 .group-member-setting .member-option b{overflow-wrap:anywhere}
 .group-member-policy-label{margin:0!important;font-size:10px!important;color:#655c83;
   display:grid!important;gap:5px;font-weight:500!important}
-.group-member-policy{min-width:0;width:100%;height:38px;cursor:pointer;
+.group-member-policy,.group-member-access{min-width:0;width:100%;height:38px;cursor:pointer;
   color:#3f365e;background:white;border:1px solid #ded7ee;border-radius:9px;
   padding:7px 9px;font-size:12px}
 .group-approval-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:7px}
@@ -442,7 +442,7 @@
 @media(max-width:760px){
  .group-member-setting{grid-template-columns:minmax(0,1fr);gap:6px;padding:10px}
  .group-member-policy-label{max-width:100%}
- .group-member-policy{min-height:43px;font-size:16px}
+ .group-member-policy,.group-member-access{min-height:43px;font-size:16px}
  .group-approval-actions button{min-height:43px}
 }
 

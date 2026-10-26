@@ -81,6 +81,7 @@
                     <option value="explanation">Explanation</option>
                     <option value="assessment">Assessment</option>
                     <option value="code_proposal">Code proposal</option>
+                    <option value="workspace_change">Workspace change</option>
                   </select>
                   <div class="model-controls" id="modelControls">
                     <label class="sr-only" for="modelSelect">AI model</label>
@@ -183,7 +184,7 @@
         <span>AI participants</span>
         <small>Up to 6 · Replies run sequentially</small>
       </div>
-      <p class="group-approval-intro">Choose each AI bot's approval behavior. For Codex, Approve for me also permits workspace changes when writable mode is explicitly enabled; Ask me holds each task for approval.</p>
+      <p class="group-approval-intro">Approval controls when work runs. Access separately controls whether an agent may change files, and full write is confined to this group's selected project.</p>
       <div id="groupMemberOptions" class="group-members"></div>
       <p id="groupDialogError" class="dialog-feedback" role="alert" hidden></p>
       <div class="dialog-actions">
