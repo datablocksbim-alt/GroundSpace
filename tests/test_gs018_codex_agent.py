@@ -144,7 +144,7 @@ class WorkspaceAgentTests(unittest.TestCase):
         self.assertEqual(1,len(app.conversations["direct-codex-goal"]))
         self.assertEqual("Build a test suite",response["entry"]["content"])
 
-    def test_group_codex_mention_creates_writable_job_but_coordinator_is_read_only(self):
+    def test_group_codex_mention_and_coordinator_are_read_only(self):
         self.codex.set_registered(True)
         app=GroundSpaceApp.__new__(GroundSpaceApp)
         app.codex=self.codex
@@ -160,11 +160,12 @@ class WorkspaceAgentTests(unittest.TestCase):
         app.project_context=lambda _project: ""
         group=self.workspaces.create_group("Codex team",["codex"],self.project["id"],["codex"],
                                          {"codex":"manual"})
-        with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}),\
+        with patch.dict(os.environ,{},clear=False),\
              patch("ground_space.webapp.probe_ollama",return_value={"available":False,"models":[]}):
+            os.environ.pop("GROUND_SPACE_CODEX_WRITE_ENABLED",None)
             task=app.submit_group({"group_id":group["id"],"prompt":"@Codex create a test"})
             job=self.codex.get(task["codex_job_ids"][0])
-            self.assertEqual("workspace_write",job["scope"])
+            self.assertEqual("read_only",job["scope"])
             self.assertEqual("pending_approval",job["status"])
             ordinary=app.submit_group({"group_id":group["id"],"prompt":"How are we doing?"})
             planning=self.codex.get(ordinary["codex_job_ids"][0])

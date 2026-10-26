@@ -288,8 +288,6 @@ class GroundSpaceApp:
                     raise ValueError("Select a registered project before assigning Codex group work")
                 if not self.codex.is_registered():
                     raise ValueError("Add Codex from Agents before mentioning it in a group")
-                if not (route.coordinator or annotation_entry) and not self.codex.writable_available():
-                    raise ValueError("Codex workspace editing is disabled on the ASUS; enable it explicitly")
 
             group_turn_id = "TURN-" + secrets.token_hex(8)
             task_ids = []
@@ -321,9 +319,11 @@ class GroundSpaceApp:
                 if model == "codex":
                     if not group["project_id"]:
                         raise ValueError("Assign a local project before using Codex in a group")
-                    # Unaddressed Coordinator/planning turns are read-only;
-                    # writable execution requires an explicit @Codex specialist request.
-                    codex_scope = "read_only" if route.coordinator or annotation_entry else "workspace_write"
+                    # Group chat is a conversation and review surface. An
+                    # @Codex mention must not silently become file-execution
+                    # authority; writable work uses the dedicated Codex task
+                    # workflow and its explicit owner approval gate.
+                    codex_scope = "read_only"
                     item = self.codex.submit({
                         "project_id": group["project_id"], "prompt": prompt,
                         "scope": codex_scope, "conversation_id": conversation_id,
