@@ -10,13 +10,20 @@ from dataclasses import dataclass
 
 MENTION = re.compile(r"(?<![A-Za-z0-9_])@([A-Za-z0-9][A-Za-z0-9._:/-]{0,127})")
 CLOUD_ALIASES = frozenset({"chatgpt", "openai", "claude", "anthropic"})
-DELEGATION = re.compile(r"\b(ask|have|let|task|tell|invite|hear\s+from|respond|reply)\b", re.IGNORECASE)
+DELEGATION = re.compile(
+    r"\b(?:ask|have|let|task|tell|instruct|assign|direct|order|invite|hear\s+from|respond|reply)\b|"
+    r"\b(?:say|send|deliver)\b.{0,80}\bto\b|"
+    r"\b(?:talk|speak)\b.{0,40}\b(?:to|with)\b|"
+    r"\bgreet\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
 class GroupRoute:
     models: tuple[str, ...]
     coordinator: bool
+    roles: tuple[str, ...]
 
 
 def coordinator_model(group_models: list[str]) -> str:
@@ -73,24 +80,36 @@ def route_group_message(prompt: str, group_models: list[str], *, force_coordinat
     Multiple explicit specialists may answer sequentially through existing GPU lock.
     """
     if force_coordinator:
-        return GroupRoute((coordinator_model(group_models),), True)
+        return GroupRoute((coordinator_model(group_models),), True, ("coordinator",))
     mentions = [match.group(1).rstrip(".") for match in MENTION.finditer(prompt)]
     if not mentions:
-        return GroupRoute((coordinator_model(group_models),), True)
+        return GroupRoute((coordinator_model(group_models),), True, ("coordinator",))
     if any(name.casefold() == "coordinator" for name in mentions):
         specialists = [resolve_specialist(name, group_models) for name in mentions
                        if name.casefold() != "coordinator"]
         if not specialists:
             specialists = named_participants(prompt, group_models)
         if specialists:
-            return GroupRoute(tuple(dict.fromkeys(specialists)), False)
-        return GroupRoute((coordinator_model(group_models),), True)
+            specialists = list(dict.fromkeys(specialists))
+            # Coordinator is a distinct room identity even when its underlying
+            # local model is also named directly as a specialist.
+            return GroupRoute(
+                (coordinator_model(group_models), *specialists), False,
+                ("coordinator", *("specialist" for _ in specialists)),
+            )
+        return GroupRoute((coordinator_model(group_models),), True, ("coordinator",))
     selected: list[str] = []
     for name in mentions:
         model = resolve_specialist(name, group_models)
         if model not in selected:
             selected.append(model)
-    return GroupRoute(tuple(selected), False)
+    # A direct participant may naturally hand a conversational turn to another
+    # room member (for example, "@Codex say hi to Qwen"). Route each named
+    # participant once; this remains a single bounded turn and cannot recurse.
+    for model in named_participants(prompt, group_models):
+        if model not in selected:
+            selected.append(model)
+    return GroupRoute(tuple(selected), False, tuple("specialist" for _ in selected))
 
 
 def coordinator_instructions(user_prompt: str, *, group_models: list[str], kind: str | None = None,
@@ -120,13 +139,21 @@ def coordinator_instructions(user_prompt: str, *, group_models: list[str], kind:
     )
 
 
-def specialist_instructions(user_prompt: str, *, model: str) -> str:
+def specialist_instructions(user_prompt: str, *, model: str, writable: bool = False) -> str:
     """Keep each routed model in its own voice instead of simulating the room."""
+    access = (
+        "You are authorized to return a structured plan for create, edit, or delete operations "
+        "inside the selected project only. The server enforces the boundary and applies the plan. "
+        "You have no shell or access to parent folders, .git, credentials, or secrets."
+        if writable else
+        "You have no tools or filesystem access; this is a proposal-only chat response."
+    )
     return (
         f"You are {model}, one individual participant in a Ground Space group chat. "
         "Reply naturally and only as yourself. Do not write responses for Coordinator or any "
         "other model, do not present a simulated transcript, and do not prefix your answer with "
-        "another participant's name. You have no tools or filesystem access; this is a "
-        "proposal-only chat response.\n\n"
+        "another participant's name. Other addressed participants receive their own independent "
+        "turn. If another participant is instructed to speak to you, respond to that participant "
+        f"as yourself instead of composing or restating their expected words. {access}\n\n"
         f"Group message:\n{user_prompt}"
     )

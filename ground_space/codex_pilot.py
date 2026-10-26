@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -31,6 +32,7 @@ class CodexPilot:
         self.workspaces, self.run, self.which = workspaces, run, which
         self.policy_path = private_dir / "codex_approval.json"
         self.jobs_path = private_dir / "codex_jobs.json"
+        self.diagnostics_path = private_dir / "codex_diagnostics.jsonl"
         self.agent_path = private_dir / "codex_agent.json"
         self.agent_settings = read(self.agent_path, {"registered":False})
         if not isinstance(self.agent_settings, dict) or not isinstance(self.agent_settings.get("registered"), bool):
@@ -116,6 +118,21 @@ class CodexPilot:
         mode = self.mode(project_id)
         if mode=="disabled": raise ValueError("Codex is disabled for this project")
         if not self.which("codex"): raise ValueError("Codex CLI is not installed or available to Ground Space")
+        # Resolve every automatic-approval source before persisting the job,
+        # then approve at most once. A read-only project policy and an
+        # approve-for-me group policy can legitimately overlap.
+        group_approved = False
+        if group_auto_approval:
+            group_id=body.get("group_id")
+            if not isinstance(group_id,str) or not group_id:
+                raise ValueError("Automatic Codex approval requires a group")
+            group=self.workspaces.get_group(group_id)
+            if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex")!="approve_for_me":
+                raise ValueError("Codex is not automatically approved in this group")
+            if scope == "workspace_write" and group.get("access_modes", {}).get("codex", "chat") != "full_write":
+                raise ValueError("Codex does not have selected-project full write in this group")
+            group_approved = True
+        should_auto_approve = (mode=="auto_read_only" and scope=="read_only") or group_approved
         with self.lock:
             if sum(job["status"]=="pending_approval" for job in self.jobs)>=10:
                 raise ValueError("Codex review queue is full; approve or reject pending reviews first")
@@ -126,16 +143,9 @@ class CodexPilot:
                       "group_id":body.get("group_id"), "conversation_id":body.get("conversation_id")}
             self.jobs = (self.jobs+[record])[-50:]
             persist(self.jobs_path,self.jobs)
-        if mode=="auto_read_only" and scope=="read_only": self.approve({"job_id":record["id"]})
-        # Only the trusted group dispatcher may grant an auto-approval based
-        # on the persisted per-bot policy. Never use a browser-submitted flag.
-        if group_auto_approval:
-            group_id=record.get("group_id")
-            if not isinstance(group_id,str) or not group_id:
-                raise ValueError("Automatic writable permission requires a group")
-            group=self.workspaces.get_group(group_id)
-            if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex")!="approve_for_me":
-                raise ValueError("Codex is not automatically approved in this group")
+        # Only the trusted dispatcher can supply group_auto_approval, and the
+        # persisted group policy above must independently authorize it.
+        if should_auto_approve:
             self.approve({"job_id":record["id"]})
         return self.get(record["id"])
 
@@ -158,6 +168,9 @@ class CodexPilot:
                 group=self.workspaces.get_group(job["group_id"])
                 if "codex" not in group["models"] or group.get("approval_modes",{}).get("codex","approve_for_me")=="disabled":
                     raise ValueError("Codex approval has been disabled in this group")
+                if (job["scope"] == "workspace_write" and
+                    group.get("access_modes", {}).get("codex", "chat") != "full_write"):
+                    raise ValueError("Codex selected-project full write was revoked in this group")
             if not self.which("codex"): raise ValueError("Codex CLI is unavailable")
             job["status"]="running"
             persist(self.jobs_path,self.jobs)
@@ -202,6 +215,36 @@ class CodexPilot:
                 + ". Run the same test directly in PowerShell to see the original error. "
                   "Ground Space does not expose raw CLI logs in chat.")
 
+    @staticmethod
+    def _redact_diagnostic(value: Any) -> str:
+        """Keep useful local stderr while removing common credential/account values."""
+        text = str(value or "")[-12000:]
+        substitutions = (
+            (r"(?i)(authorization\s*:\s*bearer\s+)[^\s]+", r"\1[REDACTED]"),
+            (r"(?i)\b(sk-[A-Za-z0-9_-]{8,}|sess-[A-Za-z0-9_-]{8,})\b", "[REDACTED]"),
+            (r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|secret)\s*[=:]\s*[^\s;]+",
+             r"\1=[REDACTED]"),
+            (r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", "[REDACTED_EMAIL]"),
+        )
+        for pattern, replacement in substitutions:
+            text = re.sub(pattern, replacement, text)
+        return text
+
+    def _record_diagnostic(self, job_id: str, *, command: list[str], cwd: Path,
+                           exit_code: Any, stderr: Any, outcome: str) -> None:
+        """Append owner-local diagnostics; never return these raw records to the browser."""
+        record = {
+            "job_id": job_id,
+            "outcome": outcome,
+            "exit_code": exit_code,
+            "cwd": str(cwd),
+            "command": [Path(command[0]).name, *command[1:]],
+            "stderr": self._redact_diagnostic(stderr),
+        }
+        self.diagnostics_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.lock, self.diagnostics_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+
     def _execute(self, job_id: str) -> None:
         try:
             job=self.get(job_id)
@@ -223,19 +266,26 @@ class CodexPilot:
                 ("WORKSPACE CODING TASK. You may create, edit, run tests and delete "
                  "files inside the selected project as needed. Do not touch parent folders, "
                  "unrelated projects, .git, credentials, secrets, or system configuration. "
-                 "Report exactly what you changed and tests run.\\n\\n")
+                 "Report exactly what you changed and tests run.\n\n")
                 if writable else
                 ("READ-ONLY REVIEW: Inspect and explain code. Suggest changes in text. "
                  "Do not edit files, install packages, execute untrusted code or request "
-                 "elevated permissions.\\n\\n")
+                 "elevated permissions.\n\n")
             ) + job["prompt"]
             # --ask-for-approval is a global CLI flag. Some installed Codex
             # versions reject it after "exec" before a task even starts.
             args=[executable,"--ask-for-approval","never","exec","--sandbox",
                   "workspace-write" if writable else "read-only",
-                  "--skip-git-repo-check","-"]
+                  "--skip-git-repo-check","--ephemeral","--color","never",
+                  "-C",str(cwd),"-"]
+            child_env = os.environ.copy()
+            child_env["NO_COLOR"] = "1"
             completed=self.run(args,input=prompt,text=True,cwd=str(cwd),
-                               capture_output=True,timeout=180,shell=False,check=False)
+                               capture_output=True,timeout=300,shell=False,check=False,
+                               encoding="utf-8",errors="replace",env=child_env)
+            self._record_diagnostic(job_id, command=args, cwd=cwd,
+                                    exit_code=completed.returncode, stderr=completed.stderr,
+                                    outcome="completed" if completed.returncode == 0 else "failed")
             if completed.returncode:
                 raise RuntimeError(self._diagnose_cli_failure(completed))
             answer=completed.stdout.strip()
@@ -245,6 +295,9 @@ class CodexPilot:
                 persist(self.jobs_path,self.jobs)
         except (OSError,ValueError,RuntimeError,subprocess.TimeoutExpired) as exc:
             error="Codex timed out" if isinstance(exc,subprocess.TimeoutExpired) else str(exc)
+            if "args" in locals() and not "completed" in locals():
+                self._record_diagnostic(job_id, command=args, cwd=cwd,
+                                        exit_code=None, stderr=repr(exc), outcome="exception")
             with self.lock:
                 self._job(job_id).update(status="failed",error=error[:250])
                 persist(self.jobs_path,self.jobs)

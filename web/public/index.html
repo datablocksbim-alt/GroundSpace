@@ -81,6 +81,7 @@
                     <option value="explanation">Explanation</option>
                     <option value="assessment">Assessment</option>
                     <option value="code_proposal">Code proposal</option>
+                    <option value="workspace_change">Workspace change</option>
                   </select>
                   <div class="model-controls" id="modelControls">
                     <label class="sr-only" for="modelSelect">AI model</label>
@@ -114,7 +115,9 @@
           </div>
           <p id="modelImportStatus" class="model-import-status" role="status" aria-live="polite">Checking local Ollama models…</p>
           <div id="registeredModels" class="registered-models"></div>
-          <p class="provider-note">Codex uses the signed-in CLI on your ASUS, not Ollama. It may consume your ChatGPT allowance or API credits. Other cloud AI providers are not connected.</p>
+          <div class="provider-heading"><h3>External AI connections</h3><button type="button" id="refreshProviders">Refresh</button></div>
+          <p class="provider-note">Provider credentials stay in their own CLI or OpenCode account store. Ground Space never saves them. Full write becomes available only after connection and adapter qualification.</p>
+          <div id="providerConnections" class="provider-connections"></div>
         </section>
         <div class="agent-grid" id="agentGrid"></div>
       <section class="codex-integrated" id="codexAgentSettings" aria-label="Codex agent settings and approvals">
@@ -183,7 +186,7 @@
         <span>AI participants</span>
         <small>Up to 6 · Replies run sequentially</small>
       </div>
-      <p class="group-approval-intro">Choose each AI bot's approval behavior. For Codex, Approve for me also permits workspace changes when writable mode is explicitly enabled; Ask me holds each task for approval.</p>
+      <p class="group-approval-intro">Approval controls when work runs. Access separately controls whether an agent may change files, and full write is confined to this group's selected project.</p>
       <div id="groupMemberOptions" class="group-members"></div>
       <p id="groupDialogError" class="dialog-feedback" role="alert" hidden></p>
       <div class="dialog-actions">

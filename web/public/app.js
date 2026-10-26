@@ -55,6 +55,8 @@ function setAgent(agent){
   $('#modelControls').hidden=agent!=='qwen';
   $('#permissionPill').textContent=agent==='qwen'?'READ · PROPOSE':agent==='codex'?'WORKSPACE · CODE':'TASK STATUS · READ';
   $('#requestType').hidden=agent!=='qwen';
+  $('#requestType').querySelector('option[value="workspace_change"]').disabled=true;
+  if($('#requestType').value==='workspace_change')$('#requestType').value='explanation';
   $('#prompt').placeholder=agent==='qwen'?'Ask for an explanation…':agent==='codex'?'Ask Codex to create, edit, test or delete project files…':'Try “list tasks” or “status GS-…”';
   renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
   setMobileRail(false);
@@ -70,6 +72,7 @@ function selectGroup(groupId){
   $('#projectSelect').disabled=true;
   $('#modelControls').hidden=true;
   $('#requestType').hidden=false;
+  $('#requestType').querySelector('option[value="workspace_change"]').disabled=false;
   $('#permissionPill').textContent='COORDINATOR · READ / PROPOSE';
   $('#prompt').placeholder='Ask Coordinator, type /goal, or mention @Qwen…';
   renderWorkspaces();renderMessages();renderActiveAgents();updateComposerAvailability();
@@ -259,14 +262,19 @@ function openGroupEditor(groupId=''){
   $('#groupProject').innerHTML=projectOptions(group?.project_id||state.projectId);
   $('#groupMemberOptions').innerHTML=(state.data?.models?.registered||[]).map(item=>{
     const mode=group?.approval_modes?.[item.model]||(item.model==='codex'?'manual':'approve_for_me');
+    const access=group?.access_modes?.[item.model]||'chat';
     const opts=[['manual','Ask me'],['approve_for_me','Approve for me'],['disabled','Off']]
       .map(([value,label])=>'<option value="'+value+'"'+(mode===value?' selected':'')+'>'+label+'</option>').join('');
+    const accessOpts=[['chat','Chat only'],['full_write','Full write · selected project']]
+      .map(([value,label])=>'<option value="'+value+'"'+(access===value?' selected':'')+'>'+label+'</option>').join('');
     return '<div class="group-member-setting"><label class="member-option"><input type="checkbox" name="group-member" value="'+esc(item.model)+
       '"'+(group?.models.includes(item.model)?' checked':'')+'><span><b>'+esc(item.model)+
       '</b><small>'+esc(item.available?(item.model==='codex'?'Available · workspace coding agent':'Available · read/propose only'):'Offline')+
       '</small></span></label><label class="group-member-policy-label">Bot approval'+
       '<select class="group-member-policy" data-model="'+esc(item.model)+'" aria-label="Approval for '+esc(item.model)+'">'+
-      opts+'</select></label></div>';
+      opts+'</select></label><label class="group-member-policy-label">Project access'+
+      '<select class="group-member-access" data-model="'+esc(item.model)+'" aria-label="Project access for '+esc(item.model)+'">'+
+      accessOpts+'</select></label></div>';
   }).join('')||'<p>No registered local models. Add them under Agents first.</p>';
   $('#groupDialog').showModal();
 }
@@ -276,10 +284,14 @@ async function saveGroup(event){
   const groupId=$('#groupForm').dataset.editGroup;
   try{
     const approval_modes={};
+    const access_modes={};
     for(const select of $$('.group-member-policy')){
       if(models.includes(select.dataset.model))approval_modes[select.dataset.model]=select.value;
     }
-    const payload={name:$('#groupName').value,models,approval_modes,
+    for(const select of $$('.group-member-access')){
+      if(models.includes(select.dataset.model))access_modes[select.dataset.model]=select.value;
+    }
+    const payload={name:$('#groupName').value,models,approval_modes,access_modes,
       project_id:$('#groupProject').value||null};
     const response=await api(groupId?'/api/groups/update':'/api/groups/create',{
       method:'POST',body:JSON.stringify(groupId?{...payload,group_id:groupId}:payload)
@@ -352,6 +364,18 @@ function renderModels(){
     '</small></span><button type="button" class="remove-model" data-model="'+esc(item.model)+
     '" aria-label="Remove '+esc(item.model)+'">Remove</button></div>'
   ).join('')||'<p>No models registered. Add an installed model above.</p>';
+  const providers=data.external_providers||[];
+  $('#providerConnections').innerHTML=providers.map(item=>
+    '<article class="provider-connection"><header><b>'+esc(item.label)+'</b><span class="'+
+    (item.status==='connected'?'provider-connected':'provider-login')+'">'+
+    esc(item.status==='connected'?'Connected':'Login required')+'</span></header><p>'+esc(
+      item.status==='connected'
+        ?'Detected through '+(item.connection==='direct_cli'?'its local CLI':'OpenCode')+'. Full-write registration requires adapter qualification.'
+        :'Not connected. Complete setup locally, then refresh.'
+    )+'</p><code>'+esc(item.setup_command)+'</code><div class="provider-actions"><button type="button" class="copy-provider-setup" data-command="'+
+    esc(item.setup_command)+'">Copy setup</button><span>'+esc(item.full_write_option?'Full write eligible':'Full write locked')+
+    '</span></div></article>'
+  ).join('');
   updateComposerAvailability();
 }
 async function copyText(value){
@@ -474,6 +498,8 @@ async function submit(event){
     })});
     if(!isGroup&&state.agent==='qwen')localStorage.setItem('gs_conversation_id',state.conversationId);
     $('#prompt').value='';
+    $('#requestType').value='explanation';
+    syncCapabilitySafety();
     updateSlashMenu();
     await refresh();
     toast(response.codex_job?.status==='pending_approval'?'Codex task waiting for approval':response.entry?(response.task||response.task_ids?'Planning note saved · Coordinator reply queued':'Planning note saved'):isGroup?'Message sent to Coordinator or mentioned specialist':'Task submitted');
@@ -483,6 +509,21 @@ async function submit(event){
 function isSlashAnnotation(){return /^\/(goal|milestone)(\s|$)/i.test($('#prompt').value.trim());}
 function updateComposerAvailability(){
   $('#sendButton').disabled=state.agent==='qwen'&&!state.selectedModel&&!isSlashAnnotation();
+}
+function syncCapabilitySafety(){
+  $('.composer-safety').textContent=(state.agent==='group'&&$('#requestType').value==='workspace_change')
+    ?'Selected project · Workspace change':'Local only · No tools';
+}
+function updateWorkspaceIntent(){
+  if(state.agent!=='group')return;
+  const prompt=$('#prompt').value;
+  const looksWritable=/\b(create|make|add|edit|modify|update|delete|remove|rename|move|write)\b[\s\S]{0,90}\b(file|folder|directory|code|project)\b/i.test(prompt);
+  if(!looksWritable||$('#requestType').value!=='explanation')return;
+  const group=(state.data?.workspaces?.groups||[]).find(item=>item.id===state.groupId);
+  if(!group||!Object.values(group.access_modes||{}).includes('full_write'))return;
+  $('#requestType').value='workspace_change';
+  syncCapabilitySafety();
+  toast('Workspace change selected · project access rules apply');
 }
 function chooseSlash(kind){
   $('#prompt').value='/'+kind+' ';
@@ -547,9 +588,11 @@ function updateSlashMenu(){
   });
   $('#slashMenu').hidden=count===0;
   updateMentionMenu();
+  updateWorkspaceIntent();
   updateComposerAvailability();
 }
 $('#prompt').addEventListener('input',updateSlashMenu);
+$('#requestType').addEventListener('change',syncCapabilitySafety);
 $('#prompt').addEventListener('keydown',event=>{
   if(event.key==='Escape'){$('#slashMenu').hidden=true;$('#mentionMenu').hidden=true;return;}
   if(event.key==='Enter'&&!event.shiftKey&&!$('#mentionMenu').hidden){
@@ -577,6 +620,14 @@ $('#addModelButton').addEventListener('click',async()=>{
   if(!model)return;
   try{await api('/api/models/add',{method:'POST',body:JSON.stringify({model})});await refresh();toast('Model added');}
   catch(error){toast(error.message);}
+});
+$('#refreshProviders').addEventListener('click',async()=>{
+  try{await api('/api/providers/refresh',{method:'POST',body:'{}'});await refresh();toast('Provider status refreshed');}
+  catch(error){toast(error.message)}
+});
+$('#providerConnections').addEventListener('click',async event=>{
+  const button=event.target.closest('.copy-provider-setup');if(!button)return;
+  try{await copyText(button.dataset.command);toast('Setup command copied');}catch(error){toast(error.message)}
 });
 $('#registeredModels').addEventListener('click',async event=>{
   const button=event.target.closest('button.remove-model');

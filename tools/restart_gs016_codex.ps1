@@ -2,7 +2,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$expected = 'feature/gs-019-codex-auth-ux-diagnostics'
+$expected = 'feature/gs-021-codex-execution'
 $branch = (& git -C $repo branch --show-current).Trim()
 if ($branch -ne $expected) { throw "Expected checkout $expected; current: $branch" }
 $dirty = & git -C $repo status --porcelain
@@ -67,7 +67,7 @@ for ($attempt=0; $attempt -lt 25; $attempt++) {
     Start-Sleep -Milliseconds 450
     try {
         $data=Invoke-RestMethod 'http://127.0.0.1:8765/api/bootstrap' -TimeoutSec 3
-        if ($data.codex.scope -eq 'single_owner_pilot') { $ready=$true; break }
+        if ($data.codex.scope -eq 'single_owner_pilot' -and $data.backend_release -eq 'GS-021') { $ready=$true; break }
     } catch { if ($process.HasExited) { break } }
 }
 if (-not $ready) { throw "Ground Space/Codex failed healthcheck. Check $stderr (Tailscale routes unchanged)." }

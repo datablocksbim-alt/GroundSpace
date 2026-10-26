@@ -70,18 +70,33 @@ class WorkspaceAgentTests(unittest.TestCase):
             self.assertEqual(False,kwargs["shell"])
             self.assertTrue(os.path.samefile(self.project_path,kwargs["cwd"]))
             self.assertIn("Edit and test",kwargs["input"])
+            self.assertIn("--ephemeral",args[0])
+            self.assertEqual(str(self.project_path.resolve()),args[0][args[0].index("-C")+1])
+            self.assertEqual("1",kwargs["env"]["GROUND_SPACE_CODEX_WRITE_ENABLED"])
 
     def test_auto_writable_requires_opt_in_and_explicit_request(self):
         self.codex.set_registered(True)
         with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}):
             group=self.workspaces.create_group("Agent dev",["codex"],self.project["id"],["codex"],
-                {"codex":"approve_for_me"})
+                {"codex":"approve_for_me"}, {"codex":"full_write"})
             with patch("ground_space.codex_pilot.threading.Thread") as worker:
                 result=self.codex.submit({"project_id":self.project["id"],"prompt":"Implement a unit test",
                                          "scope":"workspace_write","group_id":group["id"]},
                                          group_auto_approval=True)
                 self.assertEqual("running",result["status"])
                 worker.assert_called_once()
+
+    def test_overlapping_read_only_auto_approval_runs_once(self):
+        self.codex.set_registered(True)
+        group=self.workspaces.create_group("Review room",["codex"],self.project["id"],["codex"],
+            {"codex":"approve_for_me"})
+        self.codex.set_policy({"project_id":self.project["id"],"mode":"auto_read_only"})
+        with patch("ground_space.codex_pilot.threading.Thread") as worker:
+            result=self.codex.submit({"project_id":self.project["id"],"prompt":"Say hello",
+                                     "scope":"read_only","group_id":group["id"]},
+                                     group_auto_approval=True)
+            self.assertEqual("running",result["status"])
+            worker.assert_called_once()
 
     def test_group_can_include_codex_and_route_mention(self):
         codex_group=["qwen2.5-coder:3b","codex"]
@@ -141,7 +156,7 @@ class WorkspaceAgentTests(unittest.TestCase):
         self.assertEqual(1,len(app.conversations["direct-codex-goal"]))
         self.assertEqual("Build a test suite",response["entry"]["content"])
 
-    def test_group_codex_mention_creates_writable_job_but_coordinator_is_read_only(self):
+    def test_group_codex_mention_and_coordinator_are_read_only(self):
         self.codex.set_registered(True)
         app=GroundSpaceApp.__new__(GroundSpaceApp)
         app.codex=self.codex
@@ -157,11 +172,12 @@ class WorkspaceAgentTests(unittest.TestCase):
         app.project_context=lambda _project: ""
         group=self.workspaces.create_group("Codex team",["codex"],self.project["id"],["codex"],
                                          {"codex":"manual"})
-        with patch.dict(os.environ,{"GROUND_SPACE_CODEX_WRITE_ENABLED":"1"}),\
+        with patch.dict(os.environ,{},clear=False),\
              patch("ground_space.webapp.probe_ollama",return_value={"available":False,"models":[]}):
+            os.environ.pop("GROUND_SPACE_CODEX_WRITE_ENABLED",None)
             task=app.submit_group({"group_id":group["id"],"prompt":"@Codex create a test"})
             job=self.codex.get(task["codex_job_ids"][0])
-            self.assertEqual("workspace_write",job["scope"])
+            self.assertEqual("read_only",job["scope"])
             self.assertEqual("pending_approval",job["status"])
             ordinary=app.submit_group({"group_id":group["id"],"prompt":"How are we doing?"})
             planning=self.codex.get(ordinary["codex_job_ids"][0])
@@ -180,6 +196,21 @@ class WorkspaceAgentTests(unittest.TestCase):
             self.assertEqual(["--ask-for-approval","never","exec"],argv[1:4])
             self.assertLess(argv.index("--ask-for-approval"),argv.index("exec"))
             self.assertEqual("workspace-write",argv[argv.index("--sandbox")+1])
+
+    def test_private_cli_diagnostics_record_exit_and_redacted_stderr(self):
+        self.codex.set_registered(True)
+        self.run.return_value=SimpleNamespace(
+            returncode=1,stdout="",stderr="authentication required for user@example.com; secret=sk-TEST-SECRET")
+        job=self.codex.submit({"project_id":self.project["id"],"prompt":"Inspect","scope":"read_only"})
+        with patch("ground_space.codex_pilot.threading.Thread"):
+            self.codex.approve({"job_id":job["id"]})
+        self.codex._execute(job["id"])
+        diagnostic=self.codex.diagnostics_path.read_text(encoding="utf-8")
+        self.assertIn('"exit_code": 1',diagnostic)
+        self.assertIn("[REDACTED_EMAIL]",diagnostic)
+        self.assertIn("[REDACTED]",diagnostic)
+        self.assertNotIn("user@example.com",diagnostic)
+        self.assertNotIn("sk-TEST-SECRET",diagnostic)
 
     def test_cli_errors_are_actionable_without_exposing_secrets(self):
         self.codex.set_registered(True)

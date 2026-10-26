@@ -22,8 +22,9 @@ from .bridge import AdministratorAdapter, OrchestratorAdapter
 from .coordinator import coordinator_instructions, route_group_message, specialist_instructions
 from .codex_pilot import CodexPilot
 from .messages import utc_timestamp
+from .providers import provider_catalog
 from .workspaces import WorkspaceRegistry, allowed_project_roots
-from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, PERFORMANCE_PRESETS,
+from .workers import (AdministratorConsoleWorker, OllamaProposalWorker, OllamaWorkspaceWorker, PERFORMANCE_PRESETS,
                       ollama_descriptors, probe_ollama, valid_model_name)
 
 
@@ -34,6 +35,7 @@ MAX_HISTORY_MESSAGES = 24
 MAX_PLANNING_NOTES = 100
 MAX_MESSAGE_LENGTH = 12_000
 SLASH_NOTE_TYPES = frozenset({"goal", "milestone"})
+BACKEND_RELEASE = "GS-021"
 
 # A single explicit private HTTPS Origin is opt-in for the owner-only Tailscale
 # Serve pilot. Never derive trusted origins from untrusted Host/forwarded headers.
@@ -121,6 +123,7 @@ class GroundSpaceApp:
             self._register_worker(model, availability)
         self.conversations = self._load_history()
         self.codex = CodexPilot(self.state_dir / "private", self.workspaces)
+        self.external_providers = provider_catalog()
 
 
     @staticmethod
@@ -128,6 +131,10 @@ class GroundSpaceApp:
         if model == "qwen2.5-coder:3b":
             return "qwen-proposal"
         return "ollama-chat-" + hashlib.sha256(model.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def workspace_worker_id(model: str) -> str:
+        return "ollama-workspace-" + hashlib.sha256(model.encode("utf-8")).hexdigest()[:16]
 
     def _load_registered_models(self) -> list[str]:
         try:
@@ -150,6 +157,12 @@ class GroundSpaceApp:
             active=bool(availability.get("available") and model in availability.get("models", [])),
             qualified=model == "qwen2.5-coder:3b",
         ))
+        self.orchestrator.register(OllamaWorkspaceWorker(
+            endpoint=self.ollama_endpoint, model=model,
+            agent_id=self.workspace_worker_id(model),
+            active=bool(availability.get("available") and model in availability.get("models", [])),
+            qualified=model == "qwen2.5-coder:3b",
+        ))
 
     def catalog(self, *, availability: dict[str, Any] | None = None) -> dict[str, Any]:
         if availability is None:
@@ -161,7 +174,8 @@ class GroundSpaceApp:
             "registered": ([
                 {"provider": "ollama", "model": model, "worker_id": self.worker_id(model),
                  "available": model in installed, "label": model,
-                 "role": "proposal-only" if model == "qwen2.5-coder:3b" else "experimental proposal-only"}
+                 "role": ("chat · optional selected-project full write" if model == "qwen2.5-coder:3b"
+                          else "experimental chat · optional selected-project full write")}
                 for model in registered
             ] + ([{"provider":"openai_codex_cli", "model":"codex", "worker_id":"codex-cli",
                    "available":self.codex.available(), "label":"Codex",
@@ -173,10 +187,17 @@ class GroundSpaceApp:
                          "max_output_tokens": value["num_predict"]}
                         for key, value in PERFORMANCE_PRESETS.items()],
             "future_providers": [
-                {"id": "openai", "label": "ChatGPT / OpenAI", "status": "not_connected"},
-                {"id": "anthropic", "label": "Claude", "status": "not_connected"},
+                {"id": "openai", "label": "ChatGPT / OpenAI", "status": "connected" if self.codex.is_registered() else "not_connected"},
+                *[{"id": item["id"], "label": item["label"], "status": item["status"]}
+                  for item in getattr(self, "external_providers", [])],
             ],
+            "external_providers": [dict(item) for item in getattr(self, "external_providers", [])],
         }
+
+    def refresh_providers(self) -> dict[str, Any]:
+        with self.lock:
+            self.external_providers = provider_catalog()
+        return self.catalog()
 
     def add_model(self, name: str) -> dict[str, Any]:
         if name == "codex":
@@ -220,31 +241,40 @@ class GroundSpaceApp:
             str(body.get("path", "")), str(body.get("name", ""))
         )
 
-    def project_context(self, project_id: str | None) -> str:
-        """Describe the selected workspace without granting filesystem access."""
+    def project_context(self, project_id: str | None, *, writable: bool = False) -> str:
+        """Describe the selected workspace and the server-enforced access boundary."""
         if not project_id:
             return ""
         project = self.workspaces.get_project(project_id)
+        boundary = (
+            "Access boundary: selected-project file changes only. You may propose structured "
+            "create, edit, and delete operations inside this folder. No shell, parent "
+            "folders, .git, credentials, secrets, or system configuration."
+            if writable else
+            "Access boundary: metadata only. You have no filesystem tools and must not "
+            "claim to have inspected, changed, or executed files in this folder."
+        )
         return (
             "Selected project metadata:\n"
             f"- Name: {project['name']}\n"
             f"- Registered local folder: {project['path']}\n"
-            "- Access boundary: metadata only. You have no filesystem tools and must not "
-            "claim to have inspected, changed, or executed files in this folder.\n"
+            f"- {boundary}\n"
         )
 
     def create_group(self, body: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
             return self.workspaces.create_group(
                 body.get("name"), body.get("models"), body.get("project_id"),
-                list(self.registered_models) + (["codex"] if self.codex.is_registered() else []), body.get("approval_modes"),
+                list(self.registered_models) + (["codex"] if self.codex.is_registered() else []),
+                body.get("approval_modes"), body.get("access_modes"),
             )
 
     def update_group(self, body: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
             return self.workspaces.update_group(
                 str(body.get("group_id", "")), body.get("models"),
-                body.get("project_id"), list(self.registered_models) + (["codex"] if self.codex.is_registered() else []), body.get("approval_modes"),
+                body.get("project_id"), list(self.registered_models) + (["codex"] if self.codex.is_registered() else []),
+                body.get("approval_modes"), body.get("access_modes"),
             )
 
     def submit_group(self, body: dict[str, Any], *, annotation_entry: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -255,7 +285,7 @@ class GroundSpaceApp:
         if parse_slash_note(prompt):
             raise ValueError("Use the chat endpoint for /goal or /milestone notes")
         request_type = str(body.get("request_type", "explanation"))
-        if request_type not in {"explanation", "assessment", "code_proposal"}:
+        if request_type not in {"explanation", "assessment", "code_proposal", "workspace_change"}:
             raise ValueError("Invalid group request capability")
         performance = str(body.get("performance", "balanced"))
         if performance not in PERFORMANCE_PRESETS:
@@ -273,43 +303,61 @@ class GroundSpaceApp:
                     self._register_worker(model, availability)
             conversation_id = group["conversation_id"]
             context = self.conversation_context(conversation_id)
-            project_context = self.project_context(group["project_id"])
+            project_context = (self.project_context(group["project_id"], writable=True)
+                               if request_type == "workspace_change"
+                               else self.project_context(group["project_id"]))
             # /goal and /milestone always reach Coordinator; only explicitly named
             # specialists can speak for themselves. This is chat, never job approval.
             route = route_group_message(prompt, models, force_coordinator=annotation_entry is not None)
             # Validate all routed bots before creating any queue tasks.
+            routed_pairs = list(zip(route.models, route.roles, strict=True))
+            if request_type == "workspace_change":
+                # Coordinator may delegate writable work but is never itself a file worker.
+                routed_pairs = [(model, role) for model, role in routed_pairs if role != "coordinator"]
+                if not routed_pairs:
+                    raise ValueError("Name Qwen or Codex when requesting a workspace change through Coordinator")
+            routed_models = [model for model, _role in routed_pairs]
+            access_modes = {model: group.get("access_modes", {}).get(model, "chat")
+                            for model in routed_models}
             modes = {model: group.get("approval_modes", {}).get(model, "approve_for_me")
-                     for model in route.models}
+                     for model in routed_models}
             if any(mode == "disabled" for mode in modes.values()):
                 raise ValueError("An addressed group bot is disabled; edit Members → Approval settings")
+            if request_type == "workspace_change":
+                if not group.get("project_id"):
+                    raise ValueError("Select a registered project before requesting workspace changes")
+                denied = [model for model, mode in access_modes.items() if mode != "full_write"]
+                if denied:
+                    raise ValueError("Enable selected-project full write for: " + ", ".join(denied))
             if "codex" in route.models:
                 if not group["project_id"]:
                     raise ValueError("Select a registered project before assigning Codex group work")
                 if not self.codex.is_registered():
                     raise ValueError("Add Codex from Agents before mentioning it in a group")
-                if not (route.coordinator or annotation_entry) and not self.codex.writable_available():
-                    raise ValueError("Codex workspace editing is disabled on the ASUS; enable it explicitly")
 
             group_turn_id = "TURN-" + secrets.token_hex(8)
             task_ids = []
             automatic_task_ids = []
             codex_job_ids = []
             timeout = PERFORMANCE_PRESETS[performance]["timeout_seconds"] + 5
-            for model in route.models:
+            for model, role in routed_pairs:
+                is_coordinator = role == "coordinator"
                 routed_prompt = (
                     coordinator_instructions(
                         prompt, group_models=models,
                         kind=annotation_entry.get("kind") if annotation_entry else None,
                         goal_id=annotation_entry.get("note_id") if annotation_entry else None,
                     )
-                    if route.coordinator else specialist_instructions(prompt, model=model)
+                    if is_coordinator else specialist_instructions(
+                        prompt, model=model, writable=request_type == "workspace_change"
+                    )
                 )
                 prompt_sections = [project_context.rstrip()] if project_context else []
                 if context:
                     prompt_sections.append(f"Bounded conversation context:\n{context}")
                 prompt_sections.append(f"Current user request:\n{routed_prompt}")
                 full_prompt = "\n\n".join(prompt_sections)
-                speaker = "Coordinator" if route.coordinator else model
+                speaker = "Coordinator" if is_coordinator else model
                 payload = {"request_type": request_type, "prompt": full_prompt,
                            "conversation_id": conversation_id, "model": model,
                            "speaker": speaker,
@@ -320,9 +368,7 @@ class GroundSpaceApp:
                 if model == "codex":
                     if not group["project_id"]:
                         raise ValueError("Assign a local project before using Codex in a group")
-                    # Unaddressed Coordinator/planning turns are read-only;
-                    # writable execution requires an explicit @Codex specialist request.
-                    codex_scope = "read_only" if route.coordinator or annotation_entry else "workspace_write"
+                    codex_scope = "workspace_write" if request_type == "workspace_change" else "read_only"
                     item = self.codex.submit({
                         "project_id": group["project_id"], "prompt": prompt,
                         "scope": codex_scope, "conversation_id": conversation_id,
@@ -330,11 +376,21 @@ class GroundSpaceApp:
                     }, group_auto_approval=automatic)
                     codex_job_ids.append(item["id"])
                     continue
+                if request_type == "workspace_change":
+                    project = self.workspaces.get_project(group["project_id"])
+                    payload["project_path"] = project["path"]
+                    worker_id = self.workspace_worker_id(model)
+                    permissions = ["read", "propose", "workspace_write"]
+                    approval_source = "ground-space-group-auto-project-write" if automatic else None
+                else:
+                    worker_id = self.worker_id(model)
+                    permissions = ["read", "propose"]
+                    approval_source = "ground-space-group-auto-readonly" if automatic else None
                 task = self.administrator.submit(
-                    payload, worker_id=self.worker_id(model),
-                    required_permissions=["read", "propose"],
+                    payload, worker_id=worker_id,
+                    required_permissions=permissions,
                     execution_timeout_seconds=timeout, approved=automatic,
-                    approval_source="ground-space-group-auto-readonly" if automatic else None,
+                    approval_source=approval_source,
                 )
                 task_ids.append(task["task_id"])
                 if automatic:
@@ -370,14 +426,19 @@ class GroundSpaceApp:
             task = self.administrator.status(task_id)
             payload = task.get("payload", {})
             model = payload.get("model")
+            expected_write = payload.get("request_type") == "workspace_change"
+            expected_worker = (self.workspace_worker_id(model) if expected_write else self.worker_id(model))
+            expected_permissions = ({"read", "propose", "workspace_write"} if expected_write
+                                    else {"read", "propose"})
             if (task.get("source") != "ground_space" or
                 task.get("status") != "queued" or
                 task.get("approval", {}).get("status") != "pending" or
                 payload.get("group_id") != group_id or
                 model not in group["models"] or
-                task.get("requested_worker") != self.worker_id(model) or
-                set(task.get("required_permissions", [])) != {"read", "propose"}):
-                raise ValueError("Only a pending read-only bot reply in this group may be decided")
+                task.get("requested_worker") != expected_worker or
+                set(task.get("required_permissions", [])) != expected_permissions or
+                (expected_write and group.get("access_modes", {}).get(model) != "full_write")):
+                raise ValueError("Only a pending authorized bot task in this group may be decided")
             if approve and group.get("approval_modes", {}).get(model, "approve_for_me") == "disabled":
                 raise ValueError("This bot is disabled in the group")
             if approve:
@@ -510,6 +571,10 @@ class GroundSpaceApp:
             return {"entry":entry,"codex_job":item, "conversation_id":conversation_id}
         if agent == "qwen":
             request_type = str(body.get("request_type", "explanation"))
+            if request_type == "workspace_change":
+                raise ValueError("Qwen full write is available only through a project group with explicit agent access")
+            if request_type not in {"explanation", "assessment", "code_proposal"}:
+                raise ValueError("Invalid local AI request capability")
             model = str(body.get("model", "qwen2.5-coder:3b"))
             performance = str(body.get("performance", "balanced"))
             if performance not in PERFORMANCE_PRESETS:
@@ -623,9 +688,10 @@ class GroundSpaceApp:
             *[{"agent_id": item.agent_id, "role": item.role, "active": item.active,
                "permissions": sorted(item.permissions), "model": item.model}
               for item in model_agents.values() if item.agent_id != "qwen-proposal"],
-            *[{"agent_id": self.worker_id(model), "role": "proposal_only_chat",
+            *[{"agent_id": self.worker_id(model), "role": "chat_with_project_scoped_write_option",
                "active": bool(availability.get("available") and model in installed),
-               "permissions": ["read", "propose"], "model": model}
+               "permissions": ["read", "propose", "workspace_write_if_group_authorized"],
+               "model": model}
               for model in registered],
         ]
 
@@ -642,6 +708,7 @@ class GroundSpaceApp:
                 "conversations": history,
                 "models": self.catalog(availability=availability),
                 "workspaces": self.workspaces.snapshot(), "codex": self.codex.snapshot(),
+                "backend_release": BACKEND_RELEASE,
                 "paid_api_usage_aud": 0}
 
 
@@ -781,6 +848,9 @@ class GroundSpaceHandler(BaseHTTPRequestHandler):
                 return
             if path == "/api/models/remove":
                 self._json(HTTPStatus.OK, self.app.remove_model(str(body.get("model", ""))))
+                return
+            if path == "/api/providers/refresh":
+                self._json(HTTPStatus.OK, self.app.refresh_providers())
                 return
             self._error(HTTPStatus.NOT_FOUND, "Endpoint not found")
         except (OSError, ValueError, json.JSONDecodeError) as error:

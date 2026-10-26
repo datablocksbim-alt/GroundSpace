@@ -15,6 +15,7 @@ class CoordinatorRoutingTests(unittest.TestCase):
     def test_unaddressed_goes_only_to_coordinator(self):
         route = route_group_message("How are we progressing?", MODELS)
         self.assertEqual(route.models, (MODELS[0],))
+        self.assertEqual(route.roles, ("coordinator",))
         self.assertTrue(route.coordinator)
 
     def test_goal_is_forced_coordinator(self):
@@ -52,13 +53,35 @@ class CoordinatorRoutingTests(unittest.TestCase):
 
     def test_coordinator_can_delegate_to_explicit_specialists(self):
         route = route_group_message("@Coordinator @Qwen @Granite say hi", MODELS)
-        self.assertEqual((MODELS[0], MODELS[2]), route.models)
+        self.assertEqual((MODELS[0], MODELS[0], MODELS[2]), route.models)
+        self.assertEqual(("coordinator", "specialist", "specialist"), route.roles)
         self.assertFalse(route.coordinator)
 
     def test_natural_coordinator_delegation_routes_individual_replies(self):
         route = route_group_message("@Coordinator ask Qwen and Granite to say hi", MODELS)
-        self.assertEqual((MODELS[0], MODELS[2]), route.models)
+        self.assertEqual((MODELS[0], MODELS[0], MODELS[2]), route.models)
+        self.assertEqual(("coordinator", "specialist", "specialist"), route.roles)
         self.assertFalse(route.coordinator)
+
+    def test_instruct_is_a_natural_delegation_verb(self):
+        models = ["qwen2.5-coder:3b", "codex"]
+        route = route_group_message(
+            "@Coordinator instruct Qwen to create one folder and Codex to create another", models
+        )
+        self.assertEqual(("qwen2.5-coder:3b", "qwen2.5-coder:3b", "codex"), route.models)
+        self.assertEqual(("coordinator", "specialist", "specialist"), route.roles)
+
+    def test_specialist_can_handoff_one_bounded_turn_to_named_member(self):
+        models = ["qwen2.5-coder:3b", "codex"]
+        route = route_group_message("@Codex say hi to Qwen", models)
+        self.assertEqual(("codex", "qwen2.5-coder:3b"), route.models)
+        self.assertEqual(("specialist", "specialist"), route.roles)
+        self.assertFalse(route.coordinator)
+
+    def test_incidental_model_name_does_not_trigger_second_reply(self):
+        models = ["qwen2.5-coder:3b", "codex"]
+        route = route_group_message("@Qwen review the Codex architecture", models)
+        self.assertEqual(("qwen2.5-coder:3b",), route.models)
 
     def test_ministral_coordinator_preference(self):
         models = MODELS + ["ministral-3:8b"]
