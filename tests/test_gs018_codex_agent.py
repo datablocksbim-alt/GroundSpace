@@ -71,7 +71,8 @@ class WorkspaceAgentTests(unittest.TestCase):
             self.assertTrue(os.path.samefile(self.project_path,kwargs["cwd"]))
             self.assertIn("Edit and test",kwargs["input"])
             self.assertIn("--ephemeral",args[0])
-            self.assertEqual(str(self.project_path.resolve()),args[0][args[0].index("-C")+1])
+            self.assertTrue(os.path.samefile(self.project_path,args[0][args[0].index("-C")+1]),
+                            "Codex -C must refer to the registered project, including Windows short-path aliases")
             self.assertEqual("1",kwargs["env"]["GROUND_SPACE_CODEX_WRITE_ENABLED"])
 
     def test_auto_writable_requires_opt_in_and_explicit_request(self):
