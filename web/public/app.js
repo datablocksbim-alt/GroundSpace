@@ -348,7 +348,7 @@ function renderModels(){
   const keep=available.value;
   const availableKey=JSON.stringify(discovered);
   if(available.dataset.optionsKey!==availableKey){
-    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex — OpenAI coding agent (CLI)':name==='qwen-code'?'Qwen Code — local coding agent':name)+'</option>').join('');
+    available.innerHTML=discovered.map(name=>'<option value="'+esc(name)+'">'+esc(name==='codex'?'Codex — OpenAI coding agent (CLI)':name)+'</option>').join('');
     available.dataset.optionsKey=availableKey;
   }
   if(discovered.includes(keep))available.value=keep;
@@ -365,7 +365,7 @@ function renderModels(){
     '</small></span><button type="button" class="remove-model" data-model="'+esc(item.model)+
     '" aria-label="Remove '+esc(item.model)+'">Remove</button></div>'
   ).join('')||'<p>No models registered. Add an installed model above.</p>';
-  const providers=[...(data.agent_runtimes||[]),...(data.external_providers||[])];
+  const providers=[...(data.agent_runtimes||[]).filter(item=>item.agent_id==='qwen-code'),...(data.external_providers||[])];
   $('#providerConnections').innerHTML=providers.map(item=>
     '<article class="provider-connection"><header><b>'+esc(item.label)+'</b><span class="'+
     ((item.available||item.status==='connected')?'provider-connected':'provider-login')+'">'+
@@ -375,8 +375,11 @@ function renderModels(){
         :item.status==='connected'
         ?'Detected through '+(item.connection==='direct_cli'?'its local CLI':'OpenCode')+'. Full-write registration requires adapter qualification.'
         :'Not connected. Complete setup locally, then refresh.'
-    )+'</p><code>'+esc(item.setup_command)+'</code><div class="provider-actions"><button type="button" class="copy-provider-setup" data-command="'+
-    esc(item.setup_command)+'">Copy setup</button><span>'+esc(item.full_write_available?'Full write ready':item.full_write_option?'Full write option · selected project':'Full write locked')+
+    )+'</p><p class="provider-mode-note">Chat · Co-work after connection</p><div class="provider-actions">'+
+    (item.runtime_kind==='coding_agent'&&!item.installed
+      ?'<button type="button" disabled>Installation required</button>'
+      :'<button type="button" class="connect-provider" data-url="'+esc(item.login_url||'')+'">Connect account</button>')+
+    '<span>'+esc(item.full_write_available?'Co-work ready':item.full_write_option?'Co-work requires connection':'Chat requires connection')+
     '</span></div></article>'
   ).join('');
   updateComposerAvailability();
@@ -629,8 +632,11 @@ $('#refreshProviders').addEventListener('click',async()=>{
   catch(error){toast(error.message)}
 });
 $('#providerConnections').addEventListener('click',async event=>{
-  const button=event.target.closest('.copy-provider-setup');if(!button)return;
-  try{await copyText(button.dataset.command);toast('Setup command copied');}catch(error){toast(error.message)}
+  const button=event.target.closest('.connect-provider');if(!button)return;
+  const url=button.dataset.url;
+  if(!url){toast('This provider does not offer a browser account connection yet');return;}
+  window.open(url,'_blank','noopener,noreferrer');
+  toast('Complete sign-in on the provider website, then refresh connection status');
 });
 $('#registeredModels').addEventListener('click',async event=>{
   const button=event.target.closest('button.remove-model');

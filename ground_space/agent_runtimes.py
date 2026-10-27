@@ -25,11 +25,15 @@ class AgentRuntimeDefinition:
     provider: str
     setup_command: str
     qualified: bool = False
+    login_url: str | None = None
+    login_note: str = ""
 
 
 RUNTIMES = (
     AgentRuntimeDefinition("qwen-code", "Qwen Code", "qwen", "qwen",
-                           "npm install -g @qwen-code/qwen-code@latest", True),
+                           "npm install -g @qwen-code/qwen-code@latest", True,
+                           "https://modelstudio.console.alibabacloud.com/",
+                           "Sign in with your provider account. A supported Coding Plan or API entitlement is required."),
     AgentRuntimeDefinition("claude-code", "Claude Code", "claude", "anthropic",
                            "npm install -g @anthropic-ai/claude-code"),
     AgentRuntimeDefinition("gemini-cli", "Gemini CLI", "gemini", "google",
@@ -65,6 +69,10 @@ def discover_agent_runtimes(run: Any = subprocess.run) -> list[dict[str, Any]]:
             "authenticated": authenticated,
             "qualified": definition.qualified, "version": version,
             "setup_command": definition.setup_command,
+            "login_url": definition.login_url,
+            "login_note": definition.login_note,
+            "account_login": "provider_hosted" if definition.login_url else "runtime_managed",
+            "modes": ["chat", "cowork"],
             "full_write_option": True,
             "full_write_available": bool(executable and definition.qualified and authenticated),
             "access_boundary": "selected_project_only",

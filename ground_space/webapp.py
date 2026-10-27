@@ -152,21 +152,10 @@ class GroundSpaceApp:
 
     def _prepare_agent_runtimes(self, records: list[dict[str, Any]],
                                 availability: dict[str, Any]) -> list[dict[str, Any]]:
-        """Connect Qwen Code to local Ollama without importing credentials."""
-        installed = list(availability.get("models", []))
-        preferred = next((name for prefix in ("qwen3-coder", "qwen3.5", "qwen2.5-coder")
-                          for name in installed if name == prefix or name.startswith(prefix + ":")), None)
+        """Keep external coding agents distinct from local Ollama models."""
         prepared = []
         for item in records:
             value = dict(item)
-            if item["agent_id"] == "qwen-code" and item["installed"] and preferred:
-                value.update(available=True, authenticated=True,
-                             connection="local_ollama", model=preferred,
-                             base_url=self.ollama_endpoint.rstrip("/") + "/v1",
-                             # The installed 3B/4B engines passed chat but failed
-                             # two real tool-use qualifications. Keep the agent
-                             # available for plan/chat while write remains locked.
-                             full_write_available=preferred.startswith("qwen3-coder"))
             prepared.append(value)
         return prepared
 
@@ -229,8 +218,6 @@ class GroundSpaceApp:
                    "role":"workspace coding agent · create/edit/run/delete"}]
                  if self.codex.is_registered() else [])),
             "discovered": ([model for model in installed if model not in registered] +
-                            [item["agent_id"] for item in runtimes.values()
-                             if item["available"] and item["agent_id"] not in registered] +
                             (["codex"] if self.codex.available() and not self.codex.is_registered() else [])),
             "presets": [{"id": key, "label": value["label"],
                          "max_output_tokens": value["num_predict"]}

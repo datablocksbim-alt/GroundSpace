@@ -9,14 +9,19 @@ from typing import Any
 
 PROVIDERS = (
     {"id": "anthropic", "label": "Claude", "direct_cli": "claude",
+     "login_url": "https://claude.ai/login",
      "setup": "npm install -g @anthropic-ai/claude-code  then run: claude"},
     {"id": "google", "label": "Gemini", "direct_cli": "gemini",
+     "login_url": "https://accounts.google.com/",
      "setup": "npm install -g @google/gemini-cli  then run: gemini"},
     {"id": "xai", "label": "Grok", "direct_cli": "grok",
+     "login_url": "https://accounts.x.ai/",
      "setup": "opencode auth login xai --method key"},
     {"id": "openrouter", "label": "OpenRouter", "direct_cli": None,
+     "login_url": "https://openrouter.ai/auth",
      "setup": "opencode auth login openrouter --method key"},
     {"id": "deepseek", "label": "DeepSeek", "direct_cli": None,
+     "login_url": "https://platform.deepseek.com/sign_in",
      "setup": "opencode auth login deepseek --method key"},
 )
 
@@ -56,6 +61,9 @@ def provider_catalog(run: Any = subprocess.run) -> list[dict[str, Any]]:
             "cli_installed": direct, "opencode_installed": opencode_installed,
             "connection": "opencode" if via_opencode else None,
             "setup_command": definition["setup"],
+            "login_url": definition["login_url"],
+            "account_login": "provider_hosted",
+            "modes": ["chat", "cowork"],
             "credentials_stored_by_ground_space": False,
             "full_write_option": connected,
             "execution_adapter": "qualification_required",

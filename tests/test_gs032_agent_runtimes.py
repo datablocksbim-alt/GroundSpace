@@ -21,6 +21,16 @@ class AgentDiscoveryTests(unittest.TestCase):
         self.assertTrue(all(item["full_write_option"] for item in records))
         self.assertTrue(all(item["access_boundary"] == "selected_project_only" for item in records))
         self.assertTrue(all(not item["full_write_available"] for item in records))
+        self.assertTrue(all(item["modes"] == ["chat", "cowork"] for item in records))
+
+    def test_qwen_code_is_presented_as_external_account_not_ollama_install(self):
+        root = Path(__file__).resolve().parents[1]
+        javascript = (root / "web" / "public" / "app.js").read_text(encoding="utf-8")
+        html = (root / "web" / "public" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("item.agent_id==='qwen-code'", javascript)
+        self.assertIn("Connect account", javascript)
+        self.assertNotIn("Qwen Code — local coding agent", javascript)
+        self.assertIn("never receives or stores your password", html)
 
     @patch("ground_space.agent_runtimes.shutil.which", return_value=r"C:\bin\qwen.cmd")
     def test_qwen_code_is_an_agent_runtime_not_a_raw_model(self, _which):
